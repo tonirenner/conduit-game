@@ -37,10 +37,13 @@ export class CloudLayer {
 					                                         value: SUN_DIRECTION.clone(),
 				                                         },
 				                                         uCoverage: {
-					                                         value: 0.47,
+					                                         value: 0.455,
 				                                         },
 				                                         uDensity: {
 					                                         value: 2.38,
+				                                         },
+				                                         uClimateInfluence: {
+					                                         value: 0.25,
 				                                         },
 			                                         },
 			                                         vertexShader: `
@@ -66,8 +69,13 @@ export class CloudLayer {
 				uniform vec3 uSunDirection;
 				uniform float uCoverage;
 				uniform float uDensity;
+				uniform float uClimateInfluence;
 
 				const int STEPS = 30;
+
+				float saturate(float value) {
+					return clamp(value, 0.0, 1.0);
+				}
 
 				float hash(vec3 p) {
 					p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -119,6 +127,22 @@ export class CloudLayer {
 					return value / normalizer;
 				}
 
+				float fbmLow(vec3 p) {
+					float value = 0.0;
+					float amplitude = 0.5;
+					float normalizer = 0.0;
+
+					for (int i = 0; i < 4; i++) {
+						value += noise(p) * amplitude;
+						normalizer += amplitude;
+
+						p *= 2.03;
+						amplitude *= 0.5;
+					}
+
+					return value / normalizer;
+				}
+
 				vec3 domainWarp(vec3 normal, float time) {
 					vec3 p = normal;
 
@@ -130,6 +154,91 @@ export class CloudLayer {
 						normal +
 						vec3(wx, wy, wz) * 0.22
 					);
+				}
+
+				float getTerrainLandMask(vec3 normal) {
+					float continentBase = fbmLow(normal * 1.25);
+
+					float coastNoise =
+						(fbmLow(normal * 2.4) - 0.5) *
+						0.045;
+
+					float continent = continentBase + coastNoise;
+
+					return smoothstep(0.525, 0.585, continent);
+				}
+
+				float getClimateCloudPotential(vec3 normal) {
+					float landMask = getTerrainLandMask(normal);
+					float ocean = 1.0 - landMask;
+
+					float latitude = asin(clamp(normal.y, -1.0, 1.0));
+					float latitudeAbs = abs(normal.y);
+
+					float coast =
+						1.0 -
+						abs(landMask * 2.0 - 1.0);
+
+					coast = saturate(coast);
+
+					float equatorWarmth =
+						1.0 -
+						smoothstep(0.12, 0.98, latitudeAbs);
+
+					float temperatureNoise =
+						(fbmLow(normal * 1.7 + vec3(12.4, 4.1, 8.8)) - 0.5) *
+						0.18;
+
+					float temperature = saturate(
+						equatorWarmth +
+						temperatureNoise -
+						smoothstep(0.72, 1.0, latitudeAbs) * 0.22
+					);
+
+					float rainBand =
+						0.5 +
+						0.5 *
+						sin(
+							latitude * 8.5 +
+							(fbmLow(normal * 1.2 + vec3(3.7, 9.1, 2.6)) - 0.5) * 5.8
+						);
+
+					float humidityNoise =
+						fbmLow(normal * 2.05 + vec3(41.2, 7.3, 18.1));
+
+					float humidity = saturate(
+						humidityNoise * 0.52 +
+						coast * 0.20 +
+						ocean * 0.28 +
+						rainBand * 0.18
+					);
+
+					float dryNoise =
+						fbmLow(normal * 2.8 + vec3(8.6, 71.2, 4.0));
+
+					float aridity = saturate(
+						1.0 -
+						humidity +
+						temperature * 0.16 +
+						(dryNoise - 0.5) * 0.20 -
+						coast * 0.10
+					);
+
+					float pressure = saturate(
+						fbmLow(normal * 1.35 + vec3(19.1, 2.4, 33.7)) * 0.70 +
+						rainBand * 0.20 +
+						ocean * 0.10
+					);
+
+					float cloudPotential = saturate(
+						humidity * 0.62 +
+						ocean * 0.20 +
+						rainBand * 0.14 +
+						pressure * 0.12 -
+						aridity * 0.24
+					);
+
+					return cloudPotential;
 				}
 
 				float sphereIntersectionNear(
@@ -204,17 +313,38 @@ export class CloudLayer {
 
 					streaks = pow(clamp(streaks, 0.0, 1.0), 1.55);
 
-					float d =
-						large * 0.42 +
-						medium * 0.30 +
-						fine * 0.07 +
-						bands * 0.17 +
-						streaks * 0.06;
+					float stormNoise =
+						fbm(warpedNormal * 9.0 + wind * 4.0 + vec3(17.0, 3.0, 11.0));
 
-					// Mehr Wolken, aber weiterhin kein grauer Vollschleier.
+					float climateCloudPotential =
+						getClimateCloudPotential(normal);
+
+					float storm =
+						smoothstep(0.74, 0.96, stormNoise) *
+						climateCloudPotential;
+
+					float d =
+						large * 0.39 +
+						medium * 0.29 +
+						fine * 0.07 +
+						bands * 0.16 +
+						streaks * 0.05 +
+						storm * 0.08;
+
+					float climateMultiplier = mix(
+						0.72,
+						1.26,
+						climateCloudPotential
+					);
+
+					d *= mix(
+						1.0,
+						climateMultiplier,
+						uClimateInfluence
+					);
+
 					d = smoothstep(uCoverage, uCoverage + 0.205, d);
 
-					// Etwas weicher als vorher, damit Flächen größer werden.
 					d = pow(d, 1.46);
 
 					return d * shell;
@@ -368,17 +498,20 @@ export class CloudLayer {
 
 		if (heightAboveSurface > 8) {
 			this.material.uniforms.uDensity.value = 2.05;
-			this.material.uniforms.uCoverage.value = 0.505;
+			this.material.uniforms.uCoverage.value = 0.485;
+			this.material.uniforms.uClimateInfluence.value = 0.38;
 			return;
 		}
 
 		if (heightAboveSurface > 3) {
 			this.material.uniforms.uDensity.value = 2.38;
-			this.material.uniforms.uCoverage.value = 0.475;
+			this.material.uniforms.uCoverage.value = 0.455;
+			this.material.uniforms.uClimateInfluence.value = 0.42;
 			return;
 		}
 
 		this.material.uniforms.uDensity.value = 2.72;
-		this.material.uniforms.uCoverage.value = 0.455;
+		this.material.uniforms.uCoverage.value = 0.435;
+		this.material.uniforms.uClimateInfluence.value = 0.46;
 	}
 }
