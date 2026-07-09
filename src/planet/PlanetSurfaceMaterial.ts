@@ -332,7 +332,7 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 				vec3 baseColor = mix(
 					vColor,
 					proceduralColor,
-					0.62
+					0.25
 				);
 
 				float landMask = surfaceSample.landMask;

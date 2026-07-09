@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+
+import { getClimateSample } from './Climate';
 import { getTerrainHeight, getTerrainSample } from '../utils/noise';
 import { logger } from '../utils/logger';
 
@@ -20,6 +22,7 @@ export type LodOptions = {
 };
 
 type TerrainSampleData = ReturnType<typeof getTerrainSample>;
+type ClimateSampleData = ReturnType<typeof getClimateSample>;
 
 export class TerrainPatch extends THREE.Group {
 	private readonly mesh: THREE.Mesh;
@@ -351,22 +354,22 @@ export class TerrainPatch extends THREE.Group {
 	private getTerrainColor(sphereNormal: THREE.Vector3): THREE.Color {
 		const sample = this.getSmoothedTerrainSample(sphereNormal);
 
-		const deepWater = new THREE.Color(0x071f2f);
-		const midWater = new THREE.Color(0x0c3545);
-		const shallowWater = new THREE.Color(0x155463);
-		const coastalWater = new THREE.Color(0x1d6a70);
-
-		const wetCoast = new THREE.Color(0x56614d);
-		const lowLand = new THREE.Color(0x315d35);
-		const grass = new THREE.Color(0x3f6d3b);
-		const hills = new THREE.Color(0x596842);
-		const dryHills = new THREE.Color(0x716a4e);
-		const rock = new THREE.Color(0x69675b);
-		const snow = new THREE.Color(0xaeb2a7);
-
 		const land = sample.landMask;
 		const height = sample.height;
 
+		const climate = getClimateSample(
+			sphereNormal,
+			height,
+			land,
+		);
+
+		const deepWater = new THREE.Color(0x071f2f);
+		const midWater = new THREE.Color(0x0b3347);
+		const shallowWater = new THREE.Color(0x155463);
+		const coastalWater = new THREE.Color(0x1d6a70);
+		const wetCoast = new THREE.Color(0x58664f);
+
+		// Wasser bleibt primär bathymetrisch.
 		if (land < 0.30) {
 			return deepWater.clone().lerp(
 				midWater,
@@ -395,50 +398,172 @@ export class TerrainPatch extends THREE.Group {
 			);
 		}
 
-		if (land < 0.72) {
-			return wetCoast.clone().lerp(
-				lowLand,
-				this.smoothstep(0.62, 0.72, land),
+		const color = this.getClimateLandColor(climate, height);
+
+		// Küstenbereiche leicht feuchter/grüner machen.
+		const coastInfluence =
+			      1 -
+			      Math.abs(this.clamp01((land - 0.62) / 0.24) * 2 - 1);
+
+		if (coastInfluence > 0) {
+			const coastGreen = new THREE.Color(0x496f3f);
+
+			color.lerp(
+				coastGreen,
+				coastInfluence * climate.humidity * 0.18,
 			);
 		}
 
-		let color: THREE.Color;
+		// Höhe bringt unabhängig vom Biome etwas Felsigkeit.
+		const rockInfluence =
+			      this.smoothstep(0.095, 0.22, height) *
+			      (1 - climate.vegetation * 0.55);
 
-		if (height < 0.040) {
-			color = lowLand.clone().lerp(
-				grass,
-				this.smoothstep(0.00, 0.040, height),
-			);
-		} else if (height < 0.090) {
-			color = grass.clone().lerp(
-				hills,
-				this.smoothstep(0.040, 0.090, height),
-			);
-		} else if (height < 0.150) {
-			color = hills.clone().lerp(
-				dryHills,
-				this.smoothstep(0.090, 0.150, height),
-			);
-		} else if (height < 0.220) {
-			color = dryHills.clone().lerp(
+		if (rockInfluence > 0) {
+			const rock = new THREE.Color(0x706d61);
+
+			color.lerp(
 				rock,
-				this.smoothstep(0.150, 0.220, height),
-			);
-		} else {
-			color = rock.clone().lerp(
-				snow,
-				this.smoothstep(0.220, 0.320, height),
+				rockInfluence * 0.52,
 			);
 		}
 
+		// Schnee/Eis oben drüber.
+		if (climate.snow > 0) {
+			const snow = new THREE.Color(0xd0d4cb);
+
+			color.lerp(
+				snow,
+				climate.snow * 0.82,
+			);
+		}
+
+		// Polbereiche leicht entsättigen/kühlen.
 		const polar = this.smoothstep(0.74, 0.98, Math.abs(sphereNormal.y));
 
 		if (polar > 0) {
 			const polarTint = new THREE.Color(0x7d8674);
-			color.lerp(polarTint, polar * 0.16);
+
+			color.lerp(
+				polarTint,
+				polar * 0.14 * (1 - climate.snow),
+			);
 		}
 
 		return color;
+	}
+
+	private getClimateLandColor(
+		climate: ClimateSampleData,
+		height: number,
+	): THREE.Color {
+		const coldLand = new THREE.Color(0x667263);
+		const humidForest = new THREE.Color(0x2f6b3d);
+		const grassland = new THREE.Color(0x5f7840);
+		const dryGrass = new THREE.Color(0x8a7a48);
+		const semiDry = new THREE.Color(0x8f7045);
+		const desert = new THREE.Color(0xa88755);
+		const highland = new THREE.Color(0x746f58);
+
+		const temperature = climate.temperature;
+		const humidity = climate.humidity;
+		const aridity = climate.aridity;
+		const vegetation = climate.vegetation;
+
+		const color = grassland.clone();
+
+		// Kalt = matter / graugrün
+		color.lerp(
+			coldLand,
+			(1 - temperature) * 0.30,
+		);
+
+		// Feucht + Vegetation = grüner
+		color.lerp(
+			humidForest,
+			vegetation * 0.42,
+		);
+
+		// Trockenheit nur weich einmischen, nicht sofort Wüste
+		color.lerp(
+			dryGrass,
+			aridity * 0.24,
+		);
+
+		// Heiße trockene Zonen Richtung Savanne
+		const savanna = this.smoothstep(0.50, 0.82, aridity) *
+		                this.smoothstep(0.42, 0.78, temperature);
+
+		color.lerp(
+			semiDry,
+			savanna * 0.30,
+		);
+
+		// Echte Wüste nur bei sehr hoher Aridity und wenig Humidity
+		const desertMask =
+			      this.smoothstep(0.72, 0.92, aridity) *
+			      (1 - this.smoothstep(0.28, 0.52, humidity));
+
+		color.lerp(
+			desert,
+			desertMask * 0.55,
+		);
+
+		// Höhenlagen entsättigen
+		color.lerp(
+			highland,
+			this.smoothstep(0.065, 0.18, height) * 0.22,
+		);
+
+		return color;
+	}
+
+	private getBiomeBaseColor(
+		biome: ClimateSampleData['biome'],
+	): THREE.Color {
+		switch (biome) {
+			case 'deepOcean':
+				return new THREE.Color(0x071f2f);
+
+			case 'shallowOcean':
+				return new THREE.Color(0x155463);
+
+			case 'coast':
+				return new THREE.Color(0x58664f);
+
+			case 'ice':
+				return new THREE.Color(0xbec8c8);
+
+			case 'tundra':
+				return new THREE.Color(0x7f856f);
+
+			case 'borealForest':
+				return new THREE.Color(0x355738);
+
+			case 'temperateForest':
+				return new THREE.Color(0x3e733d);
+
+			case 'rainforest':
+				return new THREE.Color(0x24783d);
+
+			case 'grassland':
+				return new THREE.Color(0x667f43);
+
+			case 'savanna':
+				return new THREE.Color(0x967b43);
+
+			case 'desert':
+				return new THREE.Color(0xb28b55);
+
+			case 'dryHills':
+				return new THREE.Color(0x786b4c);
+
+			case 'mountain':
+				return new THREE.Color(0x6f6d61);
+
+			case 'snow':
+				return new THREE.Color(0xd2d5cc);
+		}
 	}
 
 	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {

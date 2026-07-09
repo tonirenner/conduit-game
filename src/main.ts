@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
-import { createStarBackground } from './scene/createStarBackground';
-import { Planet } from './planet/Planet';
-import { SUN_DIRECTION, SUN_DISTANCE } from './planet/Sun';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
+import {createStarBackground} from './scene/createStarBackground';
+import {Planet} from './planet/Planet';
+import {SUN_DIRECTION, SUN_DISTANCE} from './planet/Sun';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -11,7 +11,7 @@ if (!app) {
 	throw new Error('App container #app wurde nicht gefunden.');
 }
 
-const PLANET_RADIUS = 3;
+const PLANET_RADIUS       = 3;
 const MIN_CAMERA_DISTANCE = PLANET_RADIUS + 0.42;
 const MAX_CAMERA_DISTANCE = 60;
 
@@ -24,14 +24,14 @@ const starBackground = createStarBackground();
 document.body.appendChild(starBackground);
 
 // App layer
-app.style.position = 'fixed';
-app.style.inset = '0';
-app.style.zIndex = '1';
+app.style.position   = 'fixed';
+app.style.inset      = '0';
+app.style.zIndex     = '1';
 app.style.background = 'transparent';
-app.style.overflow = 'hidden';
+app.style.overflow   = 'hidden';
 
 // Scene
-const scene = new THREE.Scene();
+const scene      = new THREE.Scene();
 scene.background = null;
 
 // Camera
@@ -56,41 +56,48 @@ renderer.setClearColor(0x000000, 0);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NoToneMapping;
+renderer.outputColorSpace    = THREE.SRGBColorSpace;
+renderer.toneMapping         = THREE.NoToneMapping;
 renderer.toneMappingExposure = 1.0;
 
-renderer.domElement.style.position = 'fixed';
-renderer.domElement.style.inset = '0';
-renderer.domElement.style.zIndex = '2';
+renderer.domElement.style.position   = 'fixed';
+renderer.domElement.style.inset      = '0';
+renderer.domElement.style.zIndex     = '2';
 renderer.domElement.style.background = 'transparent';
-renderer.domElement.style.display = 'block';
+renderer.domElement.style.display    = 'block';
 
 app.appendChild(renderer.domElement);
 
 // HUD
-const hud = document.createElement('div');
+const hud      = document.createElement('div');
 let hudVisible = true;
 
 hud.textContent = 'HUD loading...';
 
-hud.style.position = 'fixed';
-hud.style.left = '12px';
-hud.style.bottom = '12px';
-hud.style.zIndex = '9999';
-hud.style.padding = '8px 10px';
-hud.style.fontFamily = 'monospace';
-hud.style.fontSize = '12px';
-hud.style.lineHeight = '1.4';
-hud.style.whiteSpace = 'pre';
-hud.style.color = '#d8ecff';
-hud.style.background = 'rgba(0, 0, 0, 0.48)';
-hud.style.border = '1px solid rgba(120, 180, 255, 0.32)';
-hud.style.borderRadius = '6px';
-hud.style.pointerEvents = 'none';
+hud.style.position       = 'fixed';
+hud.style.left           = '12px';
+hud.style.bottom         = '12px';
+hud.style.zIndex         = '9999';
+hud.style.padding        = '8px 10px';
+hud.style.fontFamily     = 'monospace';
+hud.style.fontSize       = '12px';
+hud.style.lineHeight     = '1.4';
+hud.style.whiteSpace     = 'pre';
+hud.style.color          = '#d8ecff';
+hud.style.background     = 'rgba(0, 0, 0, 0.48)';
+hud.style.border         = '1px solid rgba(120, 180, 255, 0.32)';
+hud.style.borderRadius   = '6px';
+hud.style.pointerEvents  = 'none';
 hud.style.backdropFilter = 'blur(4px)';
 
 document.body.appendChild(hud);
+
+const climateDebug = createClimateDebugCanvas({
+	                                              visible: false,
+	                                              mode: 'biome',
+                                              });
+
+document.body.appendChild(climateDebug.canvas);
 
 // Controls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -104,7 +111,7 @@ controls.minDistance = MIN_CAMERA_DISTANCE;
 controls.maxDistance = MAX_CAMERA_DISTANCE;
 
 controls.enableZoom = true;
-controls.zoomSpeed = 1.15;
+controls.zoomSpeed  = 1.15;
 
 controls.enablePan = false;
 
@@ -146,7 +153,8 @@ function zoomCamera(amount: number): void {
 const sunLight = new THREE.DirectionalLight(0xffffff, 4.2);
 
 sunLight.position.copy(
-	SUN_DIRECTION.clone().multiplyScalar(SUN_DISTANCE),
+	SUN_DIRECTION.clone()
+		.multiplyScalar(SUN_DISTANCE),
 );
 
 scene.add(sunLight);
@@ -159,7 +167,7 @@ const planet = new Planet(PLANET_RADIUS);
 scene.add(planet.group);
 
 function resizeRenderer(): void {
-	const width = window.innerWidth;
+	const width  = window.innerWidth;
 	const height = window.innerHeight;
 
 	camera.aspect = width / height;
@@ -185,7 +193,7 @@ window.addEventListener('keydown', (event) => {
 		'KeyS',
 	];
 
-	if (zoomKeys.includes(event.code)) {
+	if ([...zoomKeys, 'KeyC', 'KeyV', 'KeyH'].includes(event.code)) {
 		event.preventDefault();
 	}
 
@@ -203,8 +211,16 @@ window.addEventListener('keydown', (event) => {
 			break;
 
 		case 'KeyH':
-			hudVisible = !hudVisible;
+			hudVisible        = !hudVisible;
 			hud.style.display = hudVisible ? 'block' : 'none';
+			break;
+
+		case 'KeyC':
+			climateDebug.toggle();
+			break;
+
+		case 'KeyV':
+			climateDebug.cycleMode();
 			break;
 	}
 });
@@ -216,7 +232,7 @@ function updateHud(): void {
 
 	const distanceFromCenter = camera.position.length();
 	const heightAboveSurface = distanceFromCenter - PLANET_RADIUS;
-	const terrainStats = planet.getTerrainStats();
+	const terrainStats       = planet.getTerrainStats();
 
 	hud.textContent =
 		`distance: ${distanceFromCenter.toFixed(2)} | ` +
