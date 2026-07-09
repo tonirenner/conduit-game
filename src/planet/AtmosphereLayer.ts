@@ -1,13 +1,17 @@
 import * as THREE from 'three';
 import { SUN_DIRECTION } from './Sun';
 
+export type AtmosphereRenderQuality = 'moving' | 'idle';
+
 export class AtmosphereLayer {
 	public readonly mesh: THREE.Mesh;
 
 	private readonly material: THREE.ShaderMaterial;
 
+	private currentRenderQuality: AtmosphereRenderQuality = 'idle';
+
 	constructor(radius: number) {
-		const atmosphereRadius = radius * 1.026;
+		const atmosphereRadius = radius * 1.032;
 
 		const geometry = new THREE.SphereGeometry(atmosphereRadius, 160, 160);
 
@@ -28,19 +32,22 @@ export class AtmosphereLayer {
 					                                         value: SUN_DIRECTION.clone(),
 				                                         },
 				                                         uSunIntensity: {
-					                                         value: 30.0,
+					                                         value: 38.0,
 				                                         },
 				                                         uRayleighStrength: {
-					                                         value: 0.92,
+					                                         value: 1.16,
 				                                         },
 				                                         uMieStrength: {
-					                                         value: 0.30,
+					                                         value: 0.48,
 				                                         },
 				                                         uMieG: {
-					                                         value: 0.76,
+					                                         value: 0.79,
 				                                         },
 				                                         uAtmosphereAlpha: {
-					                                         value: 0.62,
+					                                         value: 0.76,
+				                                         },
+				                                         uScatteringBoost: {
+					                                         value: 1.0,
 				                                         },
 			                                         },
 			                                         vertexShader: `
@@ -68,9 +75,10 @@ export class AtmosphereLayer {
 				uniform float uMieStrength;
 				uniform float uMieG;
 				uniform float uAtmosphereAlpha;
+				uniform float uScatteringBoost;
 
-				const int VIEW_STEPS = 12;
-				const int LIGHT_STEPS = 4;
+				const int VIEW_STEPS = 8;
+				const int LIGHT_STEPS = 3;
 
 				const float PI = 3.141592653589793;
 
@@ -136,11 +144,11 @@ export class AtmosphereLayer {
 				}
 
 				float rayleighDensity(float height01) {
-					return exp(-height01 / 0.18);
+					return exp(-height01 / 0.20);
 				}
 
 				float mieDensity(float height01) {
-					return exp(-height01 / 0.055);
+					return exp(-height01 / 0.070);
 				}
 
 				vec2 opticalDepth(
@@ -224,12 +232,14 @@ export class AtmosphereLayer {
 
 					vec3 betaRayleigh =
 						INV_WAVELENGTH4 *
-						0.0022 *
-						uRayleighStrength;
+						0.0026 *
+						uRayleighStrength *
+						uScatteringBoost;
 
 					vec3 betaMie =
-						vec3(0.0022) *
-						uMieStrength;
+						vec3(0.0028) *
+						uMieStrength *
+						uScatteringBoost;
 
 					for (int i = 0; i < VIEW_STEPS; i++) {
 						float height01 = getHeight01(samplePoint);
@@ -271,11 +281,11 @@ export class AtmosphereLayer {
 									-(
 										betaRayleigh *
 										(viewDepth.x + sunDepth.x) *
-										4.2 +
+										3.8 +
 
 										betaMie *
 										(viewDepth.y + sunDepth.y) *
-										3.4
+										3.0
 									)
 								);
 
@@ -317,44 +327,66 @@ export class AtmosphereLayer {
 
 					float viewDot = clamp(dot(normal, viewDirection), 0.0, 1.0);
 					float limb = 1.0 - viewDot;
+
 					float limbSharp = pow(limb, 5.0);
-					float limbSoft = pow(limb, 2.2);
+					float limbSoft = pow(limb, 2.15);
+					float limbUltra = pow(limb, 10.0);
 
 					float sunDot = dot(normal, sunDirection);
 
 					float forwardMie =
 						smoothstep(
-							0.45,
+							0.34,
 							0.98,
 							dot(viewDirection, sunDirection)
 						);
 
-					float dayDisc = smoothstep(-0.18, 0.62, sunDot);
+					float dayDisc = smoothstep(-0.20, 0.64, sunDot);
+
+					float sunsetBand =
+						smoothstep(-0.34, 0.26, sunDot) *
+						(1.0 - smoothstep(0.28, 0.76, sunDot));
 
 					float mieDisc =
 						dayDisc *
 						forwardMie *
 						limbSharp;
 
+					// Warmer Mie-Glow Richtung Sonne.
 					color +=
-						vec3(1.0, 0.82, 0.58) *
+						vec3(1.0, 0.78, 0.50) *
 						mieDisc *
 						uMieStrength *
-						0.18;
+						uScatteringBoost *
+						0.34;
 
+					// Breiterer weicher Rayleigh-Saum.
 					vec3 limbBlue =
-						vec3(0.06, 0.32, 1.0) *
+						vec3(0.06, 0.30, 1.0) *
 						limbSharp *
-						0.52;
+						0.70 *
+						uScatteringBoost;
 
+					// Dünner heller weiß-blauer Rand direkt am Horizont.
 					vec3 thinWhiteRim =
-						vec3(0.82, 0.92, 1.0) *
-						pow(limb, 10.0) *
-						0.38 *
-						dayDisc;
+						vec3(0.86, 0.94, 1.0) *
+						limbUltra *
+						0.48 *
+						dayDisc *
+						uScatteringBoost;
+
+					// Leichte warme Übergangsschicht am Terminator.
+					vec3 sunsetGlow =
+						vec3(1.0, 0.50, 0.24) *
+						sunsetBand *
+						limbSoft *
+						uMieStrength *
+						0.20 *
+						uScatteringBoost;
 
 					color += limbBlue;
 					color += thinWhiteRim;
+					color += sunsetGlow;
 
 					float luminance = dot(
 						color,
@@ -362,24 +394,26 @@ export class AtmosphereLayer {
 					);
 
 					float outerFade =
-						smoothstep(0.00, 0.24, viewDot);
+						smoothstep(0.00, 0.22, viewDot);
 
 					float alpha =
 						luminance *
 						uAtmosphereAlpha +
 
 						limbSharp *
-						0.18 +
+						0.22 *
+
+						uScatteringBoost +
 
 						thinWhiteRim.r *
-						0.18 +
+						0.24 +
 
 						mieDisc *
-						0.035;
+						0.060;
 
 					alpha *= outerFade;
 
-					alpha = clamp(alpha, 0.0, 0.48);
+					alpha = clamp(alpha, 0.0, 0.56);
 
 					if (alpha < 0.003) {
 						discard;
@@ -397,5 +431,24 @@ export class AtmosphereLayer {
 
 	update(): void {
 		// statisch
+	}
+
+	setRenderQuality(quality: AtmosphereRenderQuality): void {
+		if (quality === this.currentRenderQuality) {
+			return;
+		}
+
+		this.currentRenderQuality = quality;
+
+		if (quality === 'moving') {
+			this.material.uniforms.uSunIntensity.value = 30.0;
+			this.material.uniforms.uAtmosphereAlpha.value = 0.58;
+			this.material.uniforms.uScatteringBoost.value = 0.78;
+			return;
+		}
+
+		this.material.uniforms.uSunIntensity.value = 38.0;
+		this.material.uniforms.uAtmosphereAlpha.value = 0.76;
+		this.material.uniforms.uScatteringBoost.value = 1.0;
 	}
 }

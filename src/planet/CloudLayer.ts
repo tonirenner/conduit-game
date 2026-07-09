@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { SUN_DIRECTION } from './Sun';
 
+export type CloudRenderQuality = 'moving' | 'idle';
+
 export class CloudLayer {
 	public readonly group: THREE.Group;
 
 	private readonly material: THREE.ShaderMaterial;
+
+	private currentRenderQuality: CloudRenderQuality = 'idle';
 
 	constructor(radius: number) {
 		this.group = new THREE.Group();
@@ -31,6 +35,9 @@ export class CloudLayer {
 				                                         uClimateInfluence: { value: 0.26 },
 				                                         uWeatherInfluence: { value: 0.20 },
 				                                         uStormInfluence: { value: 0.12 },
+
+				                                         // RenderQuality
+				                                         uCloudDetailStrength: { value: 1.0 },
 			                                         },
 			                                         vertexShader: `
 				varying vec3 vWorldPosition;
@@ -56,6 +63,7 @@ export class CloudLayer {
 				uniform float uClimateInfluence;
 				uniform float uWeatherInfluence;
 				uniform float uStormInfluence;
+				uniform float uCloudDetailStrength;
 
 				const int STEPS = 16;
 
@@ -439,51 +447,73 @@ export class CloudLayer {
 						uTime * 0.0020
 					);
 
+					float detail = clamp(uCloudDetailStrength, 0.0, 1.0);
+
 					float large = fbm(warpedNormal * 1.45 + wind);
-					float medium = fbm(warpedNormal * 4.40 + wind * 1.8);
+
+					float medium = 0.0;
+					float bands = 0.0;
+					float streaks = 0.0;
+					float storm = 0.0;
 
 					float latitude = asin(clamp(normal.y, -1.0, 1.0));
-
-					float bandNoise = fbmLow(warpedNormal * 2.0 + wind) - 0.5;
 
 					float windBandWarp =
 						weatherSample.windBand * 2.0 -
 						1.0;
 
-					float bands =
-						0.5 +
-						0.5 *
-						sin(
-							latitude * 8.4 +
-							bandNoise * 5.2 +
-							windBandWarp * 0.85
-						);
+					if (detail > 0.02) {
+						medium = fbm(warpedNormal * 4.40 + wind * 1.8);
 
-					bands = smoothstep(0.35, 0.90, bands);
+						float bandNoise = fbmLow(warpedNormal * 2.0 + wind) - 0.5;
 
-					float streaks =
-						1.0 -
-						abs(fbmLow(warpedNormal * 6.0 + wind * 2.2) - 0.5) * 2.0;
+						bands =
+							0.5 +
+							0.5 *
+							sin(
+								latitude * 8.4 +
+								bandNoise * 5.2 +
+								windBandWarp * 0.85
+							);
 
-					streaks = pow(clamp(streaks, 0.0, 1.0), 1.45);
+						bands = smoothstep(0.35, 0.90, bands);
+					} else {
+						bands =
+							0.5 +
+							0.5 *
+							sin(
+								latitude * 8.4 +
+								windBandWarp * 0.85
+							);
 
-					float stormNoise =
-						fbmLow(
-							warpedNormal * 7.2 +
-							wind * 3.2 +
-							vec3(17.0, 3.0, 11.0)
-						);
+						bands = smoothstep(0.38, 0.88, bands);
+					}
 
-					float storm =
-						smoothstep(0.72, 0.94, stormNoise) *
-						weatherSample.stormPotential;
+					if (detail > 0.45) {
+						streaks =
+							1.0 -
+							abs(fbmLow(warpedNormal * 6.0 + wind * 2.2) - 0.5) * 2.0;
+
+						streaks = pow(clamp(streaks, 0.0, 1.0), 1.45);
+
+						float stormNoise =
+							fbmLow(
+								warpedNormal * 7.2 +
+								wind * 3.2 +
+								vec3(17.0, 3.0, 11.0)
+							);
+
+						storm =
+							smoothstep(0.72, 0.94, stormNoise) *
+							weatherSample.stormPotential;
+					}
 
 					float d =
-						large * 0.39 +
-						medium * 0.29 +
-						bands * 0.17 +
-						streaks * 0.07 +
-						storm * 0.08;
+						large * mix(0.52, 0.39, detail) +
+						medium * 0.29 * detail +
+						bands * mix(0.32, 0.17, detail) +
+						streaks * 0.07 * detail +
+						storm * 0.08 * detail;
 
 					float climateMultiplier = mix(
 						0.76,
@@ -517,7 +547,7 @@ export class CloudLayer {
 
 					d *= highPressureBreakup;
 
-					d += storm * uStormInfluence * 0.055;
+					d += storm * uStormInfluence * 0.055 * detail;
 
 					d = smoothstep(uCoverage, uCoverage + 0.215, d);
 					d = pow(d, 1.48);
@@ -679,6 +709,21 @@ export class CloudLayer {
 
 	update(deltaSeconds: number): void {
 		this.material.uniforms.uTime.value += deltaSeconds * 0.14;
+	}
+
+	setRenderQuality(quality: CloudRenderQuality): void {
+		if (quality === this.currentRenderQuality) {
+			return;
+		}
+
+		this.currentRenderQuality = quality;
+
+		if (quality === 'moving') {
+			this.material.uniforms.uCloudDetailStrength.value = 0.0;
+			return;
+		}
+
+		this.material.uniforms.uCloudDetailStrength.value = 1.0;
 	}
 
 	updateLOD(cameraDistance: number, planetRadius: number): void {

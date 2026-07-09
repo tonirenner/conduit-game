@@ -4,6 +4,8 @@ import { CloudLayer } from './CloudLayer';
 import { AtmosphereLayer } from './AtmosphereLayer';
 import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 
+export type PlanetRenderQuality = 'moving' | 'idle';
+
 export class Planet {
 	public readonly group: THREE.Group;
 
@@ -15,6 +17,8 @@ export class Planet {
 	private readonly depthOccluder: THREE.Mesh;
 
 	private readonly atmosphereRadius: number;
+
+	private currentRenderQuality: PlanetRenderQuality = 'idle';
 
 	constructor(private readonly radius: number) {
 		this.group = new THREE.Group();
@@ -54,6 +58,27 @@ export class Planet {
 		this.atmosphere.update();
 
 		this.planet.updateLOD(cameraPosition);
+	}
+
+	setRenderQuality(quality: PlanetRenderQuality): void {
+		if (quality === this.currentRenderQuality) {
+			return;
+		}
+
+		this.currentRenderQuality = quality;
+
+		if (quality === 'moving') {
+			this.setUniform('uSurfaceDetailStrength', 0.25);
+			this.setUniform('uProceduralColorStrength', 0.25);
+			this.clouds.setRenderQuality(quality);
+			this.atmosphere.setRenderQuality(quality);
+			return;
+		}
+
+		this.setUniform('uSurfaceDetailStrength', 1.0);
+		this.setUniform('uProceduralColorStrength', 0.65);
+		this.clouds.setRenderQuality(quality);
+		this.atmosphere.setRenderQuality(quality);
 	}
 
 	private updateSurfaceAtmosphereUniforms(heightAboveSurface: number): void {

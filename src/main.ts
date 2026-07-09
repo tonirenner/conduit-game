@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RenderQuality } from './render/RenderQuality';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createClimateDebugCanvas } from './scene/createClimateDebugCanvas';
 import { createStarBackground } from './scene/createStarBackground';
@@ -60,7 +61,7 @@ const renderer = new THREE.WebGLRenderer({
 
 renderer.setClearColor(0x000000, 0);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
 
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
@@ -73,6 +74,17 @@ renderer.domElement.style.background = 'transparent';
 renderer.domElement.style.display = 'block';
 
 app.appendChild(renderer.domElement);
+
+const renderQuality = new RenderQuality(
+	renderer,
+	camera,
+	{
+		minPixelRatio: 0.85,
+		movingPixelRatio: 0.85,
+		idlePixelRatio: 2.0,
+		idleDelaySeconds: 0.45,
+	},
+);
 
 // HUD
 const hud = document.createElement('div');
@@ -220,6 +232,8 @@ function enterFlightMode(): void {
 		.addScaledVector(radialUp, -0.18);
 
 	camera.lookAt(lookTarget);
+
+	renderQuality.forceMoving();
 }
 
 function exitFlightMode(): void {
@@ -239,6 +253,7 @@ function exitFlightMode(): void {
 	}
 
 	controls.update();
+	renderQuality.forceMoving();
 }
 
 function toggleCameraMode(): void {
@@ -407,7 +422,7 @@ function resizeRenderer(): void {
 	camera.updateProjectionMatrix();
 
 	renderer.setSize(width, height);
-	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+	renderQuality.forceMoving();
 
 	starBackground.dispatchEvent(new Event('force-redraw'));
 }
@@ -455,6 +470,7 @@ window.addEventListener('keydown', (event) => {
 		case 'NumpadAdd':
 			if (cameraMode === 'orbit') {
 				zoomCamera(0.38);
+				renderQuality.forceMoving();
 			}
 			break;
 
@@ -462,18 +478,21 @@ window.addEventListener('keydown', (event) => {
 		case 'NumpadSubtract':
 			if (cameraMode === 'orbit') {
 				zoomCamera(-0.38);
+				renderQuality.forceMoving();
 			}
 			break;
 
 		case 'KeyW':
 			if (cameraMode === 'orbit') {
 				zoomCamera(0.38);
+				renderQuality.forceMoving();
 			}
 			break;
 
 		case 'KeyS':
 			if (cameraMode === 'orbit') {
 				zoomCamera(-0.38);
+				renderQuality.forceMoving();
 			}
 			break;
 
@@ -508,6 +527,7 @@ renderer.domElement.addEventListener('mousedown', (event) => {
 	isMouseLooking = true;
 
 	renderer.domElement.requestPointerLock?.();
+	renderQuality.forceMoving();
 });
 
 window.addEventListener('mouseup', () => {
@@ -547,6 +567,7 @@ function updateHud(): void {
 		`height: ${heightAboveSurface.toFixed(2)}\n` +
 		`patches: ${terrainStats.visibleMeshes}/${terrainStats.totalPatches} | ` +
 		`lod: ${terrainStats.maxLevel}\n` +
+		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio().toFixed(2)}\n` +
 		`keys: F mode | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
@@ -563,6 +584,12 @@ function animate(timestamp?: number): void {
 	} else {
 		updateFlightCamera(deltaSeconds);
 	}
+
+	renderQuality.update(deltaSeconds);
+
+	planet.setRenderQuality(
+		renderQuality.state === 'moving' ? 'moving' : 'idle',
+	);
 
 	planet.update(camera.position, deltaSeconds);
 

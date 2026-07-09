@@ -48,6 +48,14 @@ export function createPlanetSurfaceMaterial(
 				                                value: new THREE.Color(0x2f8da3),
 			                                },
 
+			                                // Performance / RenderQuality
+			                                uSurfaceDetailStrength: {
+				                                value: 1.0,
+			                                },
+			                                uProceduralColorStrength: {
+				                                value: 0.65,
+			                                },
+
 			                                // Variante C/D: Aerial Perspective / Low-Orbit-Haze
 			                                uRayleighColor: {
 				                                value: new THREE.Color(0x6ea8ff),
@@ -120,6 +128,9 @@ export function createPlanetSurfaceMaterial(
 			uniform vec3 uOceanFresnelColor;
 			uniform vec3 uOceanDeepTint;
 			uniform vec3 uOceanLightTint;
+
+			uniform float uSurfaceDetailStrength;
+			uniform float uProceduralColorStrength;
 
 			uniform vec3 uRayleighColor;
 			uniform vec3 uMieColor;
@@ -522,9 +533,6 @@ export function createPlanetSurfaceMaterial(
 					aerialAmount *
 					0.075;
 
-				// Neuer Teil:
-				// Nicht nur der Atmosphärenbogen wird milchig,
-				// sondern auch die Bodenfläche in flachem Blickwinkel.
 				inscatter +=
 					vec3(0.78, 0.86, 0.96) *
 					lowAltitudeGroundHaze *
@@ -557,7 +565,7 @@ export function createPlanetSurfaceMaterial(
 				vec3 baseColor = mix(
 					vColor,
 					proceduralColor,
-					0.25
+					clamp(uProceduralColorStrength, 0.0, 1.0)
 				);
 
 				float landMask = surfaceSample.landMask;
@@ -588,26 +596,31 @@ export function createPlanetSurfaceMaterial(
 					waterHint *
 					0.35;
 
-				vec3 localProceduralNormal =
-					getProceduralTerrainNormal(localGeometricNormal);
+				vec3 normal = meshNormal;
 
-				vec3 worldProceduralNormal =
-					rotateVectorFromTo(
-						localProceduralNormal,
-						localGeometricNormal,
-						worldGeometricNormal
+				if (uSurfaceDetailStrength > 0.001) {
+					vec3 localProceduralNormal =
+						getProceduralTerrainNormal(localGeometricNormal);
+
+					vec3 worldProceduralNormal =
+						rotateVectorFromTo(
+							localProceduralNormal,
+							localGeometricNormal,
+							worldGeometricNormal
+						);
+
+					float proceduralNormalStrength =
+						(0.10 + landMask * 0.16) *
+						uSurfaceDetailStrength;
+
+					normal = normalize(
+						mix(
+							meshNormal,
+							worldProceduralNormal,
+							proceduralNormalStrength
+						)
 					);
-
-				float proceduralNormalStrength =
-					0.10 + landMask * 0.16;
-
-				vec3 normal = normalize(
-					mix(
-						meshNormal,
-						worldProceduralNormal,
-						proceduralNormalStrength
-					)
-				);
+				}
 
 				float ndl = dot(normal, sunDirection);
 
