@@ -7,7 +7,7 @@ export class AtmosphereLayer {
 	private readonly material: THREE.ShaderMaterial;
 
 	constructor(radius: number) {
-		const atmosphereRadius = radius * 1.035;
+		const atmosphereRadius = radius * 1.026;
 
 		const geometry = new THREE.SphereGeometry(atmosphereRadius, 160, 160);
 
@@ -28,19 +28,19 @@ export class AtmosphereLayer {
 					                                         value: SUN_DIRECTION.clone(),
 				                                         },
 				                                         uSunIntensity: {
-					                                         value: 38.0,
+					                                         value: 30.0,
 				                                         },
 				                                         uRayleighStrength: {
-					                                         value: 0.82,
+					                                         value: 0.92,
 				                                         },
 				                                         uMieStrength: {
-					                                         value: 0.62,
+					                                         value: 0.30,
 				                                         },
 				                                         uMieG: {
-					                                         value: 0.80,
+					                                         value: 0.76,
 				                                         },
 				                                         uAtmosphereAlpha: {
-					                                         value: 1.20,
+					                                         value: 0.62,
 				                                         },
 			                                         },
 			                                         vertexShader: `
@@ -69,8 +69,8 @@ export class AtmosphereLayer {
 				uniform float uMieG;
 				uniform float uAtmosphereAlpha;
 
-				const int VIEW_STEPS = 16;
-				const int LIGHT_STEPS = 6;
+				const int VIEW_STEPS = 12;
+				const int LIGHT_STEPS = 4;
 
 				const float PI = 3.141592653589793;
 
@@ -120,12 +120,12 @@ export class AtmosphereLayer {
 					float g2 = g * g;
 
 					float denominator = pow(
-						1.0 + g2 - 2.0 * g * mu,
+						max(0.0001, 1.0 + g2 - 2.0 * g * mu),
 						1.5
 					);
 
 					return (1.0 / (4.0 * PI)) *
-						((1.0 - g2) / max(0.0001, denominator));
+						((1.0 - g2) / denominator);
 				}
 
 				float getHeight01(vec3 position) {
@@ -136,11 +136,11 @@ export class AtmosphereLayer {
 				}
 
 				float rayleighDensity(float height01) {
-					return exp(-height01 / 0.25);
+					return exp(-height01 / 0.18);
 				}
 
 				float mieDensity(float height01) {
-					return exp(-height01 / 0.10);
+					return exp(-height01 / 0.055);
 				}
 
 				vec2 opticalDepth(
@@ -224,11 +224,11 @@ export class AtmosphereLayer {
 
 					vec3 betaRayleigh =
 						INV_WAVELENGTH4 *
-						0.0025 *
+						0.0022 *
 						uRayleighStrength;
 
 					vec3 betaMie =
-						vec3(0.0040) *
+						vec3(0.0022) *
 						uMieStrength;
 
 					for (int i = 0; i < VIEW_STEPS; i++) {
@@ -271,11 +271,11 @@ export class AtmosphereLayer {
 									-(
 										betaRayleigh *
 										(viewDepth.x + sunDepth.x) *
-										5.0 +
+										4.2 +
 
 										betaMie *
 										(viewDepth.y + sunDepth.y) *
-										5.0
+										3.4
 									)
 								);
 
@@ -317,53 +317,71 @@ export class AtmosphereLayer {
 
 					float viewDot = clamp(dot(normal, viewDirection), 0.0, 1.0);
 					float limb = 1.0 - viewDot;
+					float limbSharp = pow(limb, 5.0);
+					float limbSoft = pow(limb, 2.2);
+
 					float sunDot = dot(normal, sunDirection);
 
 					float forwardMie =
 						smoothstep(
-							0.25,
-							0.95,
+							0.45,
+							0.98,
 							dot(viewDirection, sunDirection)
 						);
 
-					float dayDisc = smoothstep(-0.25, 0.65, sunDot);
+					float dayDisc = smoothstep(-0.18, 0.62, sunDot);
 
 					float mieDisc =
 						dayDisc *
 						forwardMie *
-						(0.10 + pow(limb, 1.35) * 0.75);
+						limbSharp;
 
 					color +=
-						vec3(1.0, 0.78, 0.52) *
+						vec3(1.0, 0.82, 0.58) *
 						mieDisc *
 						uMieStrength *
-						0.42;
+						0.18;
 
 					vec3 limbBlue =
-						vec3(0.05, 0.26, 1.0) *
-						pow(limb, 3.2) *
-						0.38;
+						vec3(0.06, 0.32, 1.0) *
+						limbSharp *
+						0.52;
+
+					vec3 thinWhiteRim =
+						vec3(0.82, 0.92, 1.0) *
+						pow(limb, 10.0) *
+						0.38 *
+						dayDisc;
 
 					color += limbBlue;
+					color += thinWhiteRim;
 
 					float luminance = dot(
 						color,
 						vec3(0.2126, 0.7152, 0.0722)
 					);
 
+					float outerFade =
+						smoothstep(0.00, 0.24, viewDot);
+
 					float alpha =
 						luminance *
 						uAtmosphereAlpha +
 
-						pow(limb, 2.8) *
-						0.12 +
+						limbSharp *
+						0.18 +
+
+						thinWhiteRim.r *
+						0.18 +
 
 						mieDisc *
-						0.10;
+						0.035;
 
-					alpha = clamp(alpha, 0.0, 0.72);
+					alpha *= outerFade;
 
-					if (alpha < 0.004) {
+					alpha = clamp(alpha, 0.0, 0.48);
+
+					if (alpha < 0.003) {
 						discard;
 					}
 

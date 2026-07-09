@@ -48,7 +48,7 @@ export function createPlanetSurfaceMaterial(
 				                                value: new THREE.Color(0x2f8da3),
 			                                },
 
-			                                // Variante C: Aerial Perspective / Low-Orbit-Haze
+			                                // Variante C/D: Aerial Perspective / Low-Orbit-Haze
 			                                uRayleighColor: {
 				                                value: new THREE.Color(0x6ea8ff),
 			                                },
@@ -449,10 +449,21 @@ export function createPlanetSurfaceMaterial(
 				float daySide =
 					smoothstep(-0.18, 0.46, ndl);
 
+				float grazingView =
+					pow(
+						1.0 - saturate(dot(worldNormal, viewDirection)),
+						3.0
+					);
+
+				float lowAltitudeGroundHaze =
+					lowAltitude *
+					smoothstep(0.18, 0.92, distanceFactor) *
+					(0.25 + grazingView * 1.35);
+
 				float aerialAmount =
 					distanceFactor *
-					(0.18 + horizon * 0.92) *
-					(0.36 + nearAtmosphere * 0.64) *
+					(0.22 + horizon * 1.18 + lowAltitudeGroundHaze) *
+					(0.34 + nearAtmosphere * 0.76) *
 					uHazeStrength;
 
 				aerialAmount = saturate(aerialAmount);
@@ -503,7 +514,6 @@ export function createPlanetSurfaceMaterial(
 					aerialAmount *
 					0.20;
 
-				// Wenn die Kamera wirklich niedrig ist, darf der Horizont stärker milchig werden.
 				inscatter +=
 					vec3(0.62, 0.76, 0.95) *
 					horizon *
@@ -511,6 +521,16 @@ export function createPlanetSurfaceMaterial(
 					daySide *
 					aerialAmount *
 					0.075;
+
+				// Neuer Teil:
+				// Nicht nur der Atmosphärenbogen wird milchig,
+				// sondern auch die Bodenfläche in flachem Blickwinkel.
+				inscatter +=
+					vec3(0.78, 0.86, 0.96) *
+					lowAltitudeGroundHaze *
+					daySide *
+					uHazeStrength *
+					0.16;
 
 				return surfaceColor * transmittance + inscatter;
 			}
