@@ -7,7 +7,23 @@ import {
 	getClimateSample,
 } from '../planet/Climate';
 
+import {
+	WEATHER_DEBUG_MODES,
+	type WeatherDebugMode,
+	getWeatherDebugColor,
+	getWeatherSample,
+} from '../planet/Weather';
+
 import { getTerrainSample } from '../utils/noise';
+
+export type ClimateDebugModeCombined =
+	| ClimateDebugMode
+	| WeatherDebugMode;
+
+const DEBUG_MODES: ClimateDebugModeCombined[] = [
+	...CLIMATE_DEBUG_MODES,
+	...WEATHER_DEBUG_MODES,
+];
 
 export type ClimateDebugCanvas = {
 	canvas: HTMLCanvasElement;
@@ -15,15 +31,15 @@ export type ClimateDebugCanvas = {
 	toggle: () => void;
 	cycleMode: () => void;
 	setVisible: (visible: boolean) => void;
-	setMode: (mode: ClimateDebugMode) => void;
-	getMode: () => ClimateDebugMode;
+	setMode: (mode: ClimateDebugModeCombined) => void;
+	getMode: () => ClimateDebugModeCombined;
 };
 
 export function createClimateDebugCanvas(options?: {
 	width?: number;
 	height?: number;
 	visible?: boolean;
-	mode?: ClimateDebugMode;
+	mode?: ClimateDebugModeCombined;
 }): ClimateDebugCanvas {
 	const mapWidth = options?.width ?? 360;
 	const mapHeight = options?.height ?? 180;
@@ -31,7 +47,7 @@ export function createClimateDebugCanvas(options?: {
 	let visible = options?.visible ?? false;
 	let modeIndex = Math.max(
 		0,
-		CLIMATE_DEBUG_MODES.indexOf(options?.mode ?? 'biome'),
+		DEBUG_MODES.indexOf(options?.mode ?? 'biome'),
 	);
 
 	const canvas = document.createElement('canvas');
@@ -58,8 +74,8 @@ export function createClimateDebugCanvas(options?: {
 	canvas.style.display = visible ? 'block' : 'none';
 	canvas.style.boxShadow = '0 0 18px rgba(0, 0, 0, 0.45)';
 
-	function getMode(): ClimateDebugMode {
-		return CLIMATE_DEBUG_MODES[modeIndex];
+	function getMode(): ClimateDebugModeCombined {
+		return DEBUG_MODES[modeIndex];
 	}
 
 	function redraw(): void {
@@ -67,6 +83,7 @@ export function createClimateDebugCanvas(options?: {
 		const data = imageData.data;
 
 		const normal = new THREE.Vector3();
+		const mode = getMode();
 
 		for (let y = 0; y < mapHeight; y++) {
 			const v = y / (mapHeight - 1);
@@ -86,22 +103,28 @@ export function createClimateDebugCanvas(options?: {
 				);
 
 				const terrainSample = getTerrainSample(normal);
+
 				const climateSample = getClimateSample(
 					normal,
 					terrainSample.height,
 					terrainSample.landMask,
 				);
 
-				const [r, g, b] = getClimateDebugColor(
-					climateSample,
-					getMode(),
-				);
+				const color = isWeatherDebugMode(mode)
+				              ? getWeatherDebugColor(
+						getWeatherSample(normal, climateSample),
+						mode,
+					)
+				              : getClimateDebugColor(
+						climateSample,
+						mode,
+					);
 
 				const index = (x + y * mapWidth) * 4;
 
-				data[index + 0] = r;
-				data[index + 1] = g;
-				data[index + 2] = b;
+				data[index + 0] = color[0];
+				data[index + 1] = color[1];
+				data[index + 2] = color[2];
 				data[index + 3] = 255;
 			}
 		}
@@ -118,7 +141,7 @@ export function createClimateDebugCanvas(options?: {
 
 		context.font = '11px monospace';
 		context.fillStyle = '#d8ecff';
-		context.fillText(`Climate Debug: ${mode}`, 8, 14);
+		context.fillText(`Debug: ${mode}`, 8, 14);
 
 		context.fillStyle = 'rgba(0, 0, 0, 0.50)';
 		context.fillRect(0, mapHeight - 18, mapWidth, 18);
@@ -141,15 +164,15 @@ export function createClimateDebugCanvas(options?: {
 	}
 
 	function cycleMode(): void {
-		modeIndex = (modeIndex + 1) % CLIMATE_DEBUG_MODES.length;
+		modeIndex = (modeIndex + 1) % DEBUG_MODES.length;
 
 		if (visible) {
 			redraw();
 		}
 	}
 
-	function setMode(nextMode: ClimateDebugMode): void {
-		const nextIndex = CLIMATE_DEBUG_MODES.indexOf(nextMode);
+	function setMode(nextMode: ClimateDebugModeCombined): void {
+		const nextIndex = DEBUG_MODES.indexOf(nextMode);
 
 		if (nextIndex < 0) {
 			return;
@@ -173,4 +196,10 @@ export function createClimateDebugCanvas(options?: {
 		setMode,
 		getMode,
 	};
+}
+
+function isWeatherDebugMode(
+	mode: ClimateDebugModeCombined,
+): mode is WeatherDebugMode {
+	return WEATHER_DEBUG_MODES.includes(mode as WeatherDebugMode);
 }
