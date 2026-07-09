@@ -79,7 +79,7 @@ export class CloudLayer {
 				uniform float uWeatherInfluence;
 				uniform float uStormInfluence;
 
-				const int STEPS = 30;
+				const int STEPS = 18;
 
 				struct ClimateSample {
 					float landMask;
@@ -747,10 +747,10 @@ export class CloudLayer {
 			return;
 		}
 
-		this.material.uniforms.uDensity.value = 2.72;
-		this.material.uniforms.uCoverage.value = 0.435;
+		this.material.uniforms.uDensity.value = 1.85;
+		this.material.uniforms.uCoverage.value = 0.5;
 		this.material.uniforms.uClimateInfluence.value = 0.46;
-		this.material.uniforms.uWeatherInfluence.value = 0.38;
-		this.material.uniforms.uStormInfluence.value = 0.34;
+		this.material.uniforms.uWeatherInfluence.value = 0.2;
+		this.material.uniforms.uStormInfluence.value = 0.14;
 	}
 }
