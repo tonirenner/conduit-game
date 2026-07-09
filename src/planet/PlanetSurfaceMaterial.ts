@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { SUN_DIRECTION } from './Sun';
 
-export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
+export function createPlanetSurfaceMaterial(
+	radius = 3,
+	atmosphereRadius = radius * 1.045,
+): THREE.ShaderMaterial {
 	return new THREE.ShaderMaterial({
 		                                vertexColors: true,
 		                                transparent: false,
@@ -10,6 +13,9 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 		                                uniforms: {
 			                                uPlanetRadius: {
 				                                value: radius,
+			                                },
+			                                uAtmosphereRadius: {
+				                                value: atmosphereRadius,
 			                                },
 			                                uSunDirection: {
 				                                value: SUN_DIRECTION.clone(),
@@ -21,7 +27,7 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 				                                value: 0.38,
 			                                },
 			                                uExposure: {
-				                                value: 1.34,
+				                                value: 1.30,
 			                                },
 			                                uSaturation: {
 				                                value: 0.84,
@@ -40,6 +46,29 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 			                                },
 			                                uOceanLightTint: {
 				                                value: new THREE.Color(0x2f8da3),
+			                                },
+
+			                                // Variante C: Aerial Perspective / Low-Orbit-Haze
+			                                uRayleighColor: {
+				                                value: new THREE.Color(0x6ea8ff),
+			                                },
+			                                uMieColor: {
+				                                value: new THREE.Color(0xffead0),
+			                                },
+			                                uAtmosphereDensity: {
+				                                value: 1.08,
+			                                },
+			                                uHazeStrength: {
+				                                value: 0.82,
+			                                },
+			                                uMieStrength: {
+				                                value: 0.42,
+			                                },
+			                                uHorizonGlowStrength: {
+				                                value: 0.72,
+			                                },
+			                                uMaxAerialDistance: {
+				                                value: 15.0,
 			                                },
 		                                },
 		                                vertexShader: `
@@ -77,6 +106,8 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 			varying vec3 vWorldPosition;
 
 			uniform float uPlanetRadius;
+			uniform float uAtmosphereRadius;
+
 			uniform vec3 uSunDirection;
 			uniform vec3 uCameraPosition;
 
@@ -89,6 +120,16 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 			uniform vec3 uOceanFresnelColor;
 			uniform vec3 uOceanDeepTint;
 			uniform vec3 uOceanLightTint;
+
+			uniform vec3 uRayleighColor;
+			uniform vec3 uMieColor;
+			uniform float uAtmosphereDensity;
+			uniform float uHazeStrength;
+			uniform float uMieStrength;
+			uniform float uHorizonGlowStrength;
+			uniform float uMaxAerialDistance;
+
+			const float PI = 3.141592653589793;
 
 			struct TerrainSample {
 				float height;
@@ -105,6 +146,48 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 				float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
 
 				return mix(vec3(luminance), color, saturation);
+			}
+
+			float rayleighPhase(float cosTheta) {
+				return 3.0 / (16.0 * PI) * (1.0 + cosTheta * cosTheta);
+			}
+
+			float hgPhase(float cosTheta, float g) {
+				float g2 = g * g;
+
+				float denominator = pow(
+					max(0.001, 1.0 + g2 - 2.0 * g * cosTheta),
+					1.5
+				);
+
+				return (1.0 / (4.0 * PI)) *
+					((1.0 - g2) / denominator);
+			}
+
+			vec3 rotateVectorFromTo(
+				vec3 vector,
+				vec3 fromDirection,
+				vec3 toDirection
+			) {
+				vec3 fromDir = normalize(fromDirection);
+				vec3 toDir = normalize(toDirection);
+
+				float cosTheta = dot(fromDir, toDir);
+
+				if (cosTheta > 0.9999) {
+					return vector;
+				}
+
+				if (cosTheta < -0.9999) {
+					return -vector;
+				}
+
+				vec3 axis = cross(fromDir, toDir);
+				float k = 1.0 / (1.0 + cosTheta);
+
+				return vector +
+					cross(axis, vector) +
+					axis * dot(axis, vector) * k;
 			}
 
 			float hash3(vec3 p) {
@@ -326,16 +409,122 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 				);
 			}
 
+			vec3 applyAerialPerspective(
+				vec3 surfaceColor,
+				vec3 worldNormal,
+				vec3 viewDirection,
+				vec3 cameraToSurface,
+				vec3 sunDirection,
+				float ndl,
+				float twilight
+			) {
+				float cameraHeight = length(uCameraPosition);
+				float viewDistance = length(uCameraPosition - vWorldPosition);
+
+				float atmosphereThickness =
+					max(0.001, uAtmosphereRadius - uPlanetRadius);
+
+				float cameraAltitude01 =
+					clamp(
+						(cameraHeight - uPlanetRadius) / atmosphereThickness,
+						0.0,
+						1.5
+					);
+
+				float lowAltitude =
+					1.0 - smoothstep(0.50, 1.25, cameraAltitude01);
+
+				float nearAtmosphere =
+					1.0 - smoothstep(1.05, 1.50, cameraAltitude01);
+
+				float horizon =
+					pow(
+						1.0 - saturate(dot(worldNormal, viewDirection)),
+						2.15
+					);
+
+				float distanceFactor =
+					saturate(viewDistance / uMaxAerialDistance);
+
+				float daySide =
+					smoothstep(-0.18, 0.46, ndl);
+
+				float aerialAmount =
+					distanceFactor *
+					(0.18 + horizon * 0.92) *
+					(0.36 + nearAtmosphere * 0.64) *
+					uHazeStrength;
+
+				aerialAmount = saturate(aerialAmount);
+
+				float cosTheta = dot(cameraToSurface, sunDirection);
+
+				float rayleigh =
+					rayleighPhase(cosTheta);
+
+				float mie =
+					hgPhase(cosTheta, 0.78);
+
+				vec3 extinction =
+					vec3(0.82, 1.06, 1.55) *
+					uAtmosphereDensity *
+					aerialAmount;
+
+				vec3 transmittance = exp(-extinction);
+
+				vec3 inscatter = vec3(0.0);
+
+				inscatter +=
+					uRayleighColor *
+					rayleigh *
+					aerialAmount *
+					(0.34 + daySide * 0.66);
+
+				inscatter +=
+					uMieColor *
+					mie *
+					aerialAmount *
+					horizon *
+					(0.24 + daySide * 0.76) *
+					uMieStrength;
+
+				inscatter +=
+					uRayleighColor *
+					horizon *
+					daySide *
+					aerialAmount *
+					uHorizonGlowStrength *
+					0.085;
+
+				inscatter +=
+					vec3(0.18, 0.25, 0.38) *
+					twilight *
+					horizon *
+					aerialAmount *
+					0.20;
+
+				// Wenn die Kamera wirklich niedrig ist, darf der Horizont stärker milchig werden.
+				inscatter +=
+					vec3(0.62, 0.76, 0.95) *
+					horizon *
+					lowAltitude *
+					daySide *
+					aerialAmount *
+					0.075;
+
+				return surfaceColor * transmittance + inscatter;
+			}
+
 			void main() {
-				// Wichtig:
-				// Surface-/Terrain-/Noise-Sampling muss im lokalen Planet-Raum passieren.
-				// Sonst bleibt der prozedurale Anteil im World-Space stehen,
-				// während vColor mit dem Planeten rotiert.
+				// Surface-/Terrain-/Noise-Sampling bleibt im lokalen Planet-Raum.
+				// Lighting/View/Aerial-Perspective bleibt im World Space.
 				vec3 localGeometricNormal = normalize(vLocalPosition);
+				vec3 worldGeometricNormal = normalize(vWorldPosition);
 
 				vec3 meshNormal = normalize(vWorldNormal);
 
 				vec3 viewDirection = normalize(uCameraPosition - vWorldPosition);
+				vec3 cameraToSurface = normalize(vWorldPosition - uCameraPosition);
 				vec3 sunDirection = normalize(uSunDirection);
 
 				TerrainSample surfaceSample = getTerrainSampleGL(localGeometricNormal);
@@ -379,10 +568,15 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 					waterHint *
 					0.35;
 
-				// Der prozedurale Normal-Detail-Anteil wird bewusst reduziert.
-				// Grund: Die Detail-Normal kommt aus Local Space, das echte Licht aber aus World Space.
-				// Für Stabilität gegen "wandernde Kontinente" bleibt World-Mesh-Normal dominant.
-				vec3 localProceduralNormal = getProceduralTerrainNormal(localGeometricNormal);
+				vec3 localProceduralNormal =
+					getProceduralTerrainNormal(localGeometricNormal);
+
+				vec3 worldProceduralNormal =
+					rotateVectorFromTo(
+						localProceduralNormal,
+						localGeometricNormal,
+						worldGeometricNormal
+					);
 
 				float proceduralNormalStrength =
 					0.10 + landMask * 0.16;
@@ -390,7 +584,7 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 				vec3 normal = normalize(
 					mix(
 						meshNormal,
-						normalize(vWorldNormal + localProceduralNormal * 0.12),
+						worldProceduralNormal,
 						proceduralNormalStrength
 					)
 				);
@@ -459,6 +653,16 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 
 				color += vec3(0.020, 0.050, 0.090) * twilight;
 				color += baseColor * twilight * 0.040;
+
+				color = applyAerialPerspective(
+					color,
+					worldGeometricNormal,
+					viewDirection,
+					cameraToSurface,
+					sunDirection,
+					ndl,
+					twilight
+				);
 
 				color *= uExposure;
 				color = pow(color, vec3(0.91));

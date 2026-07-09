@@ -6,7 +6,7 @@ export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
 
 	private readonly lodOptions: LodOptions = {
-		maxLevel: 5,
+		maxLevel: 3,
 		splitMultiplier: 3.2,
 	};
 

@@ -14,11 +14,18 @@ export class Planet {
 	private readonly clouds: CloudLayer;
 	private readonly depthOccluder: THREE.Mesh;
 
+	private readonly atmosphereRadius: number;
+
 	constructor(private readonly radius: number) {
 		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
 
-		this.surfaceMaterial = createPlanetSurfaceMaterial(radius);
+		this.atmosphereRadius = radius * 1.045;
+
+		this.surfaceMaterial = createPlanetSurfaceMaterial(
+			radius,
+			this.atmosphereRadius,
+		);
 
 		this.planetBody = this.createPlanetBody(radius);
 		this.planet = this.createPlanet(radius, this.surfaceMaterial);
@@ -36,7 +43,10 @@ export class Planet {
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
 		this.planet.rotation.y += 0.0008;
 
+		const heightAboveSurface = cameraPosition.length() - this.radius;
+
 		this.surfaceMaterial.uniforms.uCameraPosition.value.copy(cameraPosition);
+		this.updateSurfaceAtmosphereUniforms(heightAboveSurface);
 
 		this.clouds.update(deltaSeconds);
 		this.clouds.updateLOD(cameraPosition.length(), this.radius);
@@ -46,8 +56,76 @@ export class Planet {
 		this.planet.updateLOD(cameraPosition);
 	}
 
-	private createPlanet(radius: number, material: THREE.ShaderMaterial): CubeSphere {
-		const cubeSphere = new CubeSphere(radius, 16, material);
+	private updateSurfaceAtmosphereUniforms(heightAboveSurface: number): void {
+		const lowAtmosphere = 1.0 - THREE.MathUtils.smoothstep(
+			heightAboveSurface,
+			0.10,
+			1.10,
+		);
+
+		const approachAtmosphere = 1.0 - THREE.MathUtils.smoothstep(
+			heightAboveSurface,
+			0.70,
+			4.00,
+		);
+
+		const veryLowAtmosphere = 1.0 - THREE.MathUtils.smoothstep(
+			heightAboveSurface,
+			0.05,
+			0.55,
+		);
+
+		const cinematicAtmosphere = Math.max(
+			lowAtmosphere,
+			approachAtmosphere * 0.72,
+		);
+
+		this.setUniform(
+			'uHazeStrength',
+			THREE.MathUtils.lerp(0.75, 2.45, cinematicAtmosphere),
+		);
+
+		this.setUniform(
+			'uMieStrength',
+			THREE.MathUtils.lerp(0.44, 1.85, lowAtmosphere),
+		);
+
+		this.setUniform(
+			'uHorizonGlowStrength',
+			THREE.MathUtils.lerp(0.85, 3.10, cinematicAtmosphere),
+		);
+
+		this.setUniform(
+			'uAtmosphereDensity',
+			THREE.MathUtils.lerp(1.05, 2.75, lowAtmosphere),
+		);
+
+		this.setUniform(
+			'uMaxAerialDistance',
+			THREE.MathUtils.lerp(14.0, 3.2, lowAtmosphere),
+		);
+
+		this.setUniform(
+			'uExposure',
+			THREE.MathUtils.lerp(1.30, 1.58, veryLowAtmosphere),
+		);
+	}
+
+	private setUniform(name: string, value: number): void {
+		const uniform = this.surfaceMaterial.uniforms[name];
+
+		if (!uniform) {
+			return;
+		}
+
+		uniform.value = value;
+	}
+
+	private createPlanet(
+		radius: number,
+		material: THREE.ShaderMaterial,
+	): CubeSphere {
+		const cubeSphere = new CubeSphere(radius, 22, material);
 
 		cubeSphere.name = 'PlanetTerrain';
 		cubeSphere.renderOrder = 1;
