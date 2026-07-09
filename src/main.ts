@@ -15,7 +15,8 @@ const PLANET_RADIUS       = 3;
 const MIN_CAMERA_DISTANCE = PLANET_RADIUS + 0.42;
 const MAX_CAMERA_DISTANCE = 60;
 
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
+timer.connect(document);
 
 THREE.ColorManagement.enabled = true;
 
@@ -243,10 +244,12 @@ function updateHud(): void {
 }
 
 // Animation loop
-function animate(): void {
+function animate(timestamp?: number): void {
 	requestAnimationFrame(animate);
 
-	const deltaSeconds = Math.min(clock.getDelta(), 0.05);
+	timer.update(timestamp);
+
+	const deltaSeconds = Math.min(timer.getDelta(), 0.05);
 
 	planet.update(camera.position, deltaSeconds);
 
@@ -256,6 +259,15 @@ function animate(): void {
 
 	renderer.render(scene, camera);
 }
+
+resizeRenderer();
+animate();
+
+resizeRenderer();
+animate();
+
+resizeRenderer();
+animate();
 
 resizeRenderer();
 animate();

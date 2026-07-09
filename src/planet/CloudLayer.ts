@@ -43,7 +43,13 @@ export class CloudLayer {
 					                                         value: 2.38,
 				                                         },
 				                                         uClimateInfluence: {
-					                                         value: 0.25,
+					                                         value: 0.42,
+				                                         },
+				                                         uWeatherInfluence: {
+					                                         value: 0.34,
+				                                         },
+				                                         uStormInfluence: {
+					                                         value: 0.28,
 				                                         },
 			                                         },
 			                                         vertexShader: `
@@ -70,8 +76,30 @@ export class CloudLayer {
 				uniform float uCoverage;
 				uniform float uDensity;
 				uniform float uClimateInfluence;
+				uniform float uWeatherInfluence;
+				uniform float uStormInfluence;
 
 				const int STEPS = 30;
+
+				struct ClimateSample {
+					float landMask;
+					float temperature;
+					float humidity;
+					float aridity;
+					float pressure;
+					float cloudPotential;
+				};
+
+				struct WeatherSample {
+					float pressure;
+					float lowPressure;
+					float highPressure;
+					float windBand;
+					float windStrength;
+					float stormPotential;
+					float cloudBoost;
+					float swirl;
+				};
 
 				float saturate(float value) {
 					return clamp(value, 0.0, 1.0);
@@ -143,19 +171,6 @@ export class CloudLayer {
 					return value / normalizer;
 				}
 
-				vec3 domainWarp(vec3 normal, float time) {
-					vec3 p = normal;
-
-					float wx = fbm(p * 1.6 + vec3(time * 0.006, 3.7, 1.2)) - 0.5;
-					float wy = fbm(p * 1.9 + vec3(4.1, time * 0.004, 8.3)) - 0.5;
-					float wz = fbm(p * 1.4 + vec3(2.8, 6.6, time * 0.005)) - 0.5;
-
-					return normalize(
-						normal +
-						vec3(wx, wy, wz) * 0.22
-					);
-				}
-
 				float getTerrainLandMask(vec3 normal) {
 					float continentBase = fbmLow(normal * 1.25);
 
@@ -168,7 +183,7 @@ export class CloudLayer {
 					return smoothstep(0.525, 0.585, continent);
 				}
 
-				float getClimateCloudPotential(vec3 normal) {
+				ClimateSample getClimateSampleGL(vec3 normal) {
 					float landMask = getTerrainLandMask(normal);
 					float ocean = 1.0 - landMask;
 
@@ -238,7 +253,173 @@ export class CloudLayer {
 						aridity * 0.24
 					);
 
-					return cloudPotential;
+					ClimateSample climateSample;
+
+					climateSample.landMask = landMask;
+					climateSample.temperature = temperature;
+					climateSample.humidity = humidity;
+					climateSample.aridity = aridity;
+					climateSample.pressure = pressure;
+					climateSample.cloudPotential = cloudPotential;
+
+					return climateSample;
+				}
+
+				WeatherSample getWeatherSampleGL(
+					vec3 normal,
+					ClimateSample climateSample
+				) {
+					float latitude = asin(clamp(normal.y, -1.0, 1.0));
+					float ocean = 1.0 - climateSample.landMask;
+
+					float latitudeWind =
+						0.5 +
+						0.5 *
+						sin(
+							latitude * 10.0 +
+							climateSample.pressure * 3.2 +
+							uTime * 0.16
+						);
+
+					float jetBands =
+						0.5 +
+						0.5 *
+						sin(
+							latitude * 18.0 +
+							(fbmLow(normal * 1.1 + vec3(13.4, 2.7, 9.1)) - 0.5) * 5.0 +
+							uTime * 0.22
+						);
+
+					float pressureBase =
+						fbmLow(
+							normal * 1.20 +
+							vec3(19.1 + uTime * 0.025, 2.4, 33.7)
+						);
+
+					float pressureDetail =
+						fbmLow(
+							normal * 3.40 +
+							vec3(31.3, 8.6 + uTime * 0.045, 12.7)
+						);
+
+					float pressure = saturate(
+						pressureBase * 0.58 +
+						pressureDetail * 0.22 +
+						climateSample.cloudPotential * 0.13 +
+						ocean * 0.07
+					);
+
+					float lowPressure =
+						1.0 -
+						smoothstep(0.40, 0.74, pressure);
+
+					float highPressure =
+						smoothstep(0.56, 0.84, pressure);
+
+					float instability = saturate(
+						climateSample.humidity * 0.48 +
+						climateSample.temperature * 0.28 +
+						ocean * 0.14 -
+						climateSample.aridity * 0.34 +
+						lowPressure * 0.22
+					);
+
+					float cellNoise =
+						fbmLow(
+							normal * 6.2 +
+							vec3(5.1 + uTime * 0.075, 91.4, 17.7)
+						);
+
+					float stormCells =
+						smoothstep(0.58, 0.86, cellNoise) *
+						(1.0 - highPressure * 0.55);
+
+					float stormPotential = saturate(
+						climateSample.cloudPotential * 0.48 +
+						instability * 0.34 +
+						stormCells * 0.32 +
+						lowPressure * 0.18 -
+						highPressure * 0.18
+					);
+
+					float windStrength = saturate(
+						0.18 +
+						latitudeWind * 0.30 +
+						jetBands * 0.28 +
+						abs(pressure - 0.5) * 0.34
+					);
+
+					float cloudBoost = saturate(
+						climateSample.cloudPotential * 0.66 +
+						lowPressure * 0.22 +
+						stormPotential * 0.24 -
+						highPressure * 0.12
+					);
+
+					float swirlNoise =
+						fbmLow(
+							normal * 8.4 +
+							vec3(73.2, 14.5 + uTime * 0.10, 42.0)
+						);
+
+					float swirl = saturate(
+						stormPotential *
+						(
+							swirlNoise * 0.72 +
+							jetBands * 0.20 +
+							lowPressure * 0.18
+						)
+					);
+
+					WeatherSample weatherSample;
+
+					weatherSample.pressure = pressure;
+					weatherSample.lowPressure = lowPressure;
+					weatherSample.highPressure = highPressure;
+					weatherSample.windBand = latitudeWind;
+					weatherSample.windStrength = windStrength;
+					weatherSample.stormPotential = stormPotential;
+					weatherSample.cloudBoost = cloudBoost;
+					weatherSample.swirl = swirl;
+
+					return weatherSample;
+				}
+
+				vec3 domainWarp(
+					vec3 normal,
+					WeatherSample weatherSample
+				) {
+					vec3 p = normal;
+
+					float bandDirection =
+						weatherSample.windBand * 2.0 -
+						1.0;
+
+					vec3 windOffset = vec3(
+						uTime * 0.0032 * (0.65 + weatherSample.windStrength),
+						bandDirection * uTime * 0.0014,
+						uTime * 0.0020 * (0.75 + weatherSample.windStrength)
+					);
+
+					float wx =
+						fbm(p * 1.6 + windOffset + vec3(0.0, 3.7, 1.2)) -
+						0.5;
+
+					float wy =
+						fbm(p * 1.9 + windOffset + vec3(4.1, 0.0, 8.3)) -
+						0.5;
+
+					float wz =
+						fbm(p * 1.4 + windOffset + vec3(2.8, 6.6, 0.0)) -
+						0.5;
+
+					vec3 warped = normalize(
+						normal +
+						vec3(wx, wy, wz) *
+						(0.20 + weatherSample.swirl * 0.16)
+					);
+
+					return warped;
 				}
 
 				float sphereIntersectionNear(
@@ -281,7 +462,17 @@ export class CloudLayer {
 						(1.0 - smoothstep(uOuterRadius - 0.026, uOuterRadius, radius));
 
 					vec3 normal = normalize(position);
-					vec3 warpedNormal = domainWarp(normal, uTime);
+
+					ClimateSample climateSample = getClimateSampleGL(normal);
+					WeatherSample weatherSample = getWeatherSampleGL(
+						normal,
+						climateSample
+					);
+
+					vec3 warpedNormal = domainWarp(
+						normal,
+						weatherSample
+					);
 
 					vec3 wind = vec3(
 						uTime * 0.0032,
@@ -293,48 +484,79 @@ export class CloudLayer {
 					float medium = fbm(warpedNormal * 5.15 + wind * 1.8);
 					float fine = fbm(warpedNormal * 16.5 + wind * 3.0);
 
-					float latitude = asin(normal.y);
+					float latitude = asin(clamp(normal.y, -1.0, 1.0));
 
 					float bandNoise = fbm(warpedNormal * 2.3 + wind) - 0.5;
+
+					float windBandWarp =
+						weatherSample.windBand * 2.0 -
+						1.0;
 
 					float bands =
 						0.5 +
 						0.5 *
 						sin(
 							latitude * 8.4 +
-							bandNoise * 5.2
+							bandNoise * 5.2 +
+							windBandWarp * 0.85
 						);
 
-					bands = smoothstep(0.36, 0.91, bands);
+					bands = smoothstep(0.35, 0.90, bands);
 
 					float streaks =
 						1.0 -
 						abs(fbm(warpedNormal * 8.0 + wind * 2.2) - 0.5) * 2.0;
 
-					streaks = pow(clamp(streaks, 0.0, 1.0), 1.55);
+					streaks = pow(clamp(streaks, 0.0, 1.0), 1.50);
 
 					float stormNoise =
-						fbm(warpedNormal * 9.0 + wind * 4.0 + vec3(17.0, 3.0, 11.0));
-
-					float climateCloudPotential =
-						getClimateCloudPotential(normal);
+						fbm(
+							warpedNormal * 9.0 +
+							wind * 4.0 +
+							vec3(17.0, 3.0, 11.0)
+						);
 
 					float storm =
-						smoothstep(0.74, 0.96, stormNoise) *
-						climateCloudPotential;
+						smoothstep(0.70, 0.94, stormNoise) *
+						weatherSample.stormPotential;
+
+					float swirlDetail =
+						fbm(
+							warpedNormal * 14.0 +
+							vec3(31.0, 9.0, 4.0) +
+							wind * 5.0
+						);
+
+					float swirlCloud =
+						smoothstep(0.52, 0.86, swirlDetail) *
+						weatherSample.swirl;
 
 					float d =
-						large * 0.39 +
-						medium * 0.29 +
-						fine * 0.07 +
-						bands * 0.16 +
-						streaks * 0.05 +
-						storm * 0.08;
+						large * 0.37 +
+						medium * 0.28 +
+						fine * 0.065 +
+						bands * 0.15 +
+						streaks * 0.055 +
+						storm * 0.08 +
+						swirlCloud * 0.055;
 
 					float climateMultiplier = mix(
 						0.72,
-						1.26,
-						climateCloudPotential
+						1.24,
+						climateSample.cloudPotential
+					);
+
+					float weatherMultiplier = mix(
+						0.76,
+						1.34,
+						weatherSample.cloudBoost
+					);
+
+					// Hochdruck reißt Wolken etwas auf.
+					float highPressureBreakup = mix(
+						1.0,
+						0.78,
+						weatherSample.highPressure
 					);
 
 					d *= mix(
@@ -343,9 +565,20 @@ export class CloudLayer {
 						uClimateInfluence
 					);
 
-					d = smoothstep(uCoverage, uCoverage + 0.205, d);
+					d *= mix(
+						1.0,
+						weatherMultiplier,
+						uWeatherInfluence
+					);
 
-					d = pow(d, 1.46);
+					d *= highPressureBreakup;
+
+					d += storm * uStormInfluence * 0.075;
+					d += swirlCloud * uStormInfluence * 0.045;
+
+					d = smoothstep(uCoverage, uCoverage + 0.200, d);
+
+					d = pow(d, 1.43);
 
 					return d * shell;
 				}
@@ -500,6 +733,8 @@ export class CloudLayer {
 			this.material.uniforms.uDensity.value = 2.05;
 			this.material.uniforms.uCoverage.value = 0.485;
 			this.material.uniforms.uClimateInfluence.value = 0.38;
+			this.material.uniforms.uWeatherInfluence.value = 0.28;
+			this.material.uniforms.uStormInfluence.value = 0.22;
 			return;
 		}
 
@@ -507,11 +742,15 @@ export class CloudLayer {
 			this.material.uniforms.uDensity.value = 2.38;
 			this.material.uniforms.uCoverage.value = 0.455;
 			this.material.uniforms.uClimateInfluence.value = 0.42;
+			this.material.uniforms.uWeatherInfluence.value = 0.34;
+			this.material.uniforms.uStormInfluence.value = 0.28;
 			return;
 		}
 
 		this.material.uniforms.uDensity.value = 2.72;
 		this.material.uniforms.uCoverage.value = 0.435;
 		this.material.uniforms.uClimateInfluence.value = 0.46;
+		this.material.uniforms.uWeatherInfluence.value = 0.38;
+		this.material.uniforms.uStormInfluence.value = 0.34;
 	}
 }
