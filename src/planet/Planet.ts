@@ -47,7 +47,7 @@ export class Planet {
 	}
 
 	private createPlanet(radius: number, material: THREE.ShaderMaterial): CubeSphere {
-		const cubeSphere = new CubeSphere(radius, 14, material);
+		const cubeSphere = new CubeSphere(radius, 16, material);
 
 		cubeSphere.name = 'PlanetTerrain';
 		cubeSphere.renderOrder = 1;

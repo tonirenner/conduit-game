@@ -13,7 +13,7 @@ export class CloudLayer {
 		const innerRadius = radius * 1.018;
 		const outerRadius = radius * 1.064;
 
-		const geometry = new THREE.SphereGeometry(outerRadius, 128, 128);
+		const geometry = new THREE.SphereGeometry(outerRadius, 96, 96);
 
 		this.material = new THREE.ShaderMaterial({
 			                                         transparent: true,
@@ -21,45 +21,23 @@ export class CloudLayer {
 			                                         depthTest: true,
 			                                         side: THREE.FrontSide,
 			                                         uniforms: {
-				                                         uTime: {
-					                                         value: 0,
-				                                         },
-				                                         uPlanetRadius: {
-					                                         value: radius,
-				                                         },
-				                                         uInnerRadius: {
-					                                         value: innerRadius,
-				                                         },
-				                                         uOuterRadius: {
-					                                         value: outerRadius,
-				                                         },
-				                                         uSunDirection: {
-					                                         value: SUN_DIRECTION.clone(),
-				                                         },
-				                                         uCoverage: {
-					                                         value: 0.455,
-				                                         },
-				                                         uDensity: {
-					                                         value: 2.38,
-				                                         },
-				                                         uClimateInfluence: {
-					                                         value: 0.42,
-				                                         },
-				                                         uWeatherInfluence: {
-					                                         value: 0.34,
-				                                         },
-				                                         uStormInfluence: {
-					                                         value: 0.28,
-				                                         },
+				                                         uTime: { value: 0 },
+				                                         uPlanetRadius: { value: radius },
+				                                         uInnerRadius: { value: innerRadius },
+				                                         uOuterRadius: { value: outerRadius },
+				                                         uSunDirection: { value: SUN_DIRECTION.clone() },
+				                                         uCoverage: { value: 0.475 },
+				                                         uDensity: { value: 2.05 },
+				                                         uClimateInfluence: { value: 0.26 },
+				                                         uWeatherInfluence: { value: 0.20 },
+				                                         uStormInfluence: { value: 0.12 },
 			                                         },
 			                                         vertexShader: `
 				varying vec3 vWorldPosition;
 
 				void main() {
 					vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-
 					vWorldPosition = worldPosition.xyz;
-
 					gl_Position = projectionMatrix * viewMatrix * worldPosition;
 				}
 			`,
@@ -79,7 +57,7 @@ export class CloudLayer {
 				uniform float uWeatherInfluence;
 				uniform float uStormInfluence;
 
-				const int STEPS = 18;
+				const int STEPS = 16;
 
 				struct ClimateSample {
 					float landMask;
@@ -144,7 +122,7 @@ export class CloudLayer {
 					float amplitude = 0.5;
 					float normalizer = 0.0;
 
-					for (int i = 0; i < 6; i++) {
+					for (int i = 0; i < 4; i++) {
 						value += noise(p) * amplitude;
 						normalizer += amplitude;
 
@@ -160,7 +138,7 @@ export class CloudLayer {
 					float amplitude = 0.5;
 					float normalizer = 0.0;
 
-					for (int i = 0; i < 4; i++) {
+					for (int i = 0; i < 3; i++) {
 						value += noise(p) * amplitude;
 						normalizer += amplitude;
 
@@ -281,15 +259,6 @@ export class CloudLayer {
 							uTime * 0.16
 						);
 
-					float jetBands =
-						0.5 +
-						0.5 *
-						sin(
-							latitude * 18.0 +
-							(fbmLow(normal * 1.1 + vec3(13.4, 2.7, 9.1)) - 0.5) * 5.0 +
-							uTime * 0.22
-						);
-
 					float pressureBase =
 						fbmLow(
 							normal * 1.20 +
@@ -326,39 +295,38 @@ export class CloudLayer {
 
 					float cellNoise =
 						fbmLow(
-							normal * 6.2 +
+							normal * 5.8 +
 							vec3(5.1 + uTime * 0.075, 91.4, 17.7)
 						);
 
 					float stormCells =
-						smoothstep(0.58, 0.86, cellNoise) *
+						smoothstep(0.60, 0.88, cellNoise) *
 						(1.0 - highPressure * 0.55);
 
 					float stormPotential = saturate(
 						climateSample.cloudPotential * 0.48 +
 						instability * 0.34 +
-						stormCells * 0.32 +
+						stormCells * 0.26 +
 						lowPressure * 0.18 -
 						highPressure * 0.18
 					);
 
 					float windStrength = saturate(
 						0.18 +
-						latitudeWind * 0.30 +
-						jetBands * 0.28 +
+						latitudeWind * 0.34 +
 						abs(pressure - 0.5) * 0.34
 					);
 
 					float cloudBoost = saturate(
 						climateSample.cloudPotential * 0.66 +
 						lowPressure * 0.22 +
-						stormPotential * 0.24 -
+						stormPotential * 0.20 -
 						highPressure * 0.12
 					);
 
 					float swirlNoise =
 						fbmLow(
-							normal * 8.4 +
+							normal * 7.4 +
 							vec3(73.2, 14.5 + uTime * 0.10, 42.0)
 						);
 
@@ -366,7 +334,6 @@ export class CloudLayer {
 						stormPotential *
 						(
 							swirlNoise * 0.72 +
-							jetBands * 0.20 +
 							lowPressure * 0.18
 						)
 					);
@@ -389,8 +356,6 @@ export class CloudLayer {
 					vec3 normal,
 					WeatherSample weatherSample
 				) {
-					vec3 p = normal;
-
 					float bandDirection =
 						weatherSample.windBand * 2.0 -
 						1.0;
@@ -402,21 +367,17 @@ export class CloudLayer {
 					);
 
 					float wx =
-						fbm(p * 1.6 + windOffset + vec3(0.0, 3.7, 1.2)) -
+						fbmLow(normal * 1.6 + windOffset + vec3(0.0, 3.7, 1.2)) -
 						0.5;
 
 					float wy =
-						fbm(p * 1.9 + windOffset + vec3(4.1, 0.0, 8.3)) -
-						0.5;
-
-					float wz =
-						fbm(p * 1.4 + windOffset + vec3(2.8, 6.6, 0.0)) -
+						fbmLow(normal * 1.9 + windOffset + vec3(4.1, 0.0, 8.3)) -
 						0.5;
 
 					vec3 warped = normalize(
 						normal +
-						vec3(wx, wy, wz) *
-						(0.20 + weatherSample.swirl * 0.16)
+						vec3(wx, wy, 0.0) *
+						(0.16 + weatherSample.swirl * 0.10)
 					);
 
 					return warped;
@@ -454,7 +415,11 @@ export class CloudLayer {
 					return -b + sqrt(h);
 				}
 
-				float cloudDensity(vec3 position) {
+				float cloudDensity(
+					vec3 position,
+					ClimateSample climateSample,
+					WeatherSample weatherSample
+				) {
 					float radius = length(position);
 
 					float shell =
@@ -462,12 +427,6 @@ export class CloudLayer {
 						(1.0 - smoothstep(uOuterRadius - 0.026, uOuterRadius, radius));
 
 					vec3 normal = normalize(position);
-
-					ClimateSample climateSample = getClimateSampleGL(normal);
-					WeatherSample weatherSample = getWeatherSampleGL(
-						normal,
-						climateSample
-					);
 
 					vec3 warpedNormal = domainWarp(
 						normal,
@@ -480,13 +439,12 @@ export class CloudLayer {
 						uTime * 0.0020
 					);
 
-					float large = fbm(warpedNormal * 1.65 + wind);
-					float medium = fbm(warpedNormal * 5.15 + wind * 1.8);
-					float fine = fbm(warpedNormal * 16.5 + wind * 3.0);
+					float large = fbm(warpedNormal * 1.45 + wind);
+					float medium = fbm(warpedNormal * 4.40 + wind * 1.8);
 
 					float latitude = asin(clamp(normal.y, -1.0, 1.0));
 
-					float bandNoise = fbm(warpedNormal * 2.3 + wind) - 0.5;
+					float bandNoise = fbmLow(warpedNormal * 2.0 + wind) - 0.5;
 
 					float windBandWarp =
 						weatherSample.windBand * 2.0 -
@@ -505,57 +463,43 @@ export class CloudLayer {
 
 					float streaks =
 						1.0 -
-						abs(fbm(warpedNormal * 8.0 + wind * 2.2) - 0.5) * 2.0;
+						abs(fbmLow(warpedNormal * 6.0 + wind * 2.2) - 0.5) * 2.0;
 
-					streaks = pow(clamp(streaks, 0.0, 1.0), 1.50);
+					streaks = pow(clamp(streaks, 0.0, 1.0), 1.45);
 
 					float stormNoise =
-						fbm(
-							warpedNormal * 9.0 +
-							wind * 4.0 +
+						fbmLow(
+							warpedNormal * 7.2 +
+							wind * 3.2 +
 							vec3(17.0, 3.0, 11.0)
 						);
 
 					float storm =
-						smoothstep(0.70, 0.94, stormNoise) *
+						smoothstep(0.72, 0.94, stormNoise) *
 						weatherSample.stormPotential;
 
-					float swirlDetail =
-						fbm(
-							warpedNormal * 14.0 +
-							vec3(31.0, 9.0, 4.0) +
-							wind * 5.0
-						);
-
-					float swirlCloud =
-						smoothstep(0.52, 0.86, swirlDetail) *
-						weatherSample.swirl;
-
 					float d =
-						large * 0.37 +
-						medium * 0.28 +
-						fine * 0.065 +
-						bands * 0.15 +
-						streaks * 0.055 +
-						storm * 0.08 +
-						swirlCloud * 0.055;
+						large * 0.39 +
+						medium * 0.29 +
+						bands * 0.17 +
+						streaks * 0.07 +
+						storm * 0.08;
 
 					float climateMultiplier = mix(
-						0.72,
-						1.24,
+						0.76,
+						1.20,
 						climateSample.cloudPotential
 					);
 
 					float weatherMultiplier = mix(
-						0.76,
-						1.34,
+						0.80,
+						1.24,
 						weatherSample.cloudBoost
 					);
 
-					// Hochdruck reißt Wolken etwas auf.
 					float highPressureBreakup = mix(
 						1.0,
-						0.78,
+						0.82,
 						weatherSample.highPressure
 					);
 
@@ -573,12 +517,10 @@ export class CloudLayer {
 
 					d *= highPressureBreakup;
 
-					d += storm * uStormInfluence * 0.075;
-					d += swirlCloud * uStormInfluence * 0.045;
+					d += storm * uStormInfluence * 0.055;
 
-					d = smoothstep(uCoverage, uCoverage + 0.200, d);
-
-					d = pow(d, 1.43);
+					d = smoothstep(uCoverage, uCoverage + 0.215, d);
+					d = pow(d, 1.48);
 
 					return d * shell;
 				}
@@ -620,6 +562,15 @@ export class CloudLayer {
 						discard;
 					}
 
+					vec3 basePoint = rayOrigin + rayDirection * tNear;
+					vec3 baseNormal = normalize(basePoint);
+
+					ClimateSample climateSample = getClimateSampleGL(baseNormal);
+					WeatherSample weatherSample = getWeatherSampleGL(
+						baseNormal,
+						climateSample
+					);
+
 					float thickness = tFar - tNear;
 					float stepSize = thickness / float(STEPS);
 
@@ -636,9 +587,13 @@ export class CloudLayer {
 							continue;
 						}
 
-						float d = cloudDensity(p) * uDensity;
+						float d = cloudDensity(
+							p,
+							climateSample,
+							weatherSample
+						) * uDensity;
 
-						if (d <= 0.011) {
+						if (d <= 0.012) {
 							continue;
 						}
 
@@ -680,7 +635,7 @@ export class CloudLayer {
 							0.075;
 
 						float sampleAlpha =
-							1.0 - exp(-d * stepSize * 1.38);
+							1.0 - exp(-d * stepSize * 1.32);
 
 						sampleAlpha *= mix(0.28, 1.0, dayLight);
 						sampleAlpha *= mix(0.56, 1.0, limbFade);
@@ -689,7 +644,7 @@ export class CloudLayer {
 						color += cloudColor * sampleAlpha;
 						alpha += sampleAlpha;
 
-						if (alpha > 0.93) {
+						if (alpha > 0.91) {
 							break;
 						}
 					}
@@ -703,7 +658,7 @@ export class CloudLayer {
 					alpha *= mix(0.52, 1.0, finalLimbFade);
 					color *= mix(0.78, 1.0, finalLimbFade);
 
-					alpha = clamp(alpha, 0.0, 0.82);
+					alpha = clamp(alpha, 0.0, 0.78);
 
 					if (alpha < 0.018) {
 						discard;
@@ -723,34 +678,34 @@ export class CloudLayer {
 	}
 
 	update(deltaSeconds: number): void {
-		this.material.uniforms.uTime.value += deltaSeconds * 0.18;
+		this.material.uniforms.uTime.value += deltaSeconds * 0.14;
 	}
 
 	updateLOD(cameraDistance: number, planetRadius: number): void {
 		const heightAboveSurface = cameraDistance - planetRadius;
 
 		if (heightAboveSurface > 8) {
-			this.material.uniforms.uDensity.value = 2.05;
-			this.material.uniforms.uCoverage.value = 0.485;
-			this.material.uniforms.uClimateInfluence.value = 0.38;
-			this.material.uniforms.uWeatherInfluence.value = 0.28;
-			this.material.uniforms.uStormInfluence.value = 0.22;
+			this.material.uniforms.uDensity.value = 1.78;
+			this.material.uniforms.uCoverage.value = 0.505;
+			this.material.uniforms.uClimateInfluence.value = 0.20;
+			this.material.uniforms.uWeatherInfluence.value = 0.14;
+			this.material.uniforms.uStormInfluence.value = 0.08;
 			return;
 		}
 
 		if (heightAboveSurface > 3) {
-			this.material.uniforms.uDensity.value = 2.38;
-			this.material.uniforms.uCoverage.value = 0.455;
-			this.material.uniforms.uClimateInfluence.value = 0.42;
-			this.material.uniforms.uWeatherInfluence.value = 0.34;
-			this.material.uniforms.uStormInfluence.value = 0.28;
+			this.material.uniforms.uDensity.value = 2.05;
+			this.material.uniforms.uCoverage.value = 0.475;
+			this.material.uniforms.uClimateInfluence.value = 0.26;
+			this.material.uniforms.uWeatherInfluence.value = 0.20;
+			this.material.uniforms.uStormInfluence.value = 0.12;
 			return;
 		}
 
-		this.material.uniforms.uDensity.value = 1.85;
-		this.material.uniforms.uCoverage.value = 0.5;
-		this.material.uniforms.uClimateInfluence.value = 0.46;
-		this.material.uniforms.uWeatherInfluence.value = 0.2;
-		this.material.uniforms.uStormInfluence.value = 0.14;
+		this.material.uniforms.uDensity.value = 2.34;
+		this.material.uniforms.uCoverage.value = 0.455;
+		this.material.uniforms.uClimateInfluence.value = 0.30;
+		this.material.uniforms.uWeatherInfluence.value = 0.24;
+		this.material.uniforms.uStormInfluence.value = 0.16;
 	}
 }

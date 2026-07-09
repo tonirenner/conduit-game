@@ -175,7 +175,7 @@ function resizeRenderer(): void {
 	camera.updateProjectionMatrix();
 
 	renderer.setSize(width, height);
-	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
 
 	starBackground.dispatchEvent(new Event('force-redraw'));
 }
@@ -263,11 +263,8 @@ function animate(timestamp?: number): void {
 resizeRenderer();
 animate();
 
-resizeRenderer();
-animate();
-
-resizeRenderer();
-animate();
-
-resizeRenderer();
-animate();
+if (import.meta.hot) {
+	import.meta.hot.accept(() => {
+		window.location.reload();
+	});
+}

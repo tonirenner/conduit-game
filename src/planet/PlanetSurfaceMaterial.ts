@@ -44,11 +44,18 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 		                                },
 		                                vertexShader: `
 			varying vec3 vColor;
+
+			varying vec3 vLocalPosition;
+			varying vec3 vLocalNormal;
+
 			varying vec3 vWorldNormal;
 			varying vec3 vWorldPosition;
 
 			void main() {
 				vColor = color;
+
+				vLocalPosition = position;
+				vLocalNormal = normal;
 
 				vec4 worldPosition = modelMatrix * vec4(position, 1.0);
 
@@ -62,6 +69,10 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 			precision highp float;
 
 			varying vec3 vColor;
+
+			varying vec3 vLocalPosition;
+			varying vec3 vLocalNormal;
+
 			varying vec3 vWorldNormal;
 			varying vec3 vWorldPosition;
 
@@ -316,17 +327,22 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 			}
 
 			void main() {
-				vec3 geometricNormal = normalize(vWorldPosition);
+				// Wichtig:
+				// Surface-/Terrain-/Noise-Sampling muss im lokalen Planet-Raum passieren.
+				// Sonst bleibt der prozedurale Anteil im World-Space stehen,
+				// während vColor mit dem Planeten rotiert.
+				vec3 localGeometricNormal = normalize(vLocalPosition);
+
 				vec3 meshNormal = normalize(vWorldNormal);
 
 				vec3 viewDirection = normalize(uCameraPosition - vWorldPosition);
 				vec3 sunDirection = normalize(uSunDirection);
 
-				TerrainSample surfaceSample = getTerrainSampleGL(geometricNormal);
+				TerrainSample surfaceSample = getTerrainSampleGL(localGeometricNormal);
 
 				vec3 proceduralColor = getTerrainColorGL(
 					surfaceSample,
-					geometricNormal
+					localGeometricNormal
 				);
 
 				vec3 baseColor = mix(
@@ -352,8 +368,8 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 				);
 
 				float oceanNoise =
-					pseudoNoise(geometricNormal * 42.0) * 0.5 +
-					pseudoNoise(geometricNormal * 96.0 + vec3(4.7)) * 0.5;
+					pseudoNoise(localGeometricNormal * 42.0) * 0.5 +
+					pseudoNoise(localGeometricNormal * 96.0 + vec3(4.7)) * 0.5;
 
 				oceanNoise -= 0.5;
 
@@ -363,13 +379,19 @@ export function createPlanetSurfaceMaterial(radius = 3): THREE.ShaderMaterial {
 					waterHint *
 					0.35;
 
-				vec3 proceduralNormal = getProceduralTerrainNormal(geometricNormal);
+				// Der prozedurale Normal-Detail-Anteil wird bewusst reduziert.
+				// Grund: Die Detail-Normal kommt aus Local Space, das echte Licht aber aus World Space.
+				// Für Stabilität gegen "wandernde Kontinente" bleibt World-Mesh-Normal dominant.
+				vec3 localProceduralNormal = getProceduralTerrainNormal(localGeometricNormal);
+
+				float proceduralNormalStrength =
+					0.10 + landMask * 0.16;
 
 				vec3 normal = normalize(
 					mix(
 						meshNormal,
-						proceduralNormal,
-						mix(0.10, 0.42, landMask)
+						normalize(vWorldNormal + localProceduralNormal * 0.12),
+						proceduralNormalStrength
 					)
 				);
 
