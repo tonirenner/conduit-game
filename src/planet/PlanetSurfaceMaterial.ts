@@ -518,7 +518,7 @@ export function createPlanetSurfaceMaterial(
 					color,
 					shallowTint,
 					shallowWater *
-					(0.055 + mediumDetail * 0.065) *
+					(0.038 + mediumDetail * 0.045) *
 					textureStrength
 				);
 
@@ -526,7 +526,7 @@ export function createPlanetSurfaceMaterial(
 					color,
 					coastTint,
 					coastMask *
-					0.095 *
+					0.065 *
 					textureStrength
 				);
 
