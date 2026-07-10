@@ -461,6 +461,29 @@ export function createPlanetSurfaceMaterial(
 
 				combinedDetail = combinedDetail - 0.5;
 
+				float bathymetryLarge =
+					fbm(normal * 1.65 + vec3(2.7, 11.3, 6.8));
+
+				float bathymetryMedium =
+					fbm(normal * 4.25 + vec3(18.4, 3.2, 29.7));
+
+				float oceanBasin =
+					waterHint *
+					(1.0 - smoothstep(0.22, 0.62, land)) *
+					smoothstep(0.38, 0.82, bathymetryLarge);
+
+				float oceanShelf =
+					waterHint *
+					smoothstep(0.34, 0.70, land) *
+					(1.0 - smoothstep(0.76, 0.96, land));
+
+				float oceanVariation =
+					(
+						bathymetryLarge * 0.70 +
+						bathymetryMedium * 0.30 -
+						0.5
+					);
+
 				float coastMask =
 					1.0 -
 					smoothstep(
@@ -489,13 +512,19 @@ export function createPlanetSurfaceMaterial(
 				vec3 color = baseColor;
 
 				vec3 waterDepthTint =
-					vec3(0.015, 0.070, 0.115);
+					vec3(0.010, 0.052, 0.092);
+
+				vec3 waterBasinTint =
+					vec3(0.004, 0.032, 0.065);
 
 				vec3 shallowTint =
-					vec3(0.070, 0.230, 0.245);
+					vec3(0.052, 0.185, 0.205);
+
+				vec3 shelfTint =
+					vec3(0.040, 0.135, 0.165);
 
 				vec3 coastTint =
-					vec3(0.225, 0.335, 0.270);
+					vec3(0.205, 0.295, 0.240);
 
 				vec3 vegetationTint =
 					vec3(0.105, 0.245, 0.110);
@@ -510,7 +539,23 @@ export function createPlanetSurfaceMaterial(
 					color,
 					waterDepthTint,
 					deepWater *
-					(0.10 + largeDetail * 0.08) *
+					(0.075 + largeDetail * 0.055) *
+					textureStrength
+				);
+
+				color = mix(
+					color,
+					waterBasinTint,
+					oceanBasin *
+					0.16 *
+					textureStrength
+				);
+
+				color = mix(
+					color,
+					shelfTint,
+					oceanShelf *
+					0.045 *
 					textureStrength
 				);
 
@@ -518,7 +563,7 @@ export function createPlanetSurfaceMaterial(
 					color,
 					shallowTint,
 					shallowWater *
-					(0.038 + mediumDetail * 0.045) *
+					(0.030 + mediumDetail * 0.038) *
 					textureStrength
 				);
 
@@ -526,7 +571,7 @@ export function createPlanetSurfaceMaterial(
 					color,
 					coastTint,
 					coastMask *
-					0.065 *
+					0.050 *
 					textureStrength
 				);
 
@@ -573,7 +618,13 @@ export function createPlanetSurfaceMaterial(
 
 				color +=
 					combinedDetail *
-					0.020 *
+					0.014 *
+					waterHint *
+					textureStrength;
+
+				color +=
+					oceanVariation *
+					vec3(0.0, 0.012, 0.022) *
 					waterHint *
 					textureStrength;
 
