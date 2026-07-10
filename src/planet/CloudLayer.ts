@@ -30,12 +30,12 @@ export class CloudLayer {
 				                                         uInnerRadius: { value: innerRadius },
 				                                         uOuterRadius: { value: outerRadius },
 				                                         uSunDirection: { value: SUN_DIRECTION.clone() },
-				                                         uCoverage: { value: 0.475 },
-				                                         uDensity: { value: 2.05 },
-				                                         uClimateInfluence: { value: 0.26 },
-				                                         uWeatherInfluence: { value: 0.20 },
-				                                         uStormInfluence: { value: 0.12 },
-				                                         uCloudAlpha: { value: 0.72 },
+				                                         uCoverage: { value: 0.505 },
+				                                         uDensity: { value: 2.25 },
+				                                         uClimateInfluence: { value: 0.25 },
+				                                         uWeatherInfluence: { value: 0.19 },
+				                                         uStormInfluence: { value: 0.11 },
+				                                         uCloudAlpha: { value: 0.82 },
 
 				                                         // RenderQuality
 				                                         uCloudDetailStrength: { value: 1.0 },
@@ -478,7 +478,7 @@ export class CloudLayer {
 								windBandWarp * 0.85
 							);
 
-						bands = smoothstep(0.35, 0.90, bands);
+						bands = smoothstep(0.38, 0.92, bands);
 					} else {
 						bands =
 							0.5 +
@@ -488,7 +488,7 @@ export class CloudLayer {
 								windBandWarp * 0.85
 							);
 
-						bands = smoothstep(0.38, 0.88, bands);
+						bands = smoothstep(0.40, 0.90, bands);
 					}
 
 					if (detail > 0.45) {
@@ -496,7 +496,7 @@ export class CloudLayer {
 							1.0 -
 							abs(fbmLow(warpedNormal * 6.0 + wind * 2.2) - 0.5) * 2.0;
 
-						streaks = pow(clamp(streaks, 0.0, 1.0), 1.45);
+						streaks = pow(clamp(streaks, 0.0, 1.0), 1.35);
 
 						float stormNoise =
 							fbmLow(
@@ -506,32 +506,32 @@ export class CloudLayer {
 							);
 
 						storm =
-							smoothstep(0.72, 0.94, stormNoise) *
+							smoothstep(0.70, 0.94, stormNoise) *
 							weatherSample.stormPotential;
 					}
 
 					float d =
-						large * mix(0.52, 0.39, detail) +
-						medium * 0.29 * detail +
-						bands * mix(0.32, 0.17, detail) +
-						streaks * 0.07 * detail +
-						storm * 0.08 * detail;
+						large * mix(0.50, 0.36, detail) +
+						medium * 0.31 * detail +
+						bands * mix(0.34, 0.18, detail) +
+						streaks * 0.09 * detail +
+						storm * 0.10 * detail;
 
 					float climateMultiplier = mix(
-						0.76,
-						1.20,
+						0.74,
+						1.22,
 						climateSample.cloudPotential
 					);
 
 					float weatherMultiplier = mix(
-						0.80,
-						1.24,
+						0.78,
+						1.28,
 						weatherSample.cloudBoost
 					);
 
 					float highPressureBreakup = mix(
 						1.0,
-						0.82,
+						0.80,
 						weatherSample.highPressure
 					);
 
@@ -549,10 +549,10 @@ export class CloudLayer {
 
 					d *= highPressureBreakup;
 
-					d += storm * uStormInfluence * 0.055 * detail;
+					d += storm * uStormInfluence * 0.070 * detail;
 
-					d = smoothstep(uCoverage, uCoverage + 0.215, d);
-					d = pow(d, 1.48);
+					d = smoothstep(uCoverage, uCoverage + 0.175, d);
+					d = pow(d, 1.30);
 
 					return d * shell;
 				}
@@ -633,16 +633,16 @@ export class CloudLayer {
 
 						float sunDot = dot(n, sunDirection);
 
-						float dayLight = smoothstep(-0.20, 0.65, sunDot);
-						float directLight = pow(max(sunDot, 0.0), 0.62);
+						float dayLight = smoothstep(-0.22, 0.70, sunDot);
+						float directLight = pow(max(sunDot, 0.0), 0.54);
 
 						float viewFacing =
 							clamp(dot(n, -rayDirection), 0.0, 1.0);
 
-						float limbFade = smoothstep(0.014, 0.20, viewFacing);
+						float limbFade = smoothstep(0.012, 0.22, viewFacing);
 
-						vec3 shadowColor = vec3(0.46, 0.49, 0.54);
-						vec3 midColor = vec3(0.90, 0.92, 0.93);
+						vec3 shadowColor = vec3(0.56, 0.59, 0.64);
+						vec3 midColor = vec3(0.94, 0.955, 0.965);
 						vec3 sunColor = vec3(1.0, 0.995, 0.985);
 
 						vec3 cloudColor = mix(
@@ -654,31 +654,41 @@ export class CloudLayer {
 						cloudColor = mix(
 							cloudColor,
 							sunColor,
-							directLight * 0.82
+							directLight * 0.88
 						);
 
 						float forwardLight =
-							smoothstep(0.35, 0.98, dot(-rayDirection, sunDirection));
+							smoothstep(0.28, 0.98, dot(-rayDirection, sunDirection));
 
 						cloudColor +=
-							vec3(1.0, 0.82, 0.58) *
+							vec3(1.0, 0.84, 0.60) *
 							forwardLight *
 							dayLight *
-							0.085;
+							0.105;
 
-						cloudColor *= 1.08;
+						float silverLining =
+							pow(1.0 - viewFacing, 2.4) *
+							dayLight *
+							smoothstep(-0.08, 0.72, sunDot);
+
+						cloudColor +=
+							vec3(0.82, 0.94, 1.0) *
+							silverLining *
+							0.055;
+
+						cloudColor *= 1.12;
 
 						float sampleAlpha =
-							1.0 - exp(-d * stepSize * 1.32);
+							1.0 - exp(-d * stepSize * 1.42);
 
-						sampleAlpha *= mix(0.28, 1.0, dayLight);
-						sampleAlpha *= mix(0.56, 1.0, limbFade);
+						sampleAlpha *= mix(0.36, 1.0, dayLight);
+						sampleAlpha *= mix(0.62, 1.0, limbFade);
 						sampleAlpha *= 1.0 - alpha;
 
 						color += cloudColor * sampleAlpha;
 						alpha += sampleAlpha;
 
-						if (alpha > 0.91) {
+						if (alpha > 0.92) {
 							break;
 						}
 					}
@@ -689,11 +699,11 @@ export class CloudLayer {
 					float limb = abs(dot(frontNormal, -rayDirection));
 					float finalLimbFade = smoothstep(0.010, 0.145, limb);
 
-					alpha *= mix(0.52, 1.0, finalLimbFade);
-					color *= mix(0.78, 1.0, finalLimbFade);
+					alpha *= mix(0.55, 1.0, finalLimbFade);
+					color *= mix(0.84, 1.0, finalLimbFade);
 
 					alpha *= uCloudAlpha;
-					alpha = clamp(alpha, 0.0, 0.70);
+					alpha = clamp(alpha, 0.0, 0.76);
 
 					if (alpha < 0.018) {
 						discard;
@@ -735,30 +745,30 @@ export class CloudLayer {
 		const heightAboveSurface = cameraDistance - planetRadius;
 
 		if (heightAboveSurface > 8) {
-			this.material.uniforms.uDensity.value = 1.68;
-			this.material.uniforms.uCoverage.value = 0.515;
-			this.material.uniforms.uClimateInfluence.value = 0.20;
-			this.material.uniforms.uWeatherInfluence.value = 0.14;
+			this.material.uniforms.uDensity.value = 1.95;
+			this.material.uniforms.uCoverage.value = 0.535;
+			this.material.uniforms.uClimateInfluence.value = 0.21;
+			this.material.uniforms.uWeatherInfluence.value = 0.15;
 			this.material.uniforms.uStormInfluence.value = 0.08;
-			this.material.uniforms.uCloudAlpha.value = 0.68;
+			this.material.uniforms.uCloudAlpha.value = 0.74;
 			return;
 		}
 
 		if (heightAboveSurface > 3) {
-			this.material.uniforms.uDensity.value = 1.92;
-			this.material.uniforms.uCoverage.value = 0.490;
-			this.material.uniforms.uClimateInfluence.value = 0.25;
-			this.material.uniforms.uWeatherInfluence.value = 0.19;
-			this.material.uniforms.uStormInfluence.value = 0.11;
-			this.material.uniforms.uCloudAlpha.value = 0.76;
+			this.material.uniforms.uDensity.value = 2.25;
+			this.material.uniforms.uCoverage.value = 0.505;
+			this.material.uniforms.uClimateInfluence.value = 0.26;
+			this.material.uniforms.uWeatherInfluence.value = 0.20;
+			this.material.uniforms.uStormInfluence.value = 0.12;
+			this.material.uniforms.uCloudAlpha.value = 0.84;
 			return;
 		}
 
-		this.material.uniforms.uDensity.value = 2.20;
-		this.material.uniforms.uCoverage.value = 0.465;
-		this.material.uniforms.uClimateInfluence.value = 0.29;
-		this.material.uniforms.uWeatherInfluence.value = 0.23;
-		this.material.uniforms.uStormInfluence.value = 0.15;
-		this.material.uniforms.uCloudAlpha.value = 0.84;
+		this.material.uniforms.uDensity.value = 2.58;
+		this.material.uniforms.uCoverage.value = 0.475;
+		this.material.uniforms.uClimateInfluence.value = 0.31;
+		this.material.uniforms.uWeatherInfluence.value = 0.24;
+		this.material.uniforms.uStormInfluence.value = 0.16;
+		this.material.uniforms.uCloudAlpha.value = 0.92;
 	}
 }

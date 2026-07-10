@@ -11,7 +11,7 @@ export class AtmosphereLayer {
 	private currentRenderQuality: AtmosphereRenderQuality = 'idle';
 
 	constructor(radius: number) {
-		const atmosphereRadius = radius * 1.032;
+		const atmosphereRadius = radius * 1.038;
 
 		const geometry = new THREE.SphereGeometry(atmosphereRadius, 160, 160);
 
@@ -32,19 +32,19 @@ export class AtmosphereLayer {
 					                                         value: SUN_DIRECTION.clone(),
 				                                         },
 				                                         uSunIntensity: {
-					                                         value: 38.0,
+					                                         value: 46.0,
 				                                         },
 				                                         uRayleighStrength: {
-					                                         value: 1.16,
+					                                         value: 1.36,
 				                                         },
 				                                         uMieStrength: {
-					                                         value: 0.48,
+					                                         value: 0.62,
 				                                         },
 				                                         uMieG: {
-					                                         value: 0.79,
+					                                         value: 0.82,
 				                                         },
 				                                         uAtmosphereAlpha: {
-					                                         value: 0.76,
+					                                         value: 0.86,
 				                                         },
 				                                         uScatteringBoost: {
 					                                         value: 1.0,
@@ -144,11 +144,11 @@ export class AtmosphereLayer {
 				}
 
 				float rayleighDensity(float height01) {
-					return exp(-height01 / 0.20);
+					return exp(-height01 / 0.22);
 				}
 
 				float mieDensity(float height01) {
-					return exp(-height01 / 0.070);
+					return exp(-height01 / 0.080);
 				}
 
 				vec2 opticalDepth(
@@ -232,12 +232,12 @@ export class AtmosphereLayer {
 
 					vec3 betaRayleigh =
 						INV_WAVELENGTH4 *
-						0.0026 *
+						0.0029 *
 						uRayleighStrength *
 						uScatteringBoost;
 
 					vec3 betaMie =
-						vec3(0.0028) *
+						vec3(0.0034) *
 						uMieStrength *
 						uScatteringBoost;
 
@@ -281,11 +281,11 @@ export class AtmosphereLayer {
 									-(
 										betaRayleigh *
 										(viewDepth.x + sunDepth.x) *
-										3.8 +
+										3.35 +
 
 										betaMie *
 										(viewDepth.y + sunDepth.y) *
-										3.0
+										2.65
 									)
 								);
 
@@ -328,65 +328,95 @@ export class AtmosphereLayer {
 					float viewDot = clamp(dot(normal, viewDirection), 0.0, 1.0);
 					float limb = 1.0 - viewDot;
 
-					float limbSharp = pow(limb, 5.0);
-					float limbSoft = pow(limb, 2.15);
-					float limbUltra = pow(limb, 10.0);
+					float limbSoft = pow(limb, 2.05);
+					float limbSharp = pow(limb, 4.4);
+					float limbUltra = pow(limb, 11.0);
 
 					float sunDot = dot(normal, sunDirection);
 
+					float dayDisc = smoothstep(-0.24, 0.68, sunDot);
+
+					float sunEdge =
+						smoothstep(-0.10, 0.42, sunDot) *
+						(1.0 - smoothstep(0.62, 0.96, sunDot));
+
 					float forwardMie =
 						smoothstep(
-							0.34,
+							0.22,
 							0.98,
 							dot(viewDirection, sunDirection)
 						);
 
-					float dayDisc = smoothstep(-0.20, 0.64, sunDot);
-
-					float sunsetBand =
-						smoothstep(-0.34, 0.26, sunDot) *
-						(1.0 - smoothstep(0.28, 0.76, sunDot));
+					float backLit =
+						smoothstep(
+							0.18,
+							0.98,
+							dot(-viewDirection, sunDirection)
+						);
 
 					float mieDisc =
 						dayDisc *
 						forwardMie *
 						limbSharp;
 
-					// Warmer Mie-Glow Richtung Sonne.
-					color +=
-						vec3(1.0, 0.78, 0.50) *
-						mieDisc *
-						uMieStrength *
-						uScatteringBoost *
-						0.34;
+					float horizonSunGlow =
+						sunEdge *
+						limbSoft *
+						(0.55 + forwardMie * 0.75);
 
-					// Breiterer weicher Rayleigh-Saum.
-					vec3 limbBlue =
-						vec3(0.06, 0.30, 1.0) *
+					float cinematicRim =
 						limbSharp *
-						0.70 *
+						dayDisc *
+						(0.68 + forwardMie * 0.45);
+
+					vec3 cyanRim =
+						vec3(0.10, 0.82, 1.0) *
+						cinematicRim *
+						0.82 *
 						uScatteringBoost;
 
-					// Dünner heller weiß-blauer Rand direkt am Horizont.
-					vec3 thinWhiteRim =
-						vec3(0.86, 0.94, 1.0) *
-						limbUltra *
-						0.48 *
+					vec3 deepBlueRim =
+						vec3(0.04, 0.22, 1.0) *
+						limbSoft *
+						0.26 *
 						dayDisc *
 						uScatteringBoost;
 
-					// Leichte warme Übergangsschicht am Terminator.
-					vec3 sunsetGlow =
-						vec3(1.0, 0.50, 0.24) *
-						sunsetBand *
-						limbSoft *
-						uMieStrength *
-						0.20 *
+					vec3 whiteHorizonLine =
+						vec3(0.86, 0.98, 1.0) *
+						limbUltra *
+						0.64 *
+						dayDisc *
 						uScatteringBoost;
 
-					color += limbBlue;
-					color += thinWhiteRim;
-					color += sunsetGlow;
+					vec3 warmSunHaze =
+						vec3(1.0, 0.62, 0.30) *
+						horizonSunGlow *
+						uMieStrength *
+						0.38 *
+						uScatteringBoost;
+
+					vec3 goldenBackScatter =
+						vec3(1.0, 0.76, 0.46) *
+						backLit *
+						limbSharp *
+						dayDisc *
+						uMieStrength *
+						0.16 *
+						uScatteringBoost;
+
+					color += cyanRim;
+					color += deepBlueRim;
+					color += whiteHorizonLine;
+					color += warmSunHaze;
+					color += goldenBackScatter;
+
+					color +=
+						vec3(1.0, 0.82, 0.56) *
+						mieDisc *
+						uMieStrength *
+						uScatteringBoost *
+						0.28;
 
 					float luminance = dot(
 						color,
@@ -394,26 +424,35 @@ export class AtmosphereLayer {
 					);
 
 					float outerFade =
-						smoothstep(0.00, 0.22, viewDot);
+						smoothstep(0.00, 0.20, viewDot);
+
+					float nightFade =
+						smoothstep(-0.35, 0.22, sunDot);
 
 					float alpha =
 						luminance *
-						uAtmosphereAlpha +
+						uAtmosphereAlpha *
+
+						0.92 +
 
 						limbSharp *
-						0.22 *
-
+						0.30 *
+						dayDisc *
 						uScatteringBoost +
 
-						thinWhiteRim.r *
-						0.24 +
+						whiteHorizonLine.r *
+						0.25 +
+
+						horizonSunGlow *
+						0.080 +
 
 						mieDisc *
 						0.060;
 
 					alpha *= outerFade;
+					alpha *= mix(0.22, 1.0, nightFade);
 
-					alpha = clamp(alpha, 0.0, 0.56);
+					alpha = clamp(alpha, 0.0, 0.62);
 
 					if (alpha < 0.003) {
 						discard;
@@ -441,14 +480,14 @@ export class AtmosphereLayer {
 		this.currentRenderQuality = quality;
 
 		if (quality === 'moving') {
-			this.material.uniforms.uSunIntensity.value = 30.0;
-			this.material.uniforms.uAtmosphereAlpha.value = 0.58;
+			this.material.uniforms.uSunIntensity.value = 34.0;
+			this.material.uniforms.uAtmosphereAlpha.value = 0.62;
 			this.material.uniforms.uScatteringBoost.value = 0.78;
 			return;
 		}
 
-		this.material.uniforms.uSunIntensity.value = 38.0;
-		this.material.uniforms.uAtmosphereAlpha.value = 0.76;
+		this.material.uniforms.uSunIntensity.value = 46.0;
+		this.material.uniforms.uAtmosphereAlpha.value = 0.86;
 		this.material.uniforms.uScatteringBoost.value = 1.0;
 	}
 }

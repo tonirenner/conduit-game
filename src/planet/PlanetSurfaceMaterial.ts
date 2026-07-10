@@ -24,13 +24,13 @@ export function createPlanetSurfaceMaterial(
 				                                value: new THREE.Vector3(),
 			                                },
 			                                uAmbient: {
-				                                value: 0.38,
+				                                value: 0.40,
 			                                },
 			                                uExposure: {
-				                                value: 1.30,
+				                                value: 1.34,
 			                                },
 			                                uSaturation: {
-				                                value: 0.84,
+				                                value: 0.82,
 			                                },
 			                                uTerminatorSoftness: {
 				                                value: 0.92,
@@ -39,13 +39,13 @@ export function createPlanetSurfaceMaterial(
 				                                value: new THREE.Color(0x061426),
 			                                },
 			                                uOceanFresnelColor: {
-				                                value: new THREE.Color(0x1c7c9a),
+				                                value: new THREE.Color(0x2b8eb6),
 			                                },
 			                                uOceanDeepTint: {
 				                                value: new THREE.Color(0x061d2a),
 			                                },
 			                                uOceanLightTint: {
-				                                value: new THREE.Color(0x2f8da3),
+				                                value: new THREE.Color(0x4aa5bb),
 			                                },
 
 			                                // Performance / RenderQuality
@@ -59,27 +59,27 @@ export function createPlanetSurfaceMaterial(
 				                                value: 1.0,
 			                                },
 
-			                                // Variante C/D: Aerial Perspective / Low-Orbit-Haze
+			                                // Aerial Perspective / Low-Orbit-Haze
 			                                uRayleighColor: {
-				                                value: new THREE.Color(0x6ea8ff),
+				                                value: new THREE.Color(0x8ec5ff),
 			                                },
 			                                uMieColor: {
-				                                value: new THREE.Color(0xffead0),
+				                                value: new THREE.Color(0xffe6c2),
 			                                },
 			                                uAtmosphereDensity: {
-				                                value: 1.08,
+				                                value: 1.18,
 			                                },
 			                                uHazeStrength: {
-				                                value: 0.82,
+				                                value: 1.15,
 			                                },
 			                                uMieStrength: {
-				                                value: 0.42,
+				                                value: 0.76,
 			                                },
 			                                uHorizonGlowStrength: {
-				                                value: 0.72,
+				                                value: 1.32,
 			                                },
 			                                uMaxAerialDistance: {
-				                                value: 15.0,
+				                                value: 18.0,
 			                                },
 		                                },
 		                                vertexShader: `
@@ -159,7 +159,6 @@ export function createPlanetSurfaceMaterial(
 
 			vec3 adjustSaturation(vec3 color, float saturation) {
 				float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-
 				return mix(vec3(luminance), color, saturation);
 			}
 
@@ -325,7 +324,6 @@ export function createPlanetSurfaceMaterial(
 
 			float getTerrainHeightGL(vec3 normal) {
 				TerrainSample terrainSample = getTerrainSampleGL(normal);
-
 				return terrainSample.height;
 			}
 
@@ -502,38 +500,23 @@ export function createPlanetSurfaceMaterial(
 					waterHint *
 					(1.0 - smoothstep(0.18, 0.48, land));
 
-				float landMask =
+				float landOnlyMask =
 					smoothstep(0.58, 0.76, land);
 
 				float mountainMask =
 					smoothstep(0.07, 0.20, height) *
-					landMask;
+					landOnlyMask;
 
 				vec3 color = baseColor;
 
-				vec3 waterDepthTint =
-					vec3(0.010, 0.052, 0.092);
-
-				vec3 waterBasinTint =
-					vec3(0.004, 0.032, 0.065);
-
-				vec3 shallowTint =
-					vec3(0.052, 0.185, 0.205);
-
-				vec3 shelfTint =
-					vec3(0.040, 0.135, 0.165);
-
-				vec3 coastTint =
-					vec3(0.205, 0.295, 0.240);
-
-				vec3 vegetationTint =
-					vec3(0.105, 0.245, 0.110);
-
-				vec3 dryTint =
-					vec3(0.330, 0.275, 0.155);
-
-				vec3 rockTint =
-					vec3(0.360, 0.350, 0.310);
+				vec3 waterDepthTint = vec3(0.010, 0.052, 0.092);
+				vec3 waterBasinTint = vec3(0.004, 0.032, 0.065);
+				vec3 shallowTint = vec3(0.052, 0.185, 0.205);
+				vec3 shelfTint = vec3(0.040, 0.135, 0.165);
+				vec3 coastTint = vec3(0.205, 0.295, 0.240);
+				vec3 vegetationTint = vec3(0.105, 0.245, 0.110);
+				vec3 dryTint = vec3(0.330, 0.275, 0.155);
+				vec3 rockTint = vec3(0.360, 0.350, 0.310);
 
 				color = mix(
 					color,
@@ -578,7 +561,7 @@ export function createPlanetSurfaceMaterial(
 				float vegetationPattern =
 					smoothstep(0.38, 0.74, largeDetail) *
 					(1.0 - mountainMask) *
-					landMask;
+					landOnlyMask;
 
 				color = mix(
 					color,
@@ -590,7 +573,7 @@ export function createPlanetSurfaceMaterial(
 
 				float dryPattern =
 					smoothstep(0.58, 0.86, mediumDetail) *
-					landMask *
+					landOnlyMask *
 					(1.0 - coastMask) *
 					(1.0 - mountainMask * 0.45);
 
@@ -613,7 +596,7 @@ export function createPlanetSurfaceMaterial(
 				color +=
 					combinedDetail *
 					0.055 *
-					landMask *
+					landOnlyMask *
 					textureStrength;
 
 				color +=
@@ -650,19 +633,19 @@ export function createPlanetSurfaceMaterial(
 					clamp(
 						(cameraHeight - uPlanetRadius) / atmosphereThickness,
 						0.0,
-						1.5
+						1.8
 					);
 
 				float lowAltitude =
-					1.0 - smoothstep(0.50, 1.25, cameraAltitude01);
+					1.0 - smoothstep(0.75, 1.55, cameraAltitude01);
 
 				float nearAtmosphere =
-					1.0 - smoothstep(1.05, 1.50, cameraAltitude01);
+					1.0 - smoothstep(1.15, 1.75, cameraAltitude01);
 
 				float horizon =
 					pow(
 						1.0 - saturate(dot(worldNormal, viewDirection)),
-						2.15
+						1.85
 					);
 
 				float distanceFactor =
@@ -674,32 +657,29 @@ export function createPlanetSurfaceMaterial(
 				float grazingView =
 					pow(
 						1.0 - saturate(dot(worldNormal, viewDirection)),
-						3.0
+						2.6
 					);
 
 				float lowAltitudeGroundHaze =
 					lowAltitude *
-					smoothstep(0.18, 0.92, distanceFactor) *
-					(0.25 + grazingView * 1.35);
+					smoothstep(0.12, 0.95, distanceFactor) *
+					(0.40 + grazingView * 1.65);
 
 				float aerialAmount =
 					distanceFactor *
-					(0.22 + horizon * 1.18 + lowAltitudeGroundHaze) *
-					(0.34 + nearAtmosphere * 0.76) *
+					(0.30 + horizon * 1.45 + lowAltitudeGroundHaze) *
+					(0.40 + nearAtmosphere * 0.90) *
 					uHazeStrength;
 
 				aerialAmount = saturate(aerialAmount);
 
 				float cosTheta = dot(cameraToSurface, sunDirection);
 
-				float rayleigh =
-					rayleighPhase(cosTheta);
-
-				float mie =
-					hgPhase(cosTheta, 0.78);
+				float rayleigh = rayleighPhase(cosTheta);
+				float mie = hgPhase(cosTheta, 0.80);
 
 				vec3 extinction =
-					vec3(0.82, 1.06, 1.55) *
+					vec3(0.74, 0.96, 1.42) *
 					uAtmosphereDensity *
 					aerialAmount;
 
@@ -711,14 +691,14 @@ export function createPlanetSurfaceMaterial(
 					uRayleighColor *
 					rayleigh *
 					aerialAmount *
-					(0.34 + daySide * 0.66);
+					(0.48 + daySide * 0.82);
 
 				inscatter +=
 					uMieColor *
 					mie *
 					aerialAmount *
-					horizon *
-					(0.24 + daySide * 0.76) *
+					(0.28 + horizon * 0.95) *
+					(0.26 + daySide * 0.92) *
 					uMieStrength;
 
 				inscatter +=
@@ -727,29 +707,44 @@ export function createPlanetSurfaceMaterial(
 					daySide *
 					aerialAmount *
 					uHorizonGlowStrength *
-					0.085;
+					0.14;
 
 				inscatter +=
 					vec3(0.18, 0.25, 0.38) *
 					twilight *
 					horizon *
 					aerialAmount *
-					0.20;
+					0.24;
 
 				inscatter +=
-					vec3(0.62, 0.76, 0.95) *
+					vec3(0.62, 0.78, 1.00) *
 					horizon *
 					lowAltitude *
 					daySide *
 					aerialAmount *
-					0.075;
+					0.11;
 
 				inscatter +=
-					vec3(0.78, 0.86, 0.96) *
+					vec3(0.88, 0.82, 0.72) *
 					lowAltitudeGroundHaze *
 					daySide *
 					uHazeStrength *
-					0.16;
+					0.11;
+
+				float sunView =
+					smoothstep(0.35, 0.98, dot(viewDirection, sunDirection));
+
+				float sunHaze =
+					sunView *
+					horizon *
+					daySide *
+					lowAltitude *
+					uMieStrength;
+
+				inscatter +=
+					uMieColor *
+					(0.18 + grazingView * 0.42) *
+					sunHaze;
 
 				return surfaceColor * transmittance + inscatter;
 			}
@@ -848,17 +843,17 @@ export function createPlanetSurfaceMaterial(
 					ndl
 				);
 
-				float directLight = pow(max(ndl, 0.0), 0.58);
+				float directLight = pow(max(ndl, 0.0), 0.62);
 
 				float localAmbient = mix(
-					uAmbient * 0.94,
+					uAmbient * 0.95,
 					uAmbient,
 					1.0 - waterHint * 0.35
 				);
 
 				vec3 dayColor =
 					baseColor *
-					(localAmbient + directLight * 1.05);
+					(localAmbient + directLight * 1.12);
 
 				vec3 nightColor =
 					uNightTint +
@@ -869,7 +864,7 @@ export function createPlanetSurfaceMaterial(
 				float fresnel =
 					pow(
 						1.0 - saturate(dot(normal, viewDirection)),
-						3.15
+						3.0
 					);
 
 				color +=
@@ -877,7 +872,7 @@ export function createPlanetSurfaceMaterial(
 					fresnel *
 					waterHint *
 					day *
-					0.13;
+					0.16;
 
 				vec3 halfDirection = normalize(sunDirection + viewDirection);
 
@@ -887,15 +882,15 @@ export function createPlanetSurfaceMaterial(
 					pow(specDot, 96.0) *
 					waterHint *
 					day *
-					0.22;
+					0.24;
 
 				float broadSpecular =
 					pow(specDot, 18.0) *
 					waterHint *
 					day *
-					0.035;
+					0.050;
 
-				color += vec3(1.0, 0.95, 0.82) * tightSpecular;
+				color += vec3(1.0, 0.95, 0.84) * tightSpecular;
 				color += uOceanLightTint * broadSpecular;
 
 				float twilight =

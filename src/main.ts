@@ -21,6 +21,10 @@ const FLIGHT_MIN_HEIGHT = 0.08;
 const FLIGHT_START_HEIGHT = 0.62;
 const FLIGHT_MAX_DISTANCE = 80;
 
+const DEFAULT_CAMERA_FOV = 58;
+const CINEMATIC_CAMERA_FOV = 46;
+const CINEMATIC_LOW_ORBIT_HEIGHT = 0.54;
+
 const timer = new THREE.Timer();
 timer.connect(document);
 
@@ -43,7 +47,7 @@ scene.background = null;
 
 // Camera
 const camera = new THREE.PerspectiveCamera(
-	58,
+	DEFAULT_CAMERA_FOV,
 	window.innerWidth / window.innerHeight,
 	0.05,
 	2000,
@@ -137,7 +141,7 @@ controls.rotateSpeed = 0.58;
 
 controls.update();
 
-type CameraMode = 'orbit' | 'flight';
+type CameraMode = 'orbit' | 'flight' | 'cinematic';
 
 let cameraMode: CameraMode = 'orbit';
 
@@ -177,6 +181,15 @@ function getStableTangentBasis(
 		.normalize();
 }
 
+function setCameraFov(fov: number): void {
+	if (Math.abs(camera.fov - fov) < 0.001) {
+		return;
+	}
+
+	camera.fov = fov;
+	camera.updateProjectionMatrix();
+}
+
 function zoomCamera(amount: number): void {
 	const direction = new THREE.Vector3()
 		.subVectors(controls.target, camera.position)
@@ -208,6 +221,8 @@ function zoomCamera(amount: number): void {
 function enterFlightMode(): void {
 	cameraMode = 'flight';
 
+	setCameraFov(DEFAULT_CAMERA_FOV);
+
 	controls.enabled = false;
 	isMouseLooking = false;
 
@@ -231,6 +246,79 @@ function enterFlightMode(): void {
 		.addScaledVector(forward, 7.0)
 		.addScaledVector(radialUp, -0.18);
 
+	camera.up.copy(radialUp);
+	camera.lookAt(lookTarget);
+
+	renderQuality.forceMoving();
+}
+
+function enterCinematicLowOrbitMode(): void {
+	cameraMode = 'cinematic';
+
+	setCameraFov(CINEMATIC_CAMERA_FOV);
+
+	controls.enabled = false;
+	isMouseLooking = false;
+
+	const sunDirection = SUN_DIRECTION.clone().normalize();
+
+	const referenceAxis =
+		      Math.abs(sunDirection.y) < 0.82
+		      ? new THREE.Vector3(0, 1, 0)
+		      : new THREE.Vector3(1, 0, 0);
+
+	const tangentToSun = referenceAxis
+		.clone()
+		.addScaledVector(
+			sunDirection,
+			-referenceAxis.dot(sunDirection),
+		)
+		.normalize();
+
+	/**
+	 * RadialUp bewusst nahe am Terminator:
+	 * dot(radialUp, sunDirection) ca. 0.18
+	 * => Sonne knapp über dem lokalen Horizont.
+	 */
+	const sunLift = 0.18;
+	const tangentWeight = Math.sqrt(1.0 - sunLift * sunLift);
+
+	const radialUp = sunDirection
+		.clone()
+		.multiplyScalar(sunLift)
+		.addScaledVector(tangentToSun, tangentWeight)
+		.normalize();
+
+	const forward = sunDirection
+		.clone()
+		.addScaledVector(
+			radialUp,
+			-sunDirection.dot(radialUp),
+		)
+		.normalize();
+
+	const right = new THREE.Vector3()
+		.crossVectors(forward, radialUp)
+		.normalize();
+
+	const correctedForward = new THREE.Vector3()
+		.crossVectors(radialUp, right)
+		.normalize();
+
+	camera.position
+		.copy(radialUp)
+		.multiplyScalar(PLANET_RADIUS + CINEMATIC_LOW_ORBIT_HEIGHT);
+
+	/**
+	 * Fast tangential über den Horizont schauen,
+	 * aber minimal nach unten, damit Oberfläche/Wolken sichtbar bleiben.
+	 */
+	const lookTarget = camera.position
+		.clone()
+		.addScaledVector(correctedForward, 11.0)
+		.addScaledVector(radialUp, -0.42);
+
+	camera.up.copy(radialUp);
 	camera.lookAt(lookTarget);
 
 	renderQuality.forceMoving();
@@ -238,6 +326,8 @@ function enterFlightMode(): void {
 
 function exitFlightMode(): void {
 	cameraMode = 'orbit';
+
+	setCameraFov(DEFAULT_CAMERA_FOV);
 
 	isMouseLooking = false;
 	controls.enabled = true;
@@ -251,6 +341,8 @@ function exitFlightMode(): void {
 			.normalize()
 			.multiplyScalar(ORBIT_MIN_CAMERA_DISTANCE);
 	}
+
+	camera.up.set(0, 1, 0);
 
 	controls.update();
 	renderQuality.forceMoving();
@@ -285,7 +377,7 @@ function clampFlightCameraDistance(): void {
 }
 
 function updateFlightCamera(deltaSeconds: number): void {
-	if (cameraMode !== 'flight') {
+	if (cameraMode !== 'flight' && cameraMode !== 'cinematic') {
 		return;
 	}
 
@@ -363,7 +455,7 @@ function applyFlightMouseLook(
 	movementX: number,
 	movementY: number,
 ): void {
-	if (cameraMode !== 'flight') {
+	if (cameraMode !== 'flight' && cameraMode !== 'cinematic') {
 		return;
 	}
 
@@ -446,6 +538,7 @@ window.addEventListener('keydown', (event) => {
 		'KeyQ',
 		'KeyE',
 		'KeyF',
+		'KeyG',
 		'KeyC',
 		'KeyV',
 		'KeyH',
@@ -464,6 +557,10 @@ window.addEventListener('keydown', (event) => {
 	switch (event.code) {
 		case 'KeyF':
 			toggleCameraMode();
+			break;
+
+		case 'KeyG':
+			enterCinematicLowOrbitMode();
 			break;
 
 		case 'Equal':
@@ -516,7 +613,7 @@ window.addEventListener('keyup', (event) => {
 });
 
 renderer.domElement.addEventListener('mousedown', (event) => {
-	if (cameraMode !== 'flight') {
+	if (cameraMode !== 'flight' && cameraMode !== 'cinematic') {
 		return;
 	}
 
@@ -570,7 +667,8 @@ function updateHud(): void {
 	hud.textContent =
 		`mode: ${cameraMode.toUpperCase()} | ${atmosphereHint}\n` +
 		`distance: ${distanceFromCenter.toFixed(2)} | ` +
-		`height: ${heightAboveSurface.toFixed(2)}\n` +
+		`height: ${heightAboveSurface.toFixed(2)} | ` +
+		`fov: ${camera.fov.toFixed(0)}\n` +
 		`patches: ${terrainStats.visibleMeshes}/${terrainStats.totalPatches} | ` +
 		`lod: ${terrainStats.maxLevel}\n` +
 		`horizon: ${horizonStats.culled}/${horizonStats.tested} culled ` +
@@ -578,7 +676,7 @@ function updateHud(): void {
 		`visible: ${horizonStats.visible} | ` +
 		`near: ${horizonStats.forcedVisibleNearSurface}\n` +
 		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio().toFixed(2)}\n` +
-		`keys: F mode | W/S A/D Q/E | mouse-drag look | H hud`;
+		`keys: F flight/orbit | G cinematic | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
 // Animation loop
