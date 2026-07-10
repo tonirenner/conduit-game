@@ -1,14 +1,24 @@
 import * as THREE from 'three';
-import {type CubeFace, type LodOptions, TerrainPatch,} from './TerrainPatch';
-import {logger} from '../utils/logger';
+import {
+	type CubeFace,
+	type LodOptions,
+	TerrainPatch,
+} from './TerrainPatch';
+import {
+	HorizonCulling,
+	type HorizonCullingStats,
+} from './HorizonCulling';
+import { logger } from '../utils/logger';
 
 export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
 
 	private readonly lodOptions: LodOptions = {
-		maxLevel: 3,
+		maxLevel: 5,
 		splitMultiplier: 3.2,
 	};
+
+	private readonly horizonCulling: HorizonCulling;
 
 	constructor(
 		private readonly radius: number,
@@ -24,6 +34,13 @@ export class CubeSphere extends THREE.Group {
 			resolution: this.resolution,
 			maxLevel: this.lodOptions.maxLevel,
 			splitMultiplier: this.lodOptions.splitMultiplier,
+		});
+
+		this.horizonCulling = new HorizonCulling(this.radius, {
+			enabled: true,
+			debug: false,
+			safetyMargin: 0.08,
+			minCameraHeightForCulling: 0.22,
 		});
 
 		for (const face of this.createFaces()) {
@@ -50,10 +67,39 @@ export class CubeSphere extends THREE.Group {
 
 	updateLOD(cameraPosition: THREE.Vector3): void {
 		this.updateMatrixWorld(true);
+		this.horizonCulling.resetFrameStats();
 
 		for (const patch of this.rootPatches) {
-			patch.updateLOD(cameraPosition, this.lodOptions);
+			patch.updateLOD(
+				cameraPosition,
+				this.lodOptions,
+				this.horizonCulling,
+			);
 		}
+	}
+
+	setHorizonCullingEnabled(enabled: boolean): void {
+		this.horizonCulling.setEnabled(enabled);
+	}
+
+	setHorizonCullingDebug(debug: boolean): void {
+		this.horizonCulling.setDebug(debug);
+	}
+
+	isHorizonCullingEnabled(): boolean {
+		return this.horizonCulling.isEnabled();
+	}
+
+	isHorizonCullingDebugEnabled(): boolean {
+		return this.horizonCulling.isDebugEnabled();
+	}
+
+	getHorizonCulling(): HorizonCulling {
+		return this.horizonCulling;
+	}
+
+	getHorizonCullingStats(): HorizonCullingStats {
+		return this.horizonCulling.getStats();
 	}
 
 	private createFaces(): CubeFace[] {
@@ -96,9 +142,9 @@ export class CubeSphere extends THREE.Group {
 		visibleMeshes: number;
 		maxLevel: number;
 	} {
-		let totalPatches  = 0;
+		let totalPatches = 0;
 		let visibleMeshes = 0;
-		let maxLevel      = 0;
+		let maxLevel = 0;
 
 		for (const patch of this.rootPatches) {
 			const stats = patch.getStats();

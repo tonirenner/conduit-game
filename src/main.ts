@@ -553,6 +553,12 @@ function updateHud(): void {
 	const distanceFromCenter = camera.position.length();
 	const heightAboveSurface = distanceFromCenter - PLANET_RADIUS;
 	const terrainStats = planet.getTerrainStats();
+	const horizonStats = terrainStats.horizon;
+
+	const horizonCullPercent =
+		      horizonStats.tested > 0
+		      ? (horizonStats.culled / horizonStats.tested) * 100
+		      : 0;
 
 	const atmosphereHint =
 		      heightAboveSurface <= PLANET_RADIUS * 0.35
@@ -567,6 +573,10 @@ function updateHud(): void {
 		`height: ${heightAboveSurface.toFixed(2)}\n` +
 		`patches: ${terrainStats.visibleMeshes}/${terrainStats.totalPatches} | ` +
 		`lod: ${terrainStats.maxLevel}\n` +
+		`horizon: ${horizonStats.culled}/${horizonStats.tested} culled ` +
+		`(${horizonCullPercent.toFixed(0)}%) | ` +
+		`visible: ${horizonStats.visible} | ` +
+		`near: ${horizonStats.forcedVisibleNearSurface}\n` +
 		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio().toFixed(2)}\n` +
 		`keys: F mode | W/S A/D Q/E | mouse-drag look | H hud`;
 }

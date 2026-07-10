@@ -55,6 +55,9 @@ export function createPlanetSurfaceMaterial(
 			                                uProceduralColorStrength: {
 				                                value: 0.65,
 			                                },
+			                                uSurfaceTextureStrength: {
+				                                value: 1.0,
+			                                },
 
 			                                // Variante C/D: Aerial Perspective / Low-Orbit-Haze
 			                                uRayleighColor: {
@@ -131,6 +134,7 @@ export function createPlanetSurfaceMaterial(
 
 			uniform float uSurfaceDetailStrength;
 			uniform float uProceduralColorStrength;
+			uniform float uSurfaceTextureStrength;
 
 			uniform vec3 uRayleighColor;
 			uniform vec3 uMieColor;
@@ -420,6 +424,162 @@ export function createPlanetSurfaceMaterial(
 				);
 			}
 
+			vec3 applyProceduralSurfaceTexture(
+				vec3 baseColor,
+				TerrainSample terrainSample,
+				vec3 normal,
+				float waterHint
+			) {
+				float land = terrainSample.landMask;
+				float height = terrainSample.height;
+
+				float textureStrength =
+					clamp(
+						uSurfaceTextureStrength *
+						uProceduralColorStrength,
+						0.0,
+						1.0
+					);
+
+				if (textureStrength <= 0.001) {
+					return baseColor;
+				}
+
+				float largeDetail =
+					fbm(normal * 9.0 + vec3(11.2, 4.7, 8.1));
+
+				float mediumDetail =
+					fbm(normal * 22.0 + vec3(3.4, 19.1, 7.6));
+
+				float fineDetail =
+					fbm(normal * 54.0 + vec3(41.0, 5.3, 13.7));
+
+				float combinedDetail =
+					largeDetail * 0.52 +
+					mediumDetail * 0.32 +
+					fineDetail * 0.16;
+
+				combinedDetail = combinedDetail - 0.5;
+
+				float coastMask =
+					1.0 -
+					smoothstep(
+						0.035,
+						0.235,
+						abs(land - 0.55)
+					);
+
+				coastMask = saturate(coastMask);
+
+				float shallowWater =
+					waterHint *
+					smoothstep(0.28, 0.72, land);
+
+				float deepWater =
+					waterHint *
+					(1.0 - smoothstep(0.18, 0.48, land));
+
+				float landMask =
+					smoothstep(0.58, 0.76, land);
+
+				float mountainMask =
+					smoothstep(0.07, 0.20, height) *
+					landMask;
+
+				vec3 color = baseColor;
+
+				vec3 waterDepthTint =
+					vec3(0.015, 0.070, 0.115);
+
+				vec3 shallowTint =
+					vec3(0.070, 0.230, 0.245);
+
+				vec3 coastTint =
+					vec3(0.225, 0.335, 0.270);
+
+				vec3 vegetationTint =
+					vec3(0.105, 0.245, 0.110);
+
+				vec3 dryTint =
+					vec3(0.330, 0.275, 0.155);
+
+				vec3 rockTint =
+					vec3(0.360, 0.350, 0.310);
+
+				color = mix(
+					color,
+					waterDepthTint,
+					deepWater *
+					(0.10 + largeDetail * 0.08) *
+					textureStrength
+				);
+
+				color = mix(
+					color,
+					shallowTint,
+					shallowWater *
+					(0.055 + mediumDetail * 0.065) *
+					textureStrength
+				);
+
+				color = mix(
+					color,
+					coastTint,
+					coastMask *
+					0.095 *
+					textureStrength
+				);
+
+				float vegetationPattern =
+					smoothstep(0.38, 0.74, largeDetail) *
+					(1.0 - mountainMask) *
+					landMask;
+
+				color = mix(
+					color,
+					vegetationTint,
+					vegetationPattern *
+					0.13 *
+					textureStrength
+				);
+
+				float dryPattern =
+					smoothstep(0.58, 0.86, mediumDetail) *
+					landMask *
+					(1.0 - coastMask) *
+					(1.0 - mountainMask * 0.45);
+
+				color = mix(
+					color,
+					dryTint,
+					dryPattern *
+					0.10 *
+					textureStrength
+				);
+
+				color = mix(
+					color,
+					rockTint,
+					mountainMask *
+					(0.16 + fineDetail * 0.10) *
+					textureStrength
+				);
+
+				color +=
+					combinedDetail *
+					0.055 *
+					landMask *
+					textureStrength;
+
+				color +=
+					combinedDetail *
+					0.020 *
+					waterHint *
+					textureStrength;
+
+				return color;
+			}
+
 			vec3 applyAerialPerspective(
 				vec3 surfaceColor,
 				vec3 worldNormal,
@@ -595,6 +755,13 @@ export function createPlanetSurfaceMaterial(
 					oceanNoise *
 					waterHint *
 					0.35;
+
+				baseColor = applyProceduralSurfaceTexture(
+					baseColor,
+					surfaceSample,
+					localGeometricNormal,
+					waterHint
+				);
 
 				vec3 normal = meshNormal;
 

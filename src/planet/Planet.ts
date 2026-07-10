@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { CubeSphere } from './CubeSphere';
-import { CloudLayer } from './CloudLayer';
-import { AtmosphereLayer } from './AtmosphereLayer';
-import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
+import {CubeSphere} from './CubeSphere';
+import {CloudLayer} from './CloudLayer';
+import {AtmosphereLayer} from './AtmosphereLayer';
+import {createPlanetSurfaceMaterial} from './PlanetSurfaceMaterial';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
 
@@ -21,7 +21,7 @@ export class Planet {
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
 
 	constructor(private readonly radius: number) {
-		this.group = new THREE.Group();
+		this.group      = new THREE.Group();
 		this.group.name = 'PlanetGroup';
 
 		this.atmosphereRadius = radius * 1.045;
@@ -31,10 +31,10 @@ export class Planet {
 			this.atmosphereRadius,
 		);
 
-		this.planetBody = this.createPlanetBody(radius);
-		this.planet = this.createPlanet(radius, this.surfaceMaterial);
-		this.atmosphere = new AtmosphereLayer(radius);
-		this.clouds = new CloudLayer(radius);
+		this.planetBody    = this.createPlanetBody(radius);
+		this.planet        = this.createPlanet(radius, this.surfaceMaterial);
+		this.atmosphere    = new AtmosphereLayer(radius);
+		this.clouds        = new CloudLayer(radius);
 		this.depthOccluder = this.createDepthOccluder(radius);
 
 		this.group.add(this.depthOccluder);
@@ -70,6 +70,7 @@ export class Planet {
 		if (quality === 'moving') {
 			this.setUniform('uSurfaceDetailStrength', 0.25);
 			this.setUniform('uProceduralColorStrength', 0.25);
+			this.setUniform('uSurfaceTextureStrength', 0.35);
 			this.clouds.setRenderQuality(quality);
 			this.atmosphere.setRenderQuality(quality);
 			return;
@@ -77,6 +78,7 @@ export class Planet {
 
 		this.setUniform('uSurfaceDetailStrength', 1.0);
 		this.setUniform('uProceduralColorStrength', 0.65);
+		this.setUniform('uSurfaceTextureStrength', 1.0);
 		this.clouds.setRenderQuality(quality);
 		this.atmosphere.setRenderQuality(quality);
 	}
@@ -150,9 +152,9 @@ export class Planet {
 		radius: number,
 		material: THREE.ShaderMaterial,
 	): CubeSphere {
-		const cubeSphere = new CubeSphere(radius, 22, material);
+		const cubeSphere = new CubeSphere(radius, 24, material);
 
-		cubeSphere.name = 'PlanetTerrain';
+		cubeSphere.name        = 'PlanetTerrain';
 		cubeSphere.renderOrder = 1;
 
 		return cubeSphere;
@@ -171,7 +173,7 @@ export class Planet {
 
 		const mesh = new THREE.Mesh(geometry, material);
 
-		mesh.name = 'PlanetBody';
+		mesh.name        = 'PlanetBody';
 		mesh.renderOrder = 0;
 
 		return mesh;
@@ -188,7 +190,7 @@ export class Planet {
 
 		const mesh = new THREE.Mesh(geometry, material);
 
-		mesh.name = 'PlanetDepthOccluder';
+		mesh.name        = 'PlanetDepthOccluder';
 		mesh.renderOrder = -1000;
 
 		return mesh;
@@ -198,7 +200,17 @@ export class Planet {
 		totalPatches: number;
 		visibleMeshes: number;
 		maxLevel: number;
+		horizon: {
+			tested: number;
+			visible: number;
+			culled: number;
+			forcedVisibleNearSurface: number;
+			disabled: number;
+		};
 	} {
-		return this.planet.getStats();
+		return {
+			...this.planet.getStats(),
+			horizon: this.planet.getHorizonCullingStats(),
+		};
 	}
 }

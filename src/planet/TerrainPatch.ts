@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { getClimateSample } from './Climate';
 import { getTerrainHeight, getTerrainSample } from '../utils/noise';
 import { logger } from '../utils/logger';
+import { HorizonCulling } from './HorizonCulling';
 
 export type CubeFace = {
 	normal: THREE.Vector3;
@@ -49,8 +50,29 @@ export class TerrainPatch extends THREE.Group {
 		this.add(this.mesh);
 	}
 
-	updateLOD(cameraPosition: THREE.Vector3, options: LodOptions): void {
+	updateLOD(
+		cameraPosition: THREE.Vector3,
+		options: LodOptions,
+		horizonCulling?: HorizonCulling,
+	): void {
 		const center = this.getCenterWorld();
+
+		if (horizonCulling) {
+			const patchRadius = this.getPatchBoundingRadiusWorld(center);
+			const cullingResult = horizonCulling.testPatchSphere(
+				cameraPosition,
+				center,
+				patchRadius,
+			);
+
+			if (!cullingResult.visible) {
+				this.setSubtreeVisible(false);
+				return;
+			}
+
+			this.restoreVisibleState();
+		}
+
 		const distance = center.distanceTo(cameraPosition);
 
 		const splitDistance =
@@ -69,7 +91,7 @@ export class TerrainPatch extends THREE.Group {
 			}
 
 			for (const child of this.childrenPatches) {
-				child.updateLOD(cameraPosition, options);
+				child.updateLOD(cameraPosition, options, horizonCulling);
 			}
 		}
 	}
@@ -154,6 +176,28 @@ export class TerrainPatch extends THREE.Group {
 		this.mesh.geometry.dispose();
 	}
 
+	private restoreVisibleState(): void {
+		if (this.childrenPatches.length > 0) {
+			this.mesh.visible = false;
+
+			for (const child of this.childrenPatches) {
+				child.restoreVisibleState();
+			}
+
+			return;
+		}
+
+		this.mesh.visible = true;
+	}
+
+	private setSubtreeVisible(visible: boolean): void {
+		this.mesh.visible = visible && this.childrenPatches.length === 0;
+
+		for (const child of this.childrenPatches) {
+			child.setSubtreeVisible(visible);
+		}
+	}
+
 	private getCenterWorld(): THREE.Vector3 {
 		const cubeX = this.bounds.x + this.bounds.size / 2;
 		const cubeY = this.bounds.y + this.bounds.size / 2;
@@ -174,6 +218,51 @@ export class TerrainPatch extends THREE.Group {
 		const spherePoint = cubePoint
 			.normalize()
 			.multiplyScalar(this.radius);
+
+		return this.localToWorld(spherePoint);
+	}
+
+	private getPatchBoundingRadiusWorld(centerWorld: THREE.Vector3): number {
+		const corners = [
+			this.getPointWorld(this.bounds.x, this.bounds.y),
+			this.getPointWorld(this.bounds.x + this.bounds.size, this.bounds.y),
+			this.getPointWorld(this.bounds.x, this.bounds.y + this.bounds.size),
+			this.getPointWorld(
+				this.bounds.x + this.bounds.size,
+				this.bounds.y + this.bounds.size,
+			),
+		];
+
+		let maxDistance = 0;
+
+		for (const corner of corners) {
+			maxDistance = Math.max(
+				maxDistance,
+				corner.distanceTo(centerWorld),
+			);
+		}
+
+		// Konservativer Puffer für Terrainhöhe, Skirts und numerische Fehler.
+		return maxDistance + this.radius * this.bounds.size * 0.08 + 0.12;
+	}
+
+	private getPointWorld(cubeX: number, cubeY: number): THREE.Vector3 {
+		const cubePoint = this.face.normal
+			.clone()
+			.add(
+				this.face.right
+					.clone()
+					.multiplyScalar(cubeX),
+			)
+			.add(
+				this.face.up
+					.clone()
+					.multiplyScalar(cubeY),
+			);
+
+		const sphereNormal = cubePoint.normalize();
+
+		const spherePoint = sphereNormal.multiplyScalar(this.radius);
 
 		return this.localToWorld(spherePoint);
 	}
@@ -369,7 +458,6 @@ export class TerrainPatch extends THREE.Group {
 		const coastalWater = new THREE.Color(0x1d6a70);
 		const wetCoast = new THREE.Color(0x58664f);
 
-		// Wasser bleibt primär bathymetrisch.
 		if (land < 0.30) {
 			return deepWater.clone().lerp(
 				midWater,
@@ -400,7 +488,6 @@ export class TerrainPatch extends THREE.Group {
 
 		const color = this.getClimateLandColor(climate, height);
 
-		// Küstenbereiche leicht feuchter/grüner machen.
 		const coastInfluence =
 			      1 -
 			      Math.abs(this.clamp01((land - 0.62) / 0.24) * 2 - 1);
@@ -414,7 +501,6 @@ export class TerrainPatch extends THREE.Group {
 			);
 		}
 
-		// Höhe bringt unabhängig vom Biome etwas Felsigkeit.
 		const rockInfluence =
 			      this.smoothstep(0.095, 0.22, height) *
 			      (1 - climate.vegetation * 0.55);
@@ -428,7 +514,6 @@ export class TerrainPatch extends THREE.Group {
 			);
 		}
 
-		// Schnee/Eis oben drüber.
 		if (climate.snow > 0) {
 			const snow = new THREE.Color(0xd0d4cb);
 
@@ -438,7 +523,6 @@ export class TerrainPatch extends THREE.Group {
 			);
 		}
 
-		// Polbereiche leicht entsättigen/kühlen.
 		const polar = this.smoothstep(0.74, 0.98, Math.abs(sphereNormal.y));
 
 		if (polar > 0) {
@@ -472,25 +556,21 @@ export class TerrainPatch extends THREE.Group {
 
 		const color = grassland.clone();
 
-		// Kalt = matter / graugrün
 		color.lerp(
 			coldLand,
 			(1 - temperature) * 0.30,
 		);
 
-		// Feucht + Vegetation = grüner
 		color.lerp(
 			humidForest,
 			vegetation * 0.42,
 		);
 
-		// Trockenheit nur weich einmischen, nicht sofort Wüste
 		color.lerp(
 			dryGrass,
 			aridity * 0.24,
 		);
 
-		// Heiße trockene Zonen Richtung Savanne
 		const savanna = this.smoothstep(0.50, 0.82, aridity) *
 		                this.smoothstep(0.42, 0.78, temperature);
 
@@ -499,7 +579,6 @@ export class TerrainPatch extends THREE.Group {
 			savanna * 0.30,
 		);
 
-		// Echte Wüste nur bei sehr hoher Aridity und wenig Humidity
 		const desertMask =
 			      this.smoothstep(0.72, 0.92, aridity) *
 			      (1 - this.smoothstep(0.28, 0.52, humidity));
@@ -509,7 +588,6 @@ export class TerrainPatch extends THREE.Group {
 			desertMask * 0.55,
 		);
 
-		// Höhenlagen entsättigen
 		color.lerp(
 			highland,
 			this.smoothstep(0.065, 0.18, height) * 0.22,
