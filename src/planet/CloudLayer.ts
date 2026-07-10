@@ -35,6 +35,7 @@ export class CloudLayer {
 				                                         uClimateInfluence: { value: 0.26 },
 				                                         uWeatherInfluence: { value: 0.20 },
 				                                         uStormInfluence: { value: 0.12 },
+				                                         uCloudAlpha: { value: 0.72 },
 
 				                                         // RenderQuality
 				                                         uCloudDetailStrength: { value: 1.0 },
@@ -64,6 +65,7 @@ export class CloudLayer {
 				uniform float uWeatherInfluence;
 				uniform float uStormInfluence;
 				uniform float uCloudDetailStrength;
+				uniform float uCloudAlpha;
 
 				const int STEPS = 16;
 
@@ -639,9 +641,9 @@ export class CloudLayer {
 
 						float limbFade = smoothstep(0.014, 0.20, viewFacing);
 
-						vec3 shadowColor = vec3(0.30, 0.35, 0.41);
-						vec3 midColor = vec3(0.78, 0.81, 0.82);
-						vec3 sunColor = vec3(1.0, 0.985, 0.94);
+						vec3 shadowColor = vec3(0.46, 0.49, 0.54);
+						vec3 midColor = vec3(0.90, 0.92, 0.93);
+						vec3 sunColor = vec3(1.0, 0.995, 0.985);
 
 						vec3 cloudColor = mix(
 							shadowColor,
@@ -652,17 +654,19 @@ export class CloudLayer {
 						cloudColor = mix(
 							cloudColor,
 							sunColor,
-							directLight * 0.76
+							directLight * 0.82
 						);
 
 						float forwardLight =
 							smoothstep(0.35, 0.98, dot(-rayDirection, sunDirection));
 
 						cloudColor +=
-							vec3(1.0, 0.78, 0.52) *
+							vec3(1.0, 0.82, 0.58) *
 							forwardLight *
 							dayLight *
-							0.075;
+							0.085;
+
+						cloudColor *= 1.08;
 
 						float sampleAlpha =
 							1.0 - exp(-d * stepSize * 1.32);
@@ -688,7 +692,8 @@ export class CloudLayer {
 					alpha *= mix(0.52, 1.0, finalLimbFade);
 					color *= mix(0.78, 1.0, finalLimbFade);
 
-					alpha = clamp(alpha, 0.0, 0.78);
+					alpha *= uCloudAlpha;
+					alpha = clamp(alpha, 0.0, 0.70);
 
 					if (alpha < 0.018) {
 						discard;
@@ -730,27 +735,30 @@ export class CloudLayer {
 		const heightAboveSurface = cameraDistance - planetRadius;
 
 		if (heightAboveSurface > 8) {
-			this.material.uniforms.uDensity.value = 1.78;
-			this.material.uniforms.uCoverage.value = 0.505;
+			this.material.uniforms.uDensity.value = 1.68;
+			this.material.uniforms.uCoverage.value = 0.515;
 			this.material.uniforms.uClimateInfluence.value = 0.20;
 			this.material.uniforms.uWeatherInfluence.value = 0.14;
 			this.material.uniforms.uStormInfluence.value = 0.08;
+			this.material.uniforms.uCloudAlpha.value = 0.68;
 			return;
 		}
 
 		if (heightAboveSurface > 3) {
-			this.material.uniforms.uDensity.value = 2.05;
-			this.material.uniforms.uCoverage.value = 0.475;
-			this.material.uniforms.uClimateInfluence.value = 0.26;
-			this.material.uniforms.uWeatherInfluence.value = 0.20;
-			this.material.uniforms.uStormInfluence.value = 0.12;
+			this.material.uniforms.uDensity.value = 1.92;
+			this.material.uniforms.uCoverage.value = 0.490;
+			this.material.uniforms.uClimateInfluence.value = 0.25;
+			this.material.uniforms.uWeatherInfluence.value = 0.19;
+			this.material.uniforms.uStormInfluence.value = 0.11;
+			this.material.uniforms.uCloudAlpha.value = 0.76;
 			return;
 		}
 
-		this.material.uniforms.uDensity.value = 2.34;
-		this.material.uniforms.uCoverage.value = 0.455;
-		this.material.uniforms.uClimateInfluence.value = 0.30;
-		this.material.uniforms.uWeatherInfluence.value = 0.24;
-		this.material.uniforms.uStormInfluence.value = 0.16;
+		this.material.uniforms.uDensity.value = 2.20;
+		this.material.uniforms.uCoverage.value = 0.465;
+		this.material.uniforms.uClimateInfluence.value = 0.29;
+		this.material.uniforms.uWeatherInfluence.value = 0.23;
+		this.material.uniforms.uStormInfluence.value = 0.15;
+		this.material.uniforms.uCloudAlpha.value = 0.84;
 	}
 }
