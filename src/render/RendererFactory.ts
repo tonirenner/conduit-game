@@ -58,18 +58,9 @@ export async function createAppRenderer(
 
 export async function renderFrame(
 	renderer: AppRenderer,
-	mode: RendererMode,
 	scene: THREE.Scene,
 	camera: THREE.Camera,
 ): Promise<void> {
-	if (
-		mode === 'webgpu' &&
-		typeof renderer.renderAsync === 'function'
-	) {
-		await renderer.renderAsync(scene, camera);
-		return;
-	}
-
 	renderer.render(scene, camera);
 }
 

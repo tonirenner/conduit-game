@@ -1,15 +1,11 @@
 import * as THREE from 'three';
-import { RenderQuality } from './render/RenderQuality';
-import {
-	createAppRenderer,
-	getPreferredRendererMode,
-	renderFrame,
-} from './render/RendererFactory';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createClimateDebugCanvas } from './scene/createClimateDebugCanvas';
-import { createStarBackground } from './scene/createStarBackground';
-import { Planet } from './planet/Planet';
-import { SUN_DIRECTION, SUN_DISTANCE } from './planet/Sun';
+import {RenderQuality} from './render/RenderQuality';
+import {createAppRenderer, getPreferredRendererMode, renderFrame,} from './render/RendererFactory';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
+import {createStarBackground} from './scene/createStarBackground';
+import {Planet} from './planet/Planet';
+import {SUN_DIRECTION, SUN_DISTANCE} from './planet/Sun';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -22,12 +18,12 @@ const PLANET_RADIUS = 3;
 const ORBIT_MIN_CAMERA_DISTANCE = PLANET_RADIUS + 0.42;
 const ORBIT_MAX_CAMERA_DISTANCE = 60;
 
-const FLIGHT_MIN_HEIGHT = 0.08;
+const FLIGHT_MIN_HEIGHT   = 0.08;
 const FLIGHT_START_HEIGHT = 0.62;
 const FLIGHT_MAX_DISTANCE = 80;
 
-const DEFAULT_CAMERA_FOV = 58;
-const CINEMATIC_CAMERA_FOV = 46;
+const DEFAULT_CAMERA_FOV         = 58;
+const CINEMATIC_CAMERA_FOV       = 46;
 const CINEMATIC_LOW_ORBIT_HEIGHT = 0.54;
 
 const timer = new THREE.Timer();
@@ -40,14 +36,14 @@ const starBackground = createStarBackground();
 document.body.appendChild(starBackground);
 
 // App layer
-app.style.position = 'fixed';
-app.style.inset = '0';
-app.style.zIndex = '1';
+app.style.position   = 'fixed';
+app.style.inset      = '0';
+app.style.zIndex     = '1';
 app.style.background = 'transparent';
-app.style.overflow = 'hidden';
+app.style.overflow   = 'hidden';
 
 // Scene
-const scene = new THREE.Scene();
+const scene      = new THREE.Scene();
 scene.background = null;
 
 // Camera
@@ -90,25 +86,25 @@ const renderQuality = new RenderQuality(
 );
 
 // HUD
-const hud = document.createElement('div');
+const hud      = document.createElement('div');
 let hudVisible = true;
 
 hud.textContent = 'HUD loading...';
 
-hud.style.position = 'fixed';
-hud.style.left = '12px';
-hud.style.bottom = '12px';
-hud.style.zIndex = '9999';
-hud.style.padding = '8px 10px';
-hud.style.fontFamily = 'monospace';
-hud.style.fontSize = '12px';
-hud.style.lineHeight = '1.4';
-hud.style.whiteSpace = 'pre';
-hud.style.color = '#d8ecff';
-hud.style.background = 'rgba(0, 0, 0, 0.48)';
-hud.style.border = '1px solid rgba(120, 180, 255, 0.32)';
-hud.style.borderRadius = '6px';
-hud.style.pointerEvents = 'none';
+hud.style.position       = 'fixed';
+hud.style.left           = '12px';
+hud.style.bottom         = '12px';
+hud.style.zIndex         = '9999';
+hud.style.padding        = '8px 10px';
+hud.style.fontFamily     = 'monospace';
+hud.style.fontSize       = '12px';
+hud.style.lineHeight     = '1.4';
+hud.style.whiteSpace     = 'pre';
+hud.style.color          = '#d8ecff';
+hud.style.background     = 'rgba(0, 0, 0, 0.48)';
+hud.style.border         = '1px solid rgba(120, 180, 255, 0.32)';
+hud.style.borderRadius   = '6px';
+hud.style.pointerEvents  = 'none';
 hud.style.backdropFilter = 'blur(4px)';
 
 document.body.appendChild(hud);
@@ -132,7 +128,7 @@ controls.minDistance = ORBIT_MIN_CAMERA_DISTANCE;
 controls.maxDistance = ORBIT_MAX_CAMERA_DISTANCE;
 
 controls.enableZoom = true;
-controls.zoomSpeed = 1.15;
+controls.zoomSpeed  = 1.15;
 
 controls.enablePan = false;
 
@@ -148,14 +144,15 @@ const pressedKeys = new Set<string>();
 
 let isMouseLooking = false;
 
-const scratchVectorA = new THREE.Vector3();
-const scratchVectorB = new THREE.Vector3();
-const scratchVectorC = new THREE.Vector3();
+const scratchVectorA     = new THREE.Vector3();
+const scratchVectorB     = new THREE.Vector3();
+const scratchVectorC     = new THREE.Vector3();
 const scratchQuaternionA = new THREE.Quaternion();
 const scratchQuaternionB = new THREE.Quaternion();
 
 function getRadialUp(position: THREE.Vector3): THREE.Vector3 {
-	return scratchVectorA.copy(position).normalize();
+	return scratchVectorA.copy(position)
+		.normalize();
 }
 
 function getStableTangentBasis(
@@ -223,15 +220,16 @@ function enterFlightMode(): void {
 	setCameraFov(DEFAULT_CAMERA_FOV);
 
 	controls.enabled = false;
-	isMouseLooking = false;
+	isMouseLooking   = false;
 
-	const radialUp = camera.position.clone().normalize();
+	const radialUp = camera.position.clone()
+		.normalize();
 
 	if (!Number.isFinite(radialUp.x)) {
 		radialUp.set(0, 1, 0);
 	}
 
-	const right = new THREE.Vector3();
+	const right   = new THREE.Vector3();
 	const forward = new THREE.Vector3();
 
 	getStableTangentBasis(radialUp, right, forward);
@@ -257,9 +255,10 @@ function enterCinematicLowOrbitMode(): void {
 	setCameraFov(CINEMATIC_CAMERA_FOV);
 
 	controls.enabled = false;
-	isMouseLooking = false;
+	isMouseLooking   = false;
 
-	const sunDirection = SUN_DIRECTION.clone().normalize();
+	const sunDirection = SUN_DIRECTION.clone()
+		.normalize();
 
 	const referenceAxis =
 		      Math.abs(sunDirection.y) < 0.82
@@ -279,7 +278,7 @@ function enterCinematicLowOrbitMode(): void {
 	 * dot(radialUp, sunDirection) ca. 0.18
 	 * => Sonne knapp über dem lokalen Horizont.
 	 */
-	const sunLift = 0.18;
+	const sunLift       = 0.18;
 	const tangentWeight = Math.sqrt(1.0 - sunLift * sunLift);
 
 	const radialUp = sunDirection
@@ -328,7 +327,7 @@ function exitFlightMode(): void {
 
 	setCameraFov(DEFAULT_CAMERA_FOV);
 
-	isMouseLooking = false;
+	isMouseLooking   = false;
 	controls.enabled = true;
 
 	controls.target.set(0, 0, 0);
@@ -357,7 +356,7 @@ function toggleCameraMode(): void {
 }
 
 function clampFlightCameraDistance(): void {
-	const distance = camera.position.length();
+	const distance    = camera.position.length();
 	const minDistance = PLANET_RADIUS + FLIGHT_MIN_HEIGHT;
 
 	if (distance < minDistance) {
@@ -383,7 +382,8 @@ function updateFlightCamera(deltaSeconds: number): void {
 	const move = scratchVectorA.set(0, 0, 0);
 
 	const forward = scratchVectorB;
-	camera.getWorldDirection(forward).normalize();
+	camera.getWorldDirection(forward)
+		.normalize();
 
 	const radialUp = scratchVectorC
 		.copy(camera.position)
@@ -464,7 +464,8 @@ function applyFlightMouseLook(
 
 	const sensitivity = 0.0022;
 
-	const radialUp = camera.position.clone().normalize();
+	const radialUp = camera.position.clone()
+		.normalize();
 
 	const right = new THREE.Vector3(1, 0, 0)
 		.applyQuaternion(camera.quaternion)
@@ -506,7 +507,7 @@ const planet = new Planet(PLANET_RADIUS, rendererMode);
 scene.add(planet.group);
 
 function resizeRenderer(): void {
-	const width = window.innerWidth;
+	const width  = window.innerWidth;
 	const height = window.innerHeight;
 
 	camera.aspect = width / height;
@@ -593,7 +594,7 @@ window.addEventListener('keydown', (event) => {
 			break;
 
 		case 'KeyH':
-			hudVisible = !hudVisible;
+			hudVisible        = !hudVisible;
 			hud.style.display = hudVisible ? 'block' : 'none';
 			break;
 
@@ -648,8 +649,8 @@ function updateHud(): void {
 
 	const distanceFromCenter = camera.position.length();
 	const heightAboveSurface = distanceFromCenter - PLANET_RADIUS;
-	const terrainStats = planet.getTerrainStats();
-	const horizonStats = terrainStats.horizon;
+	const terrainStats       = planet.getTerrainStats();
+	const horizonStats       = terrainStats.horizon;
 
 	const horizonCullPercent =
 		      horizonStats.tested > 0
@@ -674,7 +675,8 @@ function updateHud(): void {
 		`(${horizonCullPercent.toFixed(0)}%) | ` +
 		`visible: ${horizonStats.visible} | ` +
 		`near: ${horizonStats.forcedVisibleNearSurface}\n` +
-		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio().toFixed(2)}\n` +
+		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio()
+			.toFixed(2)}\n` +
 		`keys: F flight/orbit | G cinematic | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
@@ -702,7 +704,7 @@ function animate(timestamp?: number): void {
 
 	updateHud();
 
-	void renderFrame(renderer, rendererMode, scene, camera);
+	void renderFrame(renderer, scene, camera);
 }
 
 resizeRenderer();
