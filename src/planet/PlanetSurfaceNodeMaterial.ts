@@ -5,7 +5,6 @@ import {
 	cameraPosition,
 	color,
 	dot,
-	float,
 	max,
 	mix,
 	normalize,
@@ -21,25 +20,24 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 /**
- * Phase 4e.3:
+ * Phase 4f.1:
  *
- * Fake aerial perspective / horizon haze for the WebGPU/TSL path.
+ * TSL relief / mountain lighting pass.
  *
- * Based on Phase 4e.2.
+ * Based on Phase 4e.3.
  *
  * Goal:
- * Bring the WebGPU look closer to the GLSL reference by adding the missing
- * atmospheric image language directly into the surface material:
- * - blue horizon wrap
- * - softer planet edge
- * - twilight haze
- * - low-angle light lift
- * - more readable water on the shadow side
+ * Keep the fake aerial perspective, but give terrain height and mountains
+ * more visual weight:
+ * - mountainMask influences local contrast
+ * - terrainHeight adds highland / snow readability
+ * - grazing light catches mountains more strongly
+ * - land gets a subtle terrain-detail lift
  *
- * Still intentionally not a full atmosphere layer:
- * - no volumetric atmosphere mesh
- * - no clouds
- * - no procedural surface noise
+ * Still intentionally not a real procedural normal:
+ * - no height-gradient normal yet
+ * - no procedural noise yet
+ * - no texture lookup yet
  */
 export function createPlanetSurfaceNodeMaterial(): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -76,7 +74,9 @@ export function createPlanetSurfaceNodeMaterial(): any {
 
 	const coastTint = color(0x587b61);
 	const warmDayTint = color(0xffefd2);
-	const mountainTint = color(0x776f5f);
+	const mountainTint = color(0x6f685b);
+	const mountainLightTint = color(0xb9ad91);
+	const highlandTint = color(0x8a8065);
 	const coolIceTint = color(0xd8ecff);
 
 	const terrainHeight = attribute('terrainHeight', 'float');
@@ -135,6 +135,12 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const coastWaterEdge = coastMask.mul(waterHint);
 	const coastLandEdge = coastMask.mul(landOnly);
 
+	const highland = smoothstep(
+		0.055,
+		0.19,
+		terrainHeight,
+	).mul(landOnly);
+
 	const heightSnow = smoothstep(
 		0.18,
 		0.30,
@@ -142,8 +148,14 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	).mul(landOnly);
 
 	const mountainMaterial = smoothstep(
-		0.22,
+		0.18,
 		0.82,
+		mountainMask,
+	).mul(landOnly);
+
+	const mountainPeak = smoothstep(
+		0.56,
+		0.96,
 		mountainMask,
 	).mul(landOnly);
 
@@ -187,14 +199,26 @@ export function createPlanetSurfaceNodeMaterial(): any {
 
 	baseColor = mix(
 		baseColor,
+		highlandTint,
+		highland.mul(0.09),
+	);
+
+	baseColor = mix(
+		baseColor,
 		mountainTint,
-		mountainMaterial.mul(0.10),
+		mountainMaterial.mul(0.15),
+	);
+
+	baseColor = mix(
+		baseColor,
+		mountainLightTint,
+		mountainPeak.mul(0.10),
 	);
 
 	baseColor = mix(
 		baseColor,
 		coolIceTint,
-		heightSnow.mul(0.20),
+		heightSnow.mul(0.23),
 	);
 
 	const worldNormal = normalize(normalWorld);
@@ -215,19 +239,43 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		0.62,
 	);
 
+	const lowAngleLight = smoothstep(
+		-0.10,
+		0.42,
+		ndl,
+	).mul(
+		oneMinus(
+			smoothstep(
+				0.48,
+				0.92,
+				ndl,
+			),
+		),
+	);
+
 	const dayWarmth = smoothstep(
 		0.08,
 		0.86,
 		ndl,
 	).mul(0.035);
 
-	const mountainContrast = mountainMaterial.mul(
-		smoothstep(
-			0.10,
-			0.90,
-			ndl,
-		).mul(0.16),
-	);
+	const mountainContrast = mountainMaterial
+		.mul(
+			smoothstep(
+				0.08,
+				0.92,
+				ndl,
+			),
+		)
+		.mul(0.19);
+
+	const mountainGrazingLift = mountainPeak
+		.mul(lowAngleLight)
+		.mul(0.34);
+
+	const highlandLight = highland
+		.mul(day)
+		.mul(0.055);
 
 	const waterDayLift = shallowWater
 		.mul(0.10)
@@ -249,6 +297,8 @@ export function createPlanetSurfaceNodeMaterial(): any {
 			directLight
 				.mul(1.22)
 				.add(mountainContrast)
+				.add(mountainGrazingLift)
+				.add(highlandLight)
 				.add(waterDayLift),
 		),
 	);
@@ -256,6 +306,9 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const nightColor = nightTint
 		.add(
 			baseColorRaw.mul(0.38),
+		)
+		.add(
+			mountainLightTint.mul(mountainPeak).mul(0.020),
 		)
 		.add(
 			oceanNightTint.mul(deepWater).mul(0.090),
@@ -312,6 +365,11 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		18.0,
 	).mul(waterHint).mul(day).mul(0.075);
 
+	const mountainRim = pow(
+		grazingView,
+		1.28,
+	).mul(mountainPeak).mul(day);
+
 	const coastSurf = coastWaterEdge.mul(
 		smoothstep(
 			-0.12,
@@ -331,10 +389,6 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		),
 	);
 
-	/**
-	 * Fake aerial perspective:
-	 * This is the missing visual bridge compared to the WebGL shader.
-	 */
 	const horizon = pow(
 		grazingView,
 		1.58,
@@ -411,6 +465,17 @@ export function createPlanetSurfaceNodeMaterial(): any {
 				.mul(0.070),
 		)
 		.add(
+			mountainLightTint
+				.mul(mountainRim)
+				.mul(0.12),
+		)
+		.add(
+			mountainLightTint
+				.mul(mountainGrazingLift)
+				.mul(day)
+				.mul(0.16),
+		)
+		.add(
 			rimTint
 				.mul(rim)
 				.mul(0.12),
@@ -449,7 +514,7 @@ export function createPlanetSurfaceNodeMaterial(): any {
 			coolIceTint
 				.mul(heightSnow)
 				.mul(day)
-				.mul(0.09),
+				.mul(0.10),
 		)
 		.mul(exposure);
 

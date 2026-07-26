@@ -294,7 +294,8 @@ export class TerrainPatch extends THREE.Group {
 	private createGeometry(): THREE.BufferGeometry {
 		const colors: number[] = [];
 		const positions: number[] = [];
-		const normals: number[] = [];
+		const sphereNormals: number[] = [];
+		const terrainNormals: number[] = [];
 		const uvs: number[] = [];
 		const terrainHeights: number[] = [];
 		const landMasks: number[] = [];
@@ -331,7 +332,7 @@ export class TerrainPatch extends THREE.Group {
 				const colorIndex = index * 3;
 
 				positions.push(spherePoint.x, spherePoint.y, spherePoint.z);
-				normals.push(sphereNormal.x, sphereNormal.y, sphereNormal.z);
+				sphereNormals.push(sphereNormal.x, sphereNormal.y, sphereNormal.z);
 				uvs.push(localU, localV);
 
 				colors.push(
@@ -347,6 +348,13 @@ export class TerrainPatch extends THREE.Group {
 			}
 		}
 
+		this.buildTerrainNormals(
+			positions,
+			sphereNormals,
+			terrainNormals,
+			rowSize,
+		);
+
 		for (let y = 0; y < this.resolution; y++) {
 			for (let x = 0; x < this.resolution; x++) {
 				const a = x + y * rowSize;
@@ -361,7 +369,7 @@ export class TerrainPatch extends THREE.Group {
 
 		this.addSkirts(
 			positions,
-			normals,
+			terrainNormals,
 			uvs,
 			colors,
 			terrainHeights,
@@ -384,9 +392,13 @@ export class TerrainPatch extends THREE.Group {
 			new THREE.Float32BufferAttribute(positions, 3),
 		);
 
+		/**
+		 * Main normal now uses terrain-derived normals.
+		 * This means normalWorld in TSL finally sees actual terrain slope.
+		 */
 		geometry.setAttribute(
 			'normal',
-			new THREE.Float32BufferAttribute(normals, 3),
+			new THREE.Float32BufferAttribute(terrainNormals, 3),
 		);
 
 		geometry.setAttribute(
@@ -414,10 +426,98 @@ export class TerrainPatch extends THREE.Group {
 			new THREE.Float32BufferAttribute(waterHints, 1),
 		);
 
+		geometry.setAttribute(
+			'terrainNormal',
+			new THREE.Float32BufferAttribute(terrainNormals, 3),
+		);
+
 		geometry.setIndex(indices);
 		geometry.computeBoundingSphere();
 
 		return geometry;
+	}
+
+	private buildTerrainNormals(
+		positions: number[],
+		sphereNormals: number[],
+		terrainNormals: number[],
+		rowSize: number,
+	): void {
+		const getPosition = (
+			x: number,
+			y: number,
+			out: THREE.Vector3,
+		): THREE.Vector3 => {
+			const clampedX = THREE.MathUtils.clamp(x, 0, rowSize - 1);
+			const clampedY = THREE.MathUtils.clamp(y, 0, rowSize - 1);
+			const index = (clampedX + clampedY * rowSize) * 3;
+
+			return out.set(
+				positions[index + 0],
+				positions[index + 1],
+				positions[index + 2],
+			);
+		};
+
+		const getSphereNormal = (
+			x: number,
+			y: number,
+			out: THREE.Vector3,
+		): THREE.Vector3 => {
+			const clampedX = THREE.MathUtils.clamp(x, 0, rowSize - 1);
+			const clampedY = THREE.MathUtils.clamp(y, 0, rowSize - 1);
+			const index = (clampedX + clampedY * rowSize) * 3;
+
+			return out.set(
+				sphereNormals[index + 0],
+				sphereNormals[index + 1],
+				sphereNormals[index + 2],
+			);
+		};
+
+		const pLeft = new THREE.Vector3();
+		const pRight = new THREE.Vector3();
+		const pDown = new THREE.Vector3();
+		const pUp = new THREE.Vector3();
+		const tangentX = new THREE.Vector3();
+		const tangentY = new THREE.Vector3();
+		const normal = new THREE.Vector3();
+		const sphereNormal = new THREE.Vector3();
+
+		for (let y = 0; y < rowSize; y++) {
+			for (let x = 0; x < rowSize; x++) {
+				getPosition(x - 1, y, pLeft);
+				getPosition(x + 1, y, pRight);
+				getPosition(x, y - 1, pDown);
+				getPosition(x, y + 1, pUp);
+				getSphereNormal(x, y, sphereNormal);
+
+				tangentX.subVectors(pRight, pLeft);
+				tangentY.subVectors(pUp, pDown);
+
+				normal.crossVectors(tangentX, tangentY);
+
+				if (normal.lengthSq() < 0.0000001) {
+					normal.copy(sphereNormal);
+				} else {
+					normal.normalize();
+
+					if (normal.dot(sphereNormal) < 0) {
+						normal.multiplyScalar(-1);
+					}
+
+					/**
+					 * Blend toward the sphere normal to avoid noisy patch-border shading.
+					 * High enough to show mountains, soft enough for orbit.
+					 */
+					normal
+						.lerp(sphereNormal, 0.26)
+						.normalize();
+				}
+
+				terrainNormals.push(normal.x, normal.y, normal.z);
+			}
+		}
 	}
 
 	private addSkirts(
@@ -444,57 +544,10 @@ export class TerrainPatch extends THREE.Group {
 			right.push(i * rowSize + (rowSize - 1));
 		}
 
-		this.addSkirtEdge(
-			top,
-			positions,
-			normals,
-			uvs,
-			colors,
-			terrainHeights,
-			landMasks,
-			mountainMasks,
-			waterHints,
-			indices,
-		);
-
-		this.addSkirtEdge(
-			bottom,
-			positions,
-			normals,
-			uvs,
-			colors,
-			terrainHeights,
-			landMasks,
-			mountainMasks,
-			waterHints,
-			indices,
-		);
-
-		this.addSkirtEdge(
-			left,
-			positions,
-			normals,
-			uvs,
-			colors,
-			terrainHeights,
-			landMasks,
-			mountainMasks,
-			waterHints,
-			indices,
-		);
-
-		this.addSkirtEdge(
-			right,
-			positions,
-			normals,
-			uvs,
-			colors,
-			terrainHeights,
-			landMasks,
-			mountainMasks,
-			waterHints,
-			indices,
-		);
+		this.addSkirtEdge(top, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(bottom, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(left, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(right, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
 	}
 
 	private addSkirtEdge(
@@ -523,11 +576,23 @@ export class TerrainPatch extends THREE.Group {
 				positions[pIndex + 2],
 			);
 
-			const normal = new THREE.Vector3(
+			const downDirection = point.clone().normalize();
+
+			const skirtPoint = point
+				.clone()
+				.addScaledVector(downDirection, -skirtDepth);
+
+			const newIndex = positions.length / 3;
+
+			positions.push(skirtPoint.x, skirtPoint.y, skirtPoint.z);
+
+			normals.push(
 				normals[pIndex + 0],
 				normals[pIndex + 1],
 				normals[pIndex + 2],
 			);
+
+			uvs.push(uvs[uvIndex + 0], uvs[uvIndex + 1]);
 
 			colors.push(
 				colors[colorIndex + 0],
@@ -539,18 +604,6 @@ export class TerrainPatch extends THREE.Group {
 			landMasks.push(landMasks[sourceIndex]);
 			mountainMasks.push(mountainMasks[sourceIndex]);
 			waterHints.push(waterHints[sourceIndex]);
-
-			const downDirection = point.clone().normalize();
-
-			const skirtPoint = point
-				.clone()
-				.addScaledVector(downDirection, -skirtDepth);
-
-			const newIndex = positions.length / 3;
-
-			positions.push(skirtPoint.x, skirtPoint.y, skirtPoint.z);
-			normals.push(normal.x, normal.y, normal.z);
-			uvs.push(uvs[uvIndex + 0], uvs[uvIndex + 1]);
 
 			skirtIndices.push(newIndex);
 		}
