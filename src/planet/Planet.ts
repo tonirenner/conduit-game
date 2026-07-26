@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { CubeSphere } from './CubeSphere';
 import { CloudLayer } from './CloudLayer';
 import { AtmosphereLayer } from './AtmosphereLayer';
+import { WebGPUAtmosphereLayer } from './WebGPUAtmosphereLayer';
 import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 
@@ -16,16 +17,16 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 4b:
+ * Phase 4h.1:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
- * - full planet with clouds + atmosphere
+ * - full planet with existing clouds + atmosphere
  *
  * WebGPU:
- * - TSL/NodeMaterial test surface
- * - clouds/atmosphere are intentionally disabled for now,
- *   because they are still GLSL ShaderMaterials.
+ * - TSL/NodeMaterial terrain surface
+ * - lightweight WebGPU/TSL atmosphere shell
+ * - clouds remain disabled for now because they are still GLSL ShaderMaterials
  */
 export class Planet {
 	public readonly group: THREE.Group;
@@ -34,6 +35,7 @@ export class Planet {
 	private readonly planetBody: THREE.Mesh;
 	private readonly planet: CubeSphere;
 	private readonly atmosphere?: AtmosphereLayer;
+	private readonly webGPUAtmosphere?: WebGPUAtmosphereLayer;
 	private readonly clouds?: CloudLayer;
 	private readonly depthOccluder: THREE.Mesh;
 
@@ -70,6 +72,12 @@ export class Planet {
 			this.group.add(this.clouds.group);
 			this.group.add(this.atmosphere.mesh);
 		}
+
+		if (this.rendererMode === 'webgpu') {
+			this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
+
+			this.group.add(this.webGPUAtmosphere.mesh);
+		}
 	}
 
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
@@ -84,6 +92,7 @@ export class Planet {
 		this.clouds?.updateLOD(cameraPosition.length(), this.radius);
 
 		this.atmosphere?.update();
+		this.webGPUAtmosphere?.update();
 
 		this.planet.updateLOD(cameraPosition);
 	}
@@ -101,6 +110,7 @@ export class Planet {
 			this.setUniform('uSurfaceTextureStrength', 0.35);
 			this.clouds?.setRenderQuality(quality);
 			this.atmosphere?.setRenderQuality(quality);
+			this.webGPUAtmosphere?.setRenderQuality(quality);
 			return;
 		}
 
@@ -109,6 +119,7 @@ export class Planet {
 		this.setUniform('uSurfaceTextureStrength', 1.0);
 		this.clouds?.setRenderQuality(quality);
 		this.atmosphere?.setRenderQuality(quality);
+		this.webGPUAtmosphere?.setRenderQuality(quality);
 	}
 
 	private createSurfaceMaterial(
