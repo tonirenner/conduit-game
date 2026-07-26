@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import {
 	attribute,
 	cameraPosition,
+	float,
 	color,
 	dot,
 	max,
@@ -21,20 +22,20 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 /**
- * Phase 4k.2:
+ * Phase 4k.3b:
  *
- * Stable local surface detail sampling.
+ * Per-pixel terrain/coast material sampling, hybrid tuned.
  *
- * Based on Phase 4k.1.
+ * Based on Phase 4k.2.
  *
  * Change:
- * - procedural surface detail now samples from `sphereNormal`
- *   instead of `normalWorld`
+ * - terrain sample is rebuilt in WGSL from local `sphereNormal`
+ * - landMask / waterHint / mountainMask are blended more conservatively
+ * - vertex attributes remain dominant enough to stay aligned with geometry
  *
- * Why:
- * GLSL reference samples terrain/noise in local planet space and keeps
- * lighting/view/aerial perspective in world space. This keeps detail stable
- * across patch edge normal smoothing and world-space lighting.
+ * Goal:
+ * Keep the smoother WebGPU coast material, but reduce the cyan shelf halo
+ * and the visible mismatch between shader coast and mesh coast.
  */
 export function createPlanetSurfaceNodeMaterial(): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -76,11 +77,229 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const highlandTint = color(0x8a8065);
 	const coolIceTint = color(0xd8ecff);
 
-	const terrainHeight = attribute('terrainHeight', 'float');
-	const landMask = attribute('landMask', 'float');
-	const mountainMask = attribute('mountainMask', 'float');
-	const waterHint = attribute('waterHint', 'float');
+	const terrainHeightAttribute = attribute('terrainHeight', 'float');
+	const landMaskAttribute = attribute('landMask', 'float');
+	const mountainMaskAttribute = attribute('mountainMask', 'float');
+	const waterHintAttribute = attribute('waterHint', 'float');
 	const sphereNormal = normalize(attribute('sphereNormal', 'vec3'));
+
+	const proceduralTerrainSample = wgslFn(`
+fn procedural_terrain_sample(
+	normalInput: vec3<f32>
+) -> vec4<f32> {
+	let normal = normalize(normalInput);
+
+	let continentBase = terrain_fbm(
+		normal * 1.25,
+		6
+	);
+
+	let coastNoise =
+		(terrain_fbm(
+			normal * 2.4,
+			5
+		) - 0.5) * 0.045;
+
+	let continent = continentBase + coastNoise;
+
+	let landMask =
+		smoothstep(
+			0.525,
+			0.585,
+			continent
+		);
+
+	let highlands =
+		max(
+			0.0,
+			continent - 0.54
+		);
+
+	let mountainMask =
+		smoothstep(
+			0.62,
+			0.78,
+			continent
+		) * landMask;
+
+	let ridgeLarge = terrain_ridged_fbm(
+		normal * 3.8,
+		5
+	);
+
+	let ridgeMedium = terrain_ridged_fbm(
+		normal * 8.5,
+		5
+	);
+
+	let ridgeFine = terrain_ridged_fbm(
+		normal * 18.0,
+		4
+	);
+
+	let mountainChains =
+		smoothstep(
+			0.46,
+			0.84,
+			ridgeLarge
+		) *
+		(
+			ridgeMedium * 0.72 +
+			ridgeFine * 0.28
+		);
+
+	let sharpPeaks =
+		pow(
+			clamp(
+				mountainChains,
+				0.0,
+				1.0
+			),
+			1.75
+		);
+
+	let mountains =
+		sharpPeaks *
+		mountainMask;
+
+	let foothills =
+		smoothstep(
+			0.48,
+			0.74,
+			ridgeLarge
+		) *
+		mountainMask *
+		0.45;
+
+	let detail =
+		(terrain_fbm(
+			normal * 24.0,
+			4
+		) - 0.5) *
+		0.010 *
+		landMask;
+
+	let height =
+		landMask * 0.006 +
+		highlands * 0.095 +
+		foothills * 0.055 +
+		mountains * 0.165 +
+		detail;
+
+	return vec4<f32>(
+		max(0.0, height),
+		landMask,
+		continent,
+		mountainMask
+	);
+}
+
+fn terrain_hash3(p_input: vec3<f32>) -> f32 {
+	return fract(
+		sin(
+			dot(
+				p_input,
+				vec3<f32>(127.1, 311.7, 74.7)
+			)
+		) *
+		43758.5453123
+	);
+}
+
+fn terrain_noise3d(p: vec3<f32>) -> f32 {
+	let i = floor(p);
+	var f = fract(p);
+
+	f = f * f * (3.0 - 2.0 * f);
+
+	let v000 = terrain_hash3(i + vec3<f32>(0.0, 0.0, 0.0));
+	let v100 = terrain_hash3(i + vec3<f32>(1.0, 0.0, 0.0));
+	let v010 = terrain_hash3(i + vec3<f32>(0.0, 1.0, 0.0));
+	let v110 = terrain_hash3(i + vec3<f32>(1.0, 1.0, 0.0));
+
+	let v001 = terrain_hash3(i + vec3<f32>(0.0, 0.0, 1.0));
+	let v101 = terrain_hash3(i + vec3<f32>(1.0, 0.0, 1.0));
+	let v011 = terrain_hash3(i + vec3<f32>(0.0, 1.0, 1.0));
+	let v111 = terrain_hash3(i + vec3<f32>(1.0, 1.0, 1.0));
+
+	let x00 = mix(v000, v100, f.x);
+	let x10 = mix(v010, v110, f.x);
+	let x01 = mix(v001, v101, f.x);
+	let x11 = mix(v011, v111, f.x);
+
+	let y0 = mix(x00, x10, f.y);
+	let y1 = mix(x01, x11, f.y);
+
+	return mix(y0, y1, f.z);
+}
+
+fn terrain_fbm(
+	p_input: vec3<f32>,
+	octaves: i32
+) -> f32 {
+	var value = 0.0;
+	var amplitude = 0.5;
+	var frequency = 1.0;
+	var normalizer = 0.0;
+
+	for (var i = 0; i < 6; i = i + 1) {
+		if (i >= octaves) {
+			break;
+		}
+
+		value = value +
+			amplitude *
+			terrain_noise3d(
+				p_input * frequency
+			);
+
+		normalizer = normalizer + amplitude;
+		frequency = frequency * 2.0;
+		amplitude = amplitude * 0.5;
+	}
+
+	return value / normalizer;
+}
+
+fn terrain_ridged_fbm(
+	p_input: vec3<f32>,
+	octaves: i32
+) -> f32 {
+	var value = 0.0;
+	var amplitude = 0.52;
+	var frequency = 1.0;
+	var normalizer = 0.0;
+
+	for (var i = 0; i < 5; i = i + 1) {
+		if (i >= octaves) {
+			break;
+		}
+
+		let n = terrain_noise3d(
+			p_input * frequency
+		);
+
+		let ridge =
+			1.0 -
+			abs(n * 2.0 - 1.0);
+
+		let sharpened =
+			ridge * ridge;
+
+		value = value +
+			sharpened *
+			amplitude;
+
+		normalizer = normalizer + amplitude;
+
+		frequency = frequency * 2.15;
+		amplitude = amplitude * 0.48;
+	}
+
+	return value / normalizer;
+}
+	`);
+
 
 	const proceduralSurfaceDetail = wgslFn(`
 fn procedural_surface_detail(
@@ -307,6 +526,49 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 }
 	`);
 
+
+	const terrainSample = proceduralTerrainSample({
+		                                              normalInput: sphereNormal,
+	                                              });
+
+	/**
+	 * Phase 4k.3b:
+	 *
+	 * Material masks are now mostly sampled per pixel from the same terrain
+	 * logic that generates the mesh. Geometry still uses the cached vertex
+	 * data, but coast/water shading no longer depends purely on vertex
+	 * interpolation.
+	 */
+	const terrainHeight = mix(
+		terrainHeightAttribute,
+		terrainSample.x,
+		float(0.25),
+	);
+
+	const landMask = mix(
+		landMaskAttribute,
+		terrainSample.y,
+		float(0.52),
+	);
+
+	const mountainMask = mix(
+		mountainMaskAttribute,
+		terrainSample.w,
+		float(0.45),
+	);
+
+	const waterHint = mix(
+		waterHintAttribute,
+		oneMinus(
+			smoothstep(
+				0.42,
+				0.76,
+				landMask,
+			),
+		),
+		float(0.58),
+	);
+
 	const landOnly = smoothstep(
 		0.58,
 		0.78,
@@ -405,13 +667,13 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	baseColor = mix(
 		baseColor,
 		oceanLightTint,
-		shelfWater.mul(0.12),
+		shelfWater.mul(0.095),
 	);
 
 	baseColor = mix(
 		baseColor,
 		oceanCoastLightTint,
-		coastWaterEdge.mul(0.18),
+		coastWaterEdge.mul(0.135),
 	);
 
 	baseColor = mix(
@@ -518,7 +780,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			shelfWater.mul(0.08),
 		)
 		.add(
-			coastWaterEdge.mul(0.15),
+			coastWaterEdge.mul(0.115),
 		);
 
 	const dayTintedBase = mix(
@@ -577,7 +839,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		waterHint
 			.mul(0.42)
 			.add(shelfWater.mul(0.10))
-			.add(coastWaterEdge.mul(0.20))
+			.add(coastWaterEdge.mul(0.15))
 			.add(0.045),
 	);
 
@@ -691,7 +953,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			oceanCoastLightTint
 				.mul(coastSurf)
-				.mul(0.16),
+				.mul(0.115),
 		)
 		.add(
 			coastTint
