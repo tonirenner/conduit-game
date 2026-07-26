@@ -16,6 +16,7 @@ function smooth(t: number): number {
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
 	const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+
 	return t * t * (3 - 2 * t);
 }
 
@@ -53,12 +54,13 @@ function valueNoise3D(x: number, y: number, z: number): number {
 	return lerp(y0, y1, fz);
 }
 
-function fbm(point: THREE.Vector3): number {
-	let value     = 0;
+function fbm(point: THREE.Vector3, octaves = 6): number {
+	let value = 0;
 	let amplitude = 0.5;
 	let frequency = 1;
+	let normalizer = 0;
 
-	for (let i = 0; i < 6; i++) {
+	for (let i = 0; i < octaves; i++) {
 		value +=
 			amplitude *
 			valueNoise3D(
@@ -67,11 +69,42 @@ function fbm(point: THREE.Vector3): number {
 			point.z * frequency,
 			);
 
+		normalizer += amplitude;
 		frequency *= 2;
 		amplitude *= 0.5;
 	}
 
-	return value;
+	return value / normalizer;
+}
+
+function ridgedFbm(point: THREE.Vector3, octaves = 5): number {
+	let value = 0;
+	let amplitude = 0.52;
+	let frequency = 1;
+	let normalizer = 0;
+
+	for (let i = 0; i < octaves; i++) {
+		const n = valueNoise3D(
+			point.x * frequency,
+			point.y * frequency,
+			point.z * frequency,
+		);
+
+		const ridge = 1.0 - Math.abs(n * 2.0 - 1.0);
+		const sharpened = ridge * ridge;
+
+		value += sharpened * amplitude;
+		normalizer += amplitude;
+
+		frequency *= 2.15;
+		amplitude *= 0.48;
+	}
+
+	return value / normalizer;
+}
+
+function clamp01(value: number): number {
+	return Math.max(0, Math.min(1, value));
 }
 
 export type TerrainSample = {
@@ -82,38 +115,77 @@ export type TerrainSample = {
 };
 
 export function getTerrainSample(normal: THREE.Vector3): TerrainSample {
-	const continentBase = fbm(normal.clone()
-		                          .multiplyScalar(1.25));
+	const continentBase = fbm(
+		normal.clone().multiplyScalar(1.25),
+		6,
+	);
 
-	// Küstenform ja, aber nicht zu hochfrequent, sonst franst es aus
 	const coastNoise =
-		      (fbm(normal.clone()
-			           .multiplyScalar(2.4)) - 0.5) * 0.045;
+		      (fbm(
+			      normal.clone().multiplyScalar(2.4),
+			      5,
+		      ) - 0.5) * 0.045;
 
 	const continent = continentBase + coastNoise;
 
-	// breiter Übergang = weichere Küsten
 	const landMask = smoothstep(0.525, 0.585, continent);
 
 	const highlands = Math.max(0, continent - 0.54);
 
-	const mountainMask = smoothstep(0.66, 0.82, continent);
+	const mountainMask =
+		      smoothstep(0.62, 0.78, continent) *
+		      landMask;
+
+	const ridgeLarge = ridgedFbm(
+		normal.clone().multiplyScalar(3.8),
+		5,
+	);
+
+	const ridgeMedium = ridgedFbm(
+		normal.clone().multiplyScalar(8.5),
+		5,
+	);
+
+	const ridgeFine = ridgedFbm(
+		normal.clone().multiplyScalar(18.0),
+		4,
+	);
+
+	const mountainChains =
+		      smoothstep(0.46, 0.84, ridgeLarge) *
+		      (
+			      ridgeMedium * 0.72 +
+			      ridgeFine * 0.28
+		      );
+
+	const sharpPeaks =
+		      Math.pow(
+			      clamp01(mountainChains),
+			      1.75,
+		      );
 
 	const mountains =
-		      Math.pow(fbm(normal.clone()
-			                   .multiplyScalar(7.0)), 2.4) *
+		      sharpPeaks *
 		      mountainMask;
 
+	const foothills =
+		      smoothstep(0.48, 0.74, ridgeLarge) *
+		      mountainMask *
+		      0.45;
+
 	const detail =
-		      (fbm(normal.clone()
-			           .multiplyScalar(18.0)) - 0.5) *
-		      0.012 *
+		      (fbm(
+			      normal.clone().multiplyScalar(24.0),
+			      4,
+		      ) - 0.5) *
+		      0.010 *
 		      landMask;
 
 	const height =
-		      landMask * 0.01 +
-		      highlands * 0.12 +
-		      mountains * 0.09 +
+		      landMask * 0.006 +
+		      highlands * 0.095 +
+		      foothills * 0.055 +
+		      mountains * 0.165 +
 		      detail;
 
 	return {
@@ -129,9 +201,9 @@ export function getTerrainHeight(normal: THREE.Vector3): number {
 }
 
 export function getCloudDensity(normal: THREE.Vector3): number {
-	const large = fbm(normal.clone().multiplyScalar(1.1));
-	const medium = fbm(normal.clone().multiplyScalar(2.6));
-	const detail = fbm(normal.clone().multiplyScalar(7.5));
+	const large = fbm(normal.clone().multiplyScalar(1.1), 5);
+	const medium = fbm(normal.clone().multiplyScalar(2.6), 4);
+	const detail = fbm(normal.clone().multiplyScalar(7.5), 3);
 
 	return large * 0.58 + medium * 0.30 + detail * 0.12;
 }

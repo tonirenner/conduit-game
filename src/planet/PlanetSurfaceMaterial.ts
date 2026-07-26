@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { SUN_DIRECTION } from './Sun';
+import {SUN_DIRECTION} from './Sun';
 
 export function createPlanetSurfaceMaterial(
-	radius = 3,
+	radius           = 3,
 	atmosphereRadius = radius * 1.045,
 ): THREE.ShaderMaterial {
 	return new THREE.ShaderMaterial({
@@ -246,62 +246,107 @@ export function createPlanetSurfaceMaterial(
 				float value = 0.0;
 				float amplitude = 0.5;
 				float frequency = 1.0;
-
+				float normalizer = 0.0;
+				
 				for (int i = 0; i < 6; i++) {
 					value += amplitude * valueNoise3D(p * frequency);
-
+					normalizer += amplitude;
+					
 					frequency *= 2.0;
 					amplitude *= 0.5;
 				}
-
-				return value;
+				
+				return value / normalizer;
+			}
+				
+			float ridgedFbm(vec3 p) {
+				float value = 0.0;
+				float amplitude = 0.52;
+				float frequency = 1.0;
+				float normalizer = 0.0;
+				
+				for (int i = 0; i < 5; i++) {
+					float n = valueNoise3D(p * frequency);
+					
+					float ridge = 1.0 - abs(n * 2.0 - 1.0);
+					float sharpened = ridge * ridge;
+					
+					value += sharpened * amplitude;
+					normalizer += amplitude;
+					
+					frequency *= 2.15;
+					amplitude *= 0.48;
+				}
+				
+				return value / normalizer;
 			}
 
 			TerrainSample getTerrainSampleGL(vec3 normal) {
 				float continentBase = fbm(normal * 1.25);
-
+				
 				float coastNoise =
-					(fbm(normal * 2.4) - 0.5) *
-					0.045;
-
+				(fbm(normal * 2.4) - 0.5) *
+				0.045;
+				
 				float continent = continentBase + coastNoise;
-
+				
 				float landMask = smoothstep(
-					0.505,
-					0.605,
-					continent
+				0.525,
+				0.585,
+				continent
 				);
-
+				
 				float highlands = max(0.0, continent - 0.54);
-
-				float mountainMask = smoothstep(
-					0.66,
-					0.82,
-					continent
+				
+				float mountainMask =
+				smoothstep(0.62, 0.78, continent) *
+				landMask;
+				
+				float ridgeLarge = ridgedFbm(normal * 3.8);
+				float ridgeMedium = ridgedFbm(normal * 8.5);
+				float ridgeFine = ridgedFbm(normal * 18.0);
+				
+				float mountainChains =
+				smoothstep(0.46, 0.84, ridgeLarge) *
+				(
+					ridgeMedium * 0.72 +
+					ridgeFine * 0.28
 				);
-
+				
+				float sharpPeaks =
+				pow(
+				saturate(mountainChains),
+				1.75
+				);
+				
 				float mountains =
-					pow(fbm(normal * 7.0), 2.4) *
-					mountainMask;
-
+				sharpPeaks *
+				mountainMask;
+				
+				float foothills =
+				smoothstep(0.48, 0.74, ridgeLarge) *
+				mountainMask *
+				0.45;
+				
 				float detail =
-					(fbm(normal * 18.0) - 0.5) *
-					0.012 *
-					landMask;
-
+				(fbm(normal * 24.0) - 0.5) *
+				0.010 *
+				landMask;
+				
 				float height =
-					landMask * 0.01 +
-					highlands * 0.12 +
-					mountains * 0.09 +
-					detail;
-
+				landMask * 0.006 +
+				highlands * 0.095 +
+				foothills * 0.055 +
+				mountains * 0.165 +
+				detail;
+				
 				TerrainSample terrainSample;
-
+				
 				terrainSample.height = max(0.0, height);
 				terrainSample.landMask = landMask;
 				terrainSample.continent = continent;
 				terrainSample.mountainMask = mountainMask;
-
+				
 				return terrainSample;
 			}
 
@@ -387,16 +432,16 @@ export function createPlanetSurfaceMaterial(
 
 				vec3 color;
 
-				if (height < 0.040) {
-					color = mix(lowLand, grass, smoothstep(0.00, 0.040, height));
-				} else if (height < 0.090) {
-					color = mix(grass, hills, smoothstep(0.040, 0.090, height));
-				} else if (height < 0.150) {
-					color = mix(hills, dryHills, smoothstep(0.090, 0.150, height));
-				} else if (height < 0.220) {
-					color = mix(dryHills, rock, smoothstep(0.150, 0.220, height));
+				if (height < 0.035) {
+					color = mix(lowLand, grass, smoothstep(0.00, 0.035, height));
+				} else if (height < 0.080) {
+					color = mix(grass, hills, smoothstep(0.035, 0.080, height));
+				} else if (height < 0.135) {
+					color = mix(hills, dryHills, smoothstep(0.080, 0.135, height));
+				} else if (height < 0.205) {
+					color = mix(dryHills, rock, smoothstep(0.135, 0.205, height));
 				} else {
-					color = mix(rock, snow, smoothstep(0.220, 0.320, height));
+					color = mix(rock, snow, smoothstep(0.205, 0.310, height));
 				}
 
 				float polar = smoothstep(0.74, 0.98, abs(normal.y));
