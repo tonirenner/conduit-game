@@ -2,22 +2,17 @@ import * as THREE from 'three';
 
 import { HorizonCulling } from './HorizonCulling';
 
-import {
-	TerrainHeightCache,
-	type TerrainHeightGrid,
-} from './TerrainHeightCache';
+import type {
+	CubeFace,
+	PatchBounds,
+	TerrainGrid,
+	TerrainSource,
+} from './TerrainSource';
 
-export type CubeFace = {
-	normal: THREE.Vector3;
-	up: THREE.Vector3;
-	right: THREE.Vector3;
-};
-
-export type PatchBounds = {
-	x: number;
-	y: number;
-	size: number;
-};
+export type {
+	CubeFace,
+	PatchBounds,
+} from './TerrainSource';
 
 export type LodOptions = {
 	maxLevel: number;
@@ -31,7 +26,7 @@ export type LodOptions = {
 export class TerrainPatch extends THREE.Group {
 	private readonly mesh: THREE.Mesh;
 	private readonly childrenPatches: TerrainPatch[] = [];
-	private readonly heightGrid: TerrainHeightGrid;
+	private readonly terrainGrid: TerrainGrid;
 
 	constructor(
 		private readonly face: CubeFace,
@@ -39,14 +34,14 @@ export class TerrainPatch extends THREE.Group {
 		private readonly radius: number,
 		private readonly resolution: number,
 		private readonly material: THREE.Material,
-		private readonly terrainHeightCache: TerrainHeightCache,
+		private readonly terrainSource: TerrainSource,
 		private readonly level: number = 0,
 	) {
 		super();
 
 		this.name = `TerrainPatch L${level}`;
 
-		this.heightGrid = this.terrainHeightCache.getPatchGrid(
+		this.terrainGrid = this.terrainSource.getPatchGrid(
 			this.face,
 			this.bounds,
 			this.resolution,
@@ -169,7 +164,7 @@ export class TerrainPatch extends THREE.Group {
 				this.radius,
 				this.resolution,
 				this.material,
-				this.terrainHeightCache,
+				this.terrainSource,
 				this.level + 1,
 			);
 
@@ -316,7 +311,7 @@ export class TerrainPatch extends THREE.Group {
 				const cubeY = this.bounds.y + localV * this.bounds.size;
 
 				const sphereNormal = this.getSphereNormal(cubeX, cubeY);
-				const height = this.heightGrid.heights[index];
+				const height = this.terrainGrid.heights[index];
 
 				const spherePoint = sphereNormal
 					.clone()
@@ -329,9 +324,9 @@ export class TerrainPatch extends THREE.Group {
 				uvs.push(localU, localV);
 
 				colors.push(
-					this.heightGrid.colors[colorIndex + 0],
-					this.heightGrid.colors[colorIndex + 1],
-					this.heightGrid.colors[colorIndex + 2],
+					this.terrainGrid.colors[colorIndex + 0],
+					this.terrainGrid.colors[colorIndex + 1],
+					this.terrainGrid.colors[colorIndex + 2],
 				);
 			}
 		}
@@ -472,7 +467,7 @@ export class TerrainPatch extends THREE.Group {
 	}
 
 	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {
-		const sample = this.terrainHeightCache.sampleNormal(sphereNormal);
+		const sample = this.terrainSource.sampleNormal(sphereNormal);
 
 		return sphereNormal
 			.clone()
