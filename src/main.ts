@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { RenderQuality } from './render/RenderQuality';
+import {
+	createAppRenderer,
+	getPreferredRendererMode,
+	renderFrame,
+} from './render/RendererFactory';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createClimateDebugCanvas } from './scene/createClimateDebugCanvas';
 import { createStarBackground } from './scene/createStarBackground';
@@ -56,26 +61,20 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0.35, 3.65, 10.6);
 
 // Renderer
-const renderer = new THREE.WebGLRenderer({
-	                                         antialias: true,
-	                                         alpha: true,
-	                                         premultipliedAlpha: false,
-	                                         powerPreference: 'high-performance',
-                                         });
+const preferredRendererMode = getPreferredRendererMode();
 
-renderer.setClearColor(0x000000, 0);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
-
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.NoToneMapping;
-renderer.toneMappingExposure = 1.0;
-
-renderer.domElement.style.position = 'fixed';
-renderer.domElement.style.inset = '0';
-renderer.domElement.style.zIndex = '2';
-renderer.domElement.style.background = 'transparent';
-renderer.domElement.style.display = 'block';
+const {
+	      renderer,
+	      mode: rendererMode,
+      } = await createAppRenderer(
+	preferredRendererMode,
+	{
+		antialias: true,
+		alpha: true,
+		premultipliedAlpha: false,
+		powerPreference: 'high-performance',
+	},
+);
 
 app.appendChild(renderer.domElement);
 
@@ -503,7 +502,7 @@ const ambientLight = new THREE.AmbientLight(0x223344, 0.08);
 scene.add(ambientLight);
 
 // Planet
-const planet = new Planet(PLANET_RADIUS);
+const planet = new Planet(PLANET_RADIUS, rendererMode);
 scene.add(planet.group);
 
 function resizeRenderer(): void {
@@ -665,7 +664,7 @@ function updateHud(): void {
 		        : 'atmo: orbit';
 
 	hud.textContent =
-		`mode: ${cameraMode.toUpperCase()} | ${atmosphereHint}\n` +
+		`mode: ${cameraMode.toUpperCase()} | renderer: ${rendererMode.toUpperCase()} | ${atmosphereHint}\n` +
 		`distance: ${distanceFromCenter.toFixed(2)} | ` +
 		`height: ${heightAboveSurface.toFixed(2)} | ` +
 		`fov: ${camera.fov.toFixed(0)}\n` +
@@ -703,7 +702,7 @@ function animate(timestamp?: number): void {
 
 	updateHud();
 
-	renderer.render(scene, camera);
+	void renderFrame(renderer, rendererMode, scene, camera);
 }
 
 resizeRenderer();

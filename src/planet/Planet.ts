@@ -1,47 +1,75 @@
 import * as THREE from 'three';
-import {CubeSphere} from './CubeSphere';
-import {CloudLayer} from './CloudLayer';
-import {AtmosphereLayer} from './AtmosphereLayer';
-import {createPlanetSurfaceMaterial} from './PlanetSurfaceMaterial';
+
+import { CubeSphere } from './CubeSphere';
+import { CloudLayer } from './CloudLayer';
+import { AtmosphereLayer } from './AtmosphereLayer';
+import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
+import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
+export type PlanetRendererMode = 'webgl' | 'webgpu';
 
+type PlanetSurfaceRuntimeMaterial = THREE.Material & {
+	uniforms?: Record<string, {
+		value: unknown;
+	}>;
+};
+
+/**
+ * Phase 4b:
+ *
+ * WebGL:
+ * - existing GLSL ShaderMaterial
+ * - full planet with clouds + atmosphere
+ *
+ * WebGPU:
+ * - TSL/NodeMaterial test surface
+ * - clouds/atmosphere are intentionally disabled for now,
+ *   because they are still GLSL ShaderMaterials.
+ */
 export class Planet {
 	public readonly group: THREE.Group;
 
-	private readonly surfaceMaterial: THREE.ShaderMaterial;
+	private readonly surfaceMaterial: PlanetSurfaceRuntimeMaterial;
 	private readonly planetBody: THREE.Mesh;
 	private readonly planet: CubeSphere;
-	private readonly atmosphere: AtmosphereLayer;
-	private readonly clouds: CloudLayer;
+	private readonly atmosphere?: AtmosphereLayer;
+	private readonly clouds?: CloudLayer;
 	private readonly depthOccluder: THREE.Mesh;
 
 	private readonly atmosphereRadius: number;
 
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
 
-	constructor(private readonly radius: number) {
-		this.group      = new THREE.Group();
+	constructor(
+		private readonly radius: number,
+		private readonly rendererMode: PlanetRendererMode = 'webgl',
+	) {
+		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
 
 		this.atmosphereRadius = radius * 1.045;
 
-		this.surfaceMaterial = createPlanetSurfaceMaterial(
+		this.surfaceMaterial = this.createSurfaceMaterial(
 			radius,
 			this.atmosphereRadius,
 		);
 
-		this.planetBody    = this.createPlanetBody(radius);
-		this.planet        = this.createPlanet(radius, this.surfaceMaterial);
-		this.atmosphere    = new AtmosphereLayer(radius);
-		this.clouds        = new CloudLayer(radius);
+		this.planetBody = this.createPlanetBody(radius);
+		this.planet = this.createPlanet(radius, this.surfaceMaterial);
 		this.depthOccluder = this.createDepthOccluder(radius);
 
 		this.group.add(this.depthOccluder);
 		this.group.add(this.planetBody);
 		this.group.add(this.planet);
-		this.group.add(this.clouds.group);
-		this.group.add(this.atmosphere.mesh);
+
+		if (this.rendererMode === 'webgl') {
+			this.clouds = new CloudLayer(radius);
+			this.atmosphere = new AtmosphereLayer(radius);
+
+			this.group.add(this.clouds.group);
+			this.group.add(this.atmosphere.mesh);
+		}
 	}
 
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
@@ -49,13 +77,13 @@ export class Planet {
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
-		this.surfaceMaterial.uniforms.uCameraPosition.value.copy(cameraPosition);
+		this.updateSurfaceCameraUniform(cameraPosition);
 		this.updateSurfaceAtmosphereUniforms(heightAboveSurface);
 
-		this.clouds.update(deltaSeconds);
-		this.clouds.updateLOD(cameraPosition.length(), this.radius);
+		this.clouds?.update(deltaSeconds);
+		this.clouds?.updateLOD(cameraPosition.length(), this.radius);
 
-		this.atmosphere.update();
+		this.atmosphere?.update();
 
 		this.planet.updateLOD(cameraPosition);
 	}
@@ -71,16 +99,40 @@ export class Planet {
 			this.setUniform('uSurfaceDetailStrength', 0.25);
 			this.setUniform('uProceduralColorStrength', 0.25);
 			this.setUniform('uSurfaceTextureStrength', 0.35);
-			this.clouds.setRenderQuality(quality);
-			this.atmosphere.setRenderQuality(quality);
+			this.clouds?.setRenderQuality(quality);
+			this.atmosphere?.setRenderQuality(quality);
 			return;
 		}
 
 		this.setUniform('uSurfaceDetailStrength', 1.0);
 		this.setUniform('uProceduralColorStrength', 0.65);
 		this.setUniform('uSurfaceTextureStrength', 1.0);
-		this.clouds.setRenderQuality(quality);
-		this.atmosphere.setRenderQuality(quality);
+		this.clouds?.setRenderQuality(quality);
+		this.atmosphere?.setRenderQuality(quality);
+	}
+
+	private createSurfaceMaterial(
+		radius: number,
+		atmosphereRadius: number,
+	): PlanetSurfaceRuntimeMaterial {
+		if (this.rendererMode === 'webgpu') {
+			return createPlanetSurfaceNodeMaterial() as PlanetSurfaceRuntimeMaterial;
+		}
+
+		return createPlanetSurfaceMaterial(
+			radius,
+			atmosphereRadius,
+		) as PlanetSurfaceRuntimeMaterial;
+	}
+
+	private updateSurfaceCameraUniform(cameraPosition: THREE.Vector3): void {
+		const uniform = this.surfaceMaterial.uniforms?.uCameraPosition;
+
+		if (!uniform || !(uniform.value instanceof THREE.Vector3)) {
+			return;
+		}
+
+		uniform.value.copy(cameraPosition);
 	}
 
 	private updateSurfaceAtmosphereUniforms(heightAboveSurface: number): void {
@@ -139,7 +191,7 @@ export class Planet {
 	}
 
 	private setUniform(name: string, value: number): void {
-		const uniform = this.surfaceMaterial.uniforms[name];
+		const uniform = this.surfaceMaterial.uniforms?.[name];
 
 		if (!uniform) {
 			return;
@@ -150,11 +202,11 @@ export class Planet {
 
 	private createPlanet(
 		radius: number,
-		material: THREE.ShaderMaterial,
+		material: THREE.Material,
 	): CubeSphere {
 		const cubeSphere = new CubeSphere(radius, 24, material);
 
-		cubeSphere.name        = 'PlanetTerrain';
+		cubeSphere.name = 'PlanetTerrain';
 		cubeSphere.renderOrder = 1;
 
 		return cubeSphere;
@@ -173,7 +225,7 @@ export class Planet {
 
 		const mesh = new THREE.Mesh(geometry, material);
 
-		mesh.name        = 'PlanetBody';
+		mesh.name = 'PlanetBody';
 		mesh.renderOrder = 0;
 
 		return mesh;
@@ -190,7 +242,7 @@ export class Planet {
 
 		const mesh = new THREE.Mesh(geometry, material);
 
-		mesh.name        = 'PlanetDepthOccluder';
+		mesh.name = 'PlanetDepthOccluder';
 		mesh.renderOrder = -1000;
 
 		return mesh;
