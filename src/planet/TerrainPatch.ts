@@ -369,6 +369,7 @@ export class TerrainPatch extends THREE.Group {
 
 		this.addSkirts(
 			positions,
+			sphereNormals,
 			terrainNormals,
 			uvs,
 			colors,
@@ -392,10 +393,6 @@ export class TerrainPatch extends THREE.Group {
 			new THREE.Float32BufferAttribute(positions, 3),
 		);
 
-		/**
-		 * Main normal now uses terrain-derived normals.
-		 * This means normalWorld in TSL finally sees actual terrain slope.
-		 */
 		geometry.setAttribute(
 			'normal',
 			new THREE.Float32BufferAttribute(terrainNormals, 3),
@@ -404,6 +401,18 @@ export class TerrainPatch extends THREE.Group {
 		geometry.setAttribute(
 			'uv',
 			new THREE.Float32BufferAttribute(uvs, 2),
+		);
+
+		/**
+		 * Stable local sphere normal.
+		 *
+		 * WebGPU/TSL procedural detail should sample in local planet space,
+		 * same as the GLSL reference. This keeps surface noise independent
+		 * from patch edge normal smoothing and world-space lighting.
+		 */
+		geometry.setAttribute(
+			'sphereNormal',
+			new THREE.Float32BufferAttribute(sphereNormals, 3),
 		);
 
 		geometry.setAttribute(
@@ -506,10 +515,6 @@ export class TerrainPatch extends THREE.Group {
 						normal.multiplyScalar(-1);
 					}
 
-					/**
-					 * Blend toward the sphere normal to avoid noisy patch-border shading.
-					 * High enough to show mountains, soft enough for orbit.
-					 */
 					const edgeDistance = Math.min(
 						x,
 						y,
@@ -535,6 +540,7 @@ export class TerrainPatch extends THREE.Group {
 
 	private addSkirts(
 		positions: number[],
+		sphereNormals: number[],
 		normals: number[],
 		uvs: number[],
 		colors: number[],
@@ -557,15 +563,16 @@ export class TerrainPatch extends THREE.Group {
 			right.push(i * rowSize + (rowSize - 1));
 		}
 
-		this.addSkirtEdge(top, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
-		this.addSkirtEdge(bottom, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
-		this.addSkirtEdge(left, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
-		this.addSkirtEdge(right, positions, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(top, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(bottom, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(left, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(right, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
 	}
 
 	private addSkirtEdge(
 		edgeIndices: number[],
 		positions: number[],
+		sphereNormals: number[],
 		normals: number[],
 		uvs: number[],
 		colors: number[],
@@ -598,6 +605,12 @@ export class TerrainPatch extends THREE.Group {
 			const newIndex = positions.length / 3;
 
 			positions.push(skirtPoint.x, skirtPoint.y, skirtPoint.z);
+
+			sphereNormals.push(
+				sphereNormals[pIndex + 0],
+				sphereNormals[pIndex + 1],
+				sphereNormals[pIndex + 2],
+			);
 
 			normals.push(
 				normals[pIndex + 0],

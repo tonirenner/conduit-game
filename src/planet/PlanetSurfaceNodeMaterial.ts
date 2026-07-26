@@ -21,20 +21,20 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 /**
- * Phase 4k.1:
+ * Phase 4k.2:
  *
- * TSL procedural surface detail pass.
+ * Stable local surface detail sampling.
  *
- * Based on current Phase 4f.1 WebGPU surface material.
+ * Based on Phase 4k.1.
  *
- * This ports the first useful part of the GLSL surface reference:
- * - procedural land detail
- * - vegetation/dry/rock tint variation
- * - ocean basin / shelf variation
- * - coast color detail
+ * Change:
+ * - procedural surface detail now samples from `sphereNormal`
+ *   instead of `normalWorld`
  *
- * It intentionally does not touch normals yet.
- * The next step is 4k.2: procedural height-gradient normals.
+ * Why:
+ * GLSL reference samples terrain/noise in local planet space and keeps
+ * lighting/view/aerial perspective in world space. This keeps detail stable
+ * across patch edge normal smoothing and world-space lighting.
  */
 export function createPlanetSurfaceNodeMaterial(): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -80,6 +80,7 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const landMask = attribute('landMask', 'float');
 	const mountainMask = attribute('mountainMask', 'float');
 	const waterHint = attribute('waterHint', 'float');
+	const sphereNormal = normalize(attribute('sphereNormal', 'vec3'));
 
 	const proceduralSurfaceDetail = wgslFn(`
 fn procedural_surface_detail(
@@ -449,7 +450,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const detailResult = proceduralSurfaceDetail({
-		                                             normalInput: worldNormal,
+		                                             normalInput: sphereNormal,
 		                                             landMaskInput: landMask,
 		                                             waterHintInput: waterHint,
 		                                             terrainHeightInput: terrainHeight,
