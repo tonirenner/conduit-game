@@ -511,7 +511,7 @@ export class TerrainPatch extends THREE.Group {
 					 * High enough to show mountains, soft enough for orbit.
 					 */
 					normal
-						.lerp(sphereNormal, 0.26)
+						.lerp(sphereNormal, 0.18)
 						.normalize();
 				}
 
