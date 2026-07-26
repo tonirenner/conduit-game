@@ -21,22 +21,25 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 /**
- * Phase 4d.2:
+ * Phase 4e.3:
  *
- * TSL material-data pass.
+ * Fake aerial perspective / horizon haze for the WebGPU/TSL path.
  *
- * Reads custom TerrainPatch BufferGeometry attributes:
- * - terrainHeight
- * - landMask
- * - mountainMask
- * - waterHint
+ * Based on Phase 4e.2.
  *
  * Goal:
- * Keep the 4c.3 lighting balance, but finally separate material behavior:
- * - water gets deeper tint + fresnel
- * - coasts get a subtle edge lift
- * - mountains get slightly more light contrast
- * - high terrain gets a cooler snow/ice lift
+ * Bring the WebGPU look closer to the GLSL reference by adding the missing
+ * atmospheric image language directly into the surface material:
+ * - blue horizon wrap
+ * - softer planet edge
+ * - twilight haze
+ * - low-angle light lift
+ * - more readable water on the shadow side
+ *
+ * Still intentionally not a full atmosphere layer:
+ * - no volumetric atmosphere mesh
+ * - no clouds
+ * - no procedural surface noise
  */
 export function createPlanetSurfaceNodeMaterial(): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -52,18 +55,26 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		SUN_DIRECTION.clone().normalize(),
 	);
 
-	const ambient = uniform(0.50);
-	const exposure = uniform(1.34);
-	const terminatorSoftness = uniform(1.18);
+	const ambient = uniform(0.52);
+	const exposure = uniform(1.38);
+	const terminatorSoftness = uniform(1.24);
 
 	const nightTint = color(0x0b2035);
-	const twilightTint = color(0x245c92);
-	const rimTint = color(0x9fd2ff);
-	const fakeAtmosphereTint = color(0x78bdff);
-	const oceanFresnelTint = color(0x3ab4d0);
-	const oceanDeepTint = color(0x051827);
-	const oceanShelfTint = color(0x0b4054);
-	const coastTint = color(0x4f755c);
+	const twilightTint = color(0x285f96);
+	const rimTint = color(0xa8d8ff);
+	const fakeAtmosphereTint = color(0x7fc2ff);
+	const horizonHazeTint = color(0x9ed4ff);
+	const lowSunHazeTint = color(0xffe6c2);
+
+	const oceanFresnelTint = color(0x49c3dc);
+	const oceanDeepTint = color(0x071f2f);
+	const oceanNightTint = color(0x071b2b);
+	const oceanShelfTint = color(0x155463);
+	const oceanLightTint = color(0x4aa5bb);
+	const oceanSpecularTint = color(0xfff3d8);
+	const oceanCoastLightTint = color(0x58b8ad);
+
+	const coastTint = color(0x587b61);
 	const warmDayTint = color(0xffefd2);
 	const mountainTint = color(0x776f5f);
 	const coolIceTint = color(0xd8ecff);
@@ -81,8 +92,8 @@ export function createPlanetSurfaceNodeMaterial(): any {
 
 	const shallowWater = waterHint.mul(
 		smoothstep(
-			0.32,
-			0.74,
+			0.30,
+			0.76,
 			landMask,
 		),
 	);
@@ -90,8 +101,24 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const deepWater = waterHint.mul(
 		oneMinus(
 			smoothstep(
-				0.16,
-				0.52,
+				0.14,
+				0.54,
+				landMask,
+			),
+		),
+	);
+
+	const shelfWater = waterHint.mul(
+		smoothstep(
+			0.34,
+			0.70,
+			landMask,
+		),
+	).mul(
+		oneMinus(
+			smoothstep(
+				0.76,
+				0.96,
 				landMask,
 			),
 		),
@@ -99,11 +126,14 @@ export function createPlanetSurfaceNodeMaterial(): any {
 
 	const coastMask = oneMinus(
 		smoothstep(
-			0.035,
-			0.22,
+			0.030,
+			0.235,
 			landMask.sub(0.55).abs(),
 		),
 	);
+
+	const coastWaterEdge = coastMask.mul(waterHint);
+	const coastLandEdge = coastMask.mul(landOnly);
 
 	const heightSnow = smoothstep(
 		0.18,
@@ -119,10 +149,6 @@ export function createPlanetSurfaceNodeMaterial(): any {
 
 	const baseColorRaw = vertexColor().toVec3();
 
-	/**
-	 * Subtle color lift.
-	 * Less aggressive than 4c.2, so the terrain does not crush into hard patches.
-	 */
 	let baseColor = baseColorRaw
 		.mul(1.045)
 		.add(
@@ -132,19 +158,31 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	baseColor = mix(
 		baseColor,
 		oceanDeepTint,
-		deepWater.mul(0.48),
+		deepWater.mul(0.32),
 	);
 
 	baseColor = mix(
 		baseColor,
 		oceanShelfTint,
-		shallowWater.mul(0.22),
+		shallowWater.mul(0.38),
+	);
+
+	baseColor = mix(
+		baseColor,
+		oceanLightTint,
+		shelfWater.mul(0.12),
+	);
+
+	baseColor = mix(
+		baseColor,
+		oceanCoastLightTint,
+		coastWaterEdge.mul(0.18),
 	);
 
 	baseColor = mix(
 		baseColor,
 		coastTint,
-		coastMask.mul(0.075),
+		coastLandEdge.mul(0.085),
 	);
 
 	baseColor = mix(
@@ -191,6 +229,15 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		).mul(0.16),
 	);
 
+	const waterDayLift = shallowWater
+		.mul(0.10)
+		.add(
+			shelfWater.mul(0.08),
+		)
+		.add(
+			coastWaterEdge.mul(0.15),
+		);
+
 	const dayTintedBase = mix(
 		baseColor,
 		baseColor.mul(warmDayTint),
@@ -201,20 +248,23 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		ambient.add(
 			directLight
 				.mul(1.22)
-				.add(mountainContrast),
+				.add(mountainContrast)
+				.add(waterDayLift),
 		),
 	);
 
-	/**
-	 * Keep the dark side dark, but not empty.
-	 * Water stays darker than land, but not fully crushed.
-	 */
 	const nightColor = nightTint
 		.add(
-			baseColorRaw.mul(0.36),
+			baseColorRaw.mul(0.38),
 		)
 		.add(
-			oceanShelfTint.mul(shallowWater).mul(0.045),
+			oceanNightTint.mul(deepWater).mul(0.090),
+		)
+		.add(
+			oceanShelfTint.mul(shallowWater).mul(0.125),
+		)
+		.add(
+			oceanCoastLightTint.mul(coastWaterEdge).mul(0.070),
 		);
 
 	let surfaceColor = mix(
@@ -228,13 +278,50 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		0.0,
 	);
 
+	const grazingView = oneMinus(viewFacing);
+
 	const fresnel = pow(
-		oneMinus(viewFacing),
-		2.35,
+		grazingView,
+		2.05,
+	);
+
+	const waterFresnel = fresnel.mul(
+		waterHint
+			.mul(0.42)
+			.add(shelfWater.mul(0.10))
+			.add(coastWaterEdge.mul(0.20))
+			.add(0.045),
+	);
+
+	const halfDirection = normalize(
+		sunDirection.add(viewDirection),
+	);
+
+	const specDot = max(
+		dot(worldNormal, halfDirection),
+		0.0,
+	);
+
+	const tightSpecular = pow(
+		specDot,
+		96.0,
+	).mul(waterHint).mul(day).mul(0.18);
+
+	const broadSpecular = pow(
+		specDot,
+		18.0,
+	).mul(waterHint).mul(day).mul(0.075);
+
+	const coastSurf = coastWaterEdge.mul(
+		smoothstep(
+			-0.12,
+			0.72,
+			ndl,
+		),
 	);
 
 	const rim = pow(
-		oneMinus(viewFacing),
+		grazingView,
 		1.70,
 	).mul(
 		smoothstep(
@@ -244,20 +331,41 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		),
 	);
 
+	/**
+	 * Fake aerial perspective:
+	 * This is the missing visual bridge compared to the WebGL shader.
+	 */
+	const horizon = pow(
+		grazingView,
+		1.58,
+	);
+
 	const atmosphereEdge = pow(
-		oneMinus(viewFacing),
-		3.35,
+		grazingView,
+		2.70,
 	).mul(
 		smoothstep(
-			-0.28,
-			0.70,
+			-0.36,
+			0.76,
 			ndl,
 		),
 	);
 
+	const dayHaze = horizon.mul(
+		smoothstep(
+			-0.22,
+			0.80,
+			ndl,
+		),
+	);
+
+	const nightHaze = horizon.mul(
+		oneMinus(day),
+	).mul(0.40);
+
 	const twilight = smoothstep(
 		-0.92,
-		0.18,
+		0.22,
 		ndl,
 	).mul(
 		oneMinus(
@@ -269,6 +377,8 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		),
 	);
 
+	const lowSunHaze = horizon.mul(twilight).mul(0.36);
+
 	const polarLift = smoothstep(
 		0.76,
 		0.985,
@@ -278,35 +388,62 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	surfaceColor = surfaceColor
 		.add(
 			oceanFresnelTint
-				.mul(fresnel)
-				.mul(day)
-				.mul(waterHint.mul(0.22).add(0.035)),
+				.mul(waterFresnel)
+				.mul(day.mul(0.84).add(0.16)),
+		)
+		.add(
+			oceanSpecularTint
+				.mul(tightSpecular),
+		)
+		.add(
+			oceanLightTint
+				.mul(broadSpecular),
+		)
+		.add(
+			oceanCoastLightTint
+				.mul(coastSurf)
+				.mul(0.16),
 		)
 		.add(
 			coastTint
-				.mul(coastMask)
+				.mul(coastLandEdge)
 				.mul(day)
-				.mul(0.055),
+				.mul(0.070),
 		)
 		.add(
 			rimTint
 				.mul(rim)
-				.mul(0.15),
+				.mul(0.12),
 		)
 		.add(
 			fakeAtmosphereTint
 				.mul(atmosphereEdge)
-				.mul(0.095),
+				.mul(0.18),
+		)
+		.add(
+			horizonHazeTint
+				.mul(dayHaze)
+				.mul(0.115),
+		)
+		.add(
+			fakeAtmosphereTint
+				.mul(nightHaze)
+				.mul(0.060),
+		)
+		.add(
+			lowSunHazeTint
+				.mul(lowSunHaze)
+				.mul(0.085),
 		)
 		.add(
 			twilightTint
 				.mul(twilight)
-				.mul(0.30),
+				.mul(0.34),
 		)
 		.add(
 			coolIceTint
 				.mul(polarLift)
-				.mul(0.035),
+				.mul(0.030),
 		)
 		.add(
 			coolIceTint
