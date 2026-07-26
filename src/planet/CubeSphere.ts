@@ -1,24 +1,56 @@
 import * as THREE from 'three';
+
 import {
 	type CubeFace,
 	type LodOptions,
 	TerrainPatch,
 } from './TerrainPatch';
+
 import {
 	HorizonCulling,
 	type HorizonCullingStats,
 } from './HorizonCulling';
-import { logger } from '../utils/logger';
+
+export type TerrainLodProfile =
+	| 'far'
+	| 'orbit'
+	| 'approach'
+	| 'near'
+	| 'surface';
 
 export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
 
-	private readonly lodOptions: LodOptions = {
-		maxLevel: 5,
-		splitMultiplier: 3.2,
-	};
-
 	private readonly horizonCulling: HorizonCulling;
+
+	private currentLodProfile: TerrainLodProfile = 'orbit';
+
+	private readonly lodProfiles: Record<TerrainLodProfile, LodOptions> = {
+		far: {
+			maxLevel: 4,
+			splitMultiplier: 2.6,
+		},
+
+		orbit: {
+			maxLevel: 5,
+			splitMultiplier: 3.0,
+		},
+
+		approach: {
+			maxLevel: 5,
+			splitMultiplier: 3.7,
+		},
+
+		near: {
+			maxLevel: 6,
+			splitMultiplier: 4.3,
+		},
+
+		surface: {
+			maxLevel: 6,
+			splitMultiplier: 5.0,
+		},
+	};
 
 	constructor(
 		private readonly radius: number,
@@ -29,18 +61,11 @@ export class CubeSphere extends THREE.Group {
 
 		this.name = 'CubeSphere';
 
-		logger.info('CubeSphere created', {
-			radius: this.radius,
-			resolution: this.resolution,
-			maxLevel: this.lodOptions.maxLevel,
-			splitMultiplier: this.lodOptions.splitMultiplier,
-		});
-
 		this.horizonCulling = new HorizonCulling(this.radius, {
 			enabled: true,
 			debug: false,
-			safetyMargin: 0.08,
-			minCameraHeightForCulling: 0.22,
+			safetyMargin: 0.16,
+			minCameraHeightForCulling: 0.42,
 		});
 
 		for (const face of this.createFaces()) {
@@ -69,13 +94,48 @@ export class CubeSphere extends THREE.Group {
 		this.updateMatrixWorld(true);
 		this.horizonCulling.resetFrameStats();
 
+		const cameraDistance = cameraPosition.length();
+		const heightAboveSurface = Math.max(
+			0,
+			cameraDistance - this.radius,
+		);
+
+		const nextProfile = this.selectLodProfile(heightAboveSurface);
+		this.currentLodProfile = nextProfile;
+
+		const frameSplitBudget = this.getFrameSplitBudget(nextProfile);
+
+		const lodOptions: LodOptions = {
+			...this.lodProfiles[nextProfile],
+			allowMerge:
+				nextProfile !== 'near' &&
+				nextProfile !== 'surface',
+			splitBudget: {
+				remaining: frameSplitBudget,
+			},
+		};
+
+		this.horizonCulling.setEnabled(
+			nextProfile === 'far' ||
+			nextProfile === 'orbit' ||
+			nextProfile === 'approach',
+		);
+
 		for (const patch of this.rootPatches) {
 			patch.updateLOD(
 				cameraPosition,
-				this.lodOptions,
+				lodOptions,
 				this.horizonCulling,
 			);
 		}
+	}
+
+	getCurrentLodProfile(): TerrainLodProfile {
+		return this.currentLodProfile;
+	}
+
+	getCurrentLodOptions(): LodOptions {
+		return this.lodProfiles[this.currentLodProfile];
 	}
 
 	setHorizonCullingEnabled(enabled: boolean): void {
@@ -100,6 +160,71 @@ export class CubeSphere extends THREE.Group {
 
 	getHorizonCullingStats(): HorizonCullingStats {
 		return this.horizonCulling.getStats();
+	}
+
+	getStats(): {
+		totalPatches: number;
+		visibleMeshes: number;
+		maxLevel: number;
+	} {
+		let totalPatches = 0;
+		let visibleMeshes = 0;
+		let maxLevel = 0;
+
+		for (const patch of this.rootPatches) {
+			const stats = patch.getStats();
+
+			totalPatches += stats.totalPatches;
+			visibleMeshes += stats.visibleMeshes;
+			maxLevel = Math.max(maxLevel, stats.maxLevel);
+		}
+
+		return {
+			totalPatches,
+			visibleMeshes,
+			maxLevel,
+		};
+	}
+
+	private getFrameSplitBudget(profile: TerrainLodProfile): number {
+		switch (profile) {
+			case 'far':
+				return 4;
+
+			case 'orbit':
+				return 4;
+
+			case 'approach':
+				return 3;
+
+			case 'near':
+				return 2;
+
+			case 'surface':
+				return 1;
+		}
+	}
+
+	private selectLodProfile(
+		heightAboveSurface: number,
+	): TerrainLodProfile {
+		if (heightAboveSurface > this.radius * 4.0) {
+			return 'far';
+		}
+
+		if (heightAboveSurface > this.radius * 1.25) {
+			return 'orbit';
+		}
+
+		if (heightAboveSurface > this.radius * 0.34) {
+			return 'approach';
+		}
+
+		if (heightAboveSurface > this.radius * 0.10) {
+			return 'near';
+		}
+
+		return 'surface';
 	}
 
 	private createFaces(): CubeFace[] {
@@ -135,29 +260,5 @@ export class CubeSphere extends THREE.Group {
 				right: new THREE.Vector3(-1, 0, 0),
 			},
 		];
-	}
-
-	getStats(): {
-		totalPatches: number;
-		visibleMeshes: number;
-		maxLevel: number;
-	} {
-		let totalPatches = 0;
-		let visibleMeshes = 0;
-		let maxLevel = 0;
-
-		for (const patch of this.rootPatches) {
-			const stats = patch.getStats();
-
-			totalPatches += stats.totalPatches;
-			visibleMeshes += stats.visibleMeshes;
-			maxLevel = Math.max(maxLevel, stats.maxLevel);
-		}
-
-		return {
-			totalPatches,
-			visibleMeshes,
-			maxLevel,
-		};
 	}
 }

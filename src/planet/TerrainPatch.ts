@@ -2,7 +2,6 @@ import * as THREE from 'three';
 
 import { getClimateSample } from './Climate';
 import { getTerrainHeight, getTerrainSample } from '../utils/noise';
-import { logger } from '../utils/logger';
 import { HorizonCulling } from './HorizonCulling';
 
 export type CubeFace = {
@@ -20,6 +19,10 @@ export type PatchBounds = {
 export type LodOptions = {
 	maxLevel: number;
 	splitMultiplier: number;
+	allowMerge?: boolean;
+	splitBudget?: {
+		remaining: number;
+	};
 };
 
 type TerrainSampleData = ReturnType<typeof getTerrainSample>;
@@ -28,7 +31,6 @@ type ClimateSampleData = ReturnType<typeof getClimateSample>;
 export class TerrainPatch extends THREE.Group {
 	private readonly mesh: THREE.Mesh;
 	private readonly childrenPatches: TerrainPatch[] = [];
-	private readonly skirtDepth = 0.010;
 
 	constructor(
 		private readonly face: CubeFace,
@@ -78,21 +80,38 @@ export class TerrainPatch extends THREE.Group {
 		const splitDistance =
 			      this.radius * this.bounds.size * options.splitMultiplier;
 
-		const mergeDistance = splitDistance * 1.35;
+		const mergeDistance = splitDistance * 1.90;
+		const shouldSplit = distance < splitDistance && this.level < options.maxLevel;
 
-		if (distance < splitDistance && this.level < options.maxLevel) {
-			this.split();
+		if (shouldSplit && this.childrenPatches.length === 0) {
+			const canSplit =
+				      !options.splitBudget ||
+				      options.splitBudget.remaining > 0;
+
+			if (canSplit) {
+				this.split();
+
+				if (options.splitBudget) {
+					options.splitBudget.remaining--;
+				}
+			}
 		}
 
 		if (this.childrenPatches.length > 0) {
-			if (distance > mergeDistance) {
+			if (options.allowMerge !== false && distance > mergeDistance) {
 				this.merge();
 				return;
 			}
 
-			for (const child of this.childrenPatches) {
-				child.updateLOD(cameraPosition, options, horizonCulling);
-			}
+			this.childrenPatches
+				.slice()
+				.sort((a, b) => (
+					a.getCenterWorld().distanceToSquared(cameraPosition) -
+					b.getCenterWorld().distanceToSquared(cameraPosition)
+				))
+				.forEach((child) => {
+					child.updateLOD(cameraPosition, options, horizonCulling);
+				});
 		}
 	}
 
@@ -102,12 +121,6 @@ export class TerrainPatch extends THREE.Group {
 		}
 
 		this.mesh.visible = false;
-
-		logger.info('LOD split', {
-			level: this.level,
-			nextLevel: this.level + 1,
-			bounds: this.bounds,
-		});
 
 		const half = this.bounds.size / 2;
 
@@ -150,12 +163,6 @@ export class TerrainPatch extends THREE.Group {
 	}
 
 	merge(): void {
-		logger.info('LOD merge', {
-			level: this.level,
-			children: this.childrenPatches.length,
-			bounds: this.bounds,
-		});
-
 		for (const child of this.childrenPatches) {
 			child.disposeDeep();
 			this.remove(child);
@@ -172,7 +179,6 @@ export class TerrainPatch extends THREE.Group {
 		}
 
 		this.childrenPatches.length = 0;
-
 		this.mesh.geometry.dispose();
 	}
 
@@ -215,9 +221,8 @@ export class TerrainPatch extends THREE.Group {
 					.multiplyScalar(cubeY),
 			);
 
-		const spherePoint = cubePoint
-			.normalize()
-			.multiplyScalar(this.radius);
+		const sphereNormal = cubePoint.normalize();
+		const spherePoint = this.getTerrainPoint(sphereNormal);
 
 		return this.localToWorld(spherePoint);
 	}
@@ -242,8 +247,7 @@ export class TerrainPatch extends THREE.Group {
 			);
 		}
 
-		// Konservativer Puffer für Terrainhöhe, Skirts und numerische Fehler.
-		return maxDistance + this.radius * this.bounds.size * 0.08 + 0.12;
+		return maxDistance + this.radius * this.bounds.size * 0.14 + 0.26;
 	}
 
 	private getPointWorld(cubeX: number, cubeY: number): THREE.Vector3 {
@@ -261,8 +265,7 @@ export class TerrainPatch extends THREE.Group {
 			);
 
 		const sphereNormal = cubePoint.normalize();
-
-		const spherePoint = sphereNormal.multiplyScalar(this.radius);
+		const spherePoint = this.getTerrainPoint(sphereNormal);
 
 		return this.localToWorld(spherePoint);
 	}
@@ -302,12 +305,10 @@ export class TerrainPatch extends THREE.Group {
 					.normalize();
 
 				const spherePoint = this.getTerrainPoint(sphereNormal);
-				const terrainNormal = this.getTerrainNormal(sphereNormal);
-
 				const color = this.getTerrainColor(sphereNormal);
 
 				positions.push(spherePoint.x, spherePoint.y, spherePoint.z);
-				normals.push(terrainNormal.x, terrainNormal.y, terrainNormal.z);
+				normals.push(sphereNormal.x, sphereNormal.y, sphereNormal.z);
 				uvs.push(localU, localV);
 				colors.push(color.r, color.g, color.b);
 			}
@@ -390,6 +391,7 @@ export class TerrainPatch extends THREE.Group {
 		indices: number[],
 	): void {
 		const skirtIndices: number[] = [];
+		const skirtDepth = this.getSkirtDepth();
 
 		for (const sourceIndex of edgeIndices) {
 			const pIndex = sourceIndex * 3;
@@ -418,7 +420,7 @@ export class TerrainPatch extends THREE.Group {
 
 			const skirtPoint = point
 				.clone()
-				.addScaledVector(downDirection, -this.skirtDepth);
+				.addScaledVector(downDirection, -skirtDepth);
 
 			const newIndex = positions.length / 3;
 
@@ -440,8 +442,12 @@ export class TerrainPatch extends THREE.Group {
 		}
 	}
 
+	private getSkirtDepth(): number {
+		return 0.010 * Math.pow(0.68, this.level);
+	}
+
 	private getTerrainColor(sphereNormal: THREE.Vector3): THREE.Color {
-		const sample = this.getSmoothedTerrainSample(sphereNormal);
+		const sample = getTerrainSample(sphereNormal);
 
 		const land = sample.landMask;
 		const height = sample.height;
@@ -596,108 +602,12 @@ export class TerrainPatch extends THREE.Group {
 		return color;
 	}
 
-	private getBiomeBaseColor(
-		biome: ClimateSampleData['biome'],
-	): THREE.Color {
-		switch (biome) {
-			case 'deepOcean':
-				return new THREE.Color(0x071f2f);
-
-			case 'shallowOcean':
-				return new THREE.Color(0x155463);
-
-			case 'coast':
-				return new THREE.Color(0x58664f);
-
-			case 'ice':
-				return new THREE.Color(0xbec8c8);
-
-			case 'tundra':
-				return new THREE.Color(0x7f856f);
-
-			case 'borealForest':
-				return new THREE.Color(0x355738);
-
-			case 'temperateForest':
-				return new THREE.Color(0x3e733d);
-
-			case 'rainforest':
-				return new THREE.Color(0x24783d);
-
-			case 'grassland':
-				return new THREE.Color(0x667f43);
-
-			case 'savanna':
-				return new THREE.Color(0x967b43);
-
-			case 'desert':
-				return new THREE.Color(0xb28b55);
-
-			case 'dryHills':
-				return new THREE.Color(0x786b4c);
-
-			case 'mountain':
-				return new THREE.Color(0x6f6d61);
-
-			case 'snow':
-				return new THREE.Color(0xd2d5cc);
-		}
-	}
-
 	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {
-		const height = this.getSmoothedTerrainHeight(sphereNormal);
+		const height = getTerrainHeight(sphereNormal);
 
 		return sphereNormal
 			.clone()
 			.multiplyScalar(this.radius + height);
-	}
-
-	private getTerrainNormal(sphereNormal: THREE.Vector3): THREE.Vector3 {
-		const epsilon = 0.004;
-
-		const reference =
-			      Math.abs(sphereNormal.y) < 0.95
-			      ? new THREE.Vector3(0, 1, 0)
-			      : new THREE.Vector3(1, 0, 0);
-
-		const tangentA = reference
-			.cross(sphereNormal)
-			.normalize();
-
-		const tangentB = sphereNormal
-			.clone()
-			.cross(tangentA)
-			.normalize();
-
-		const normalA1 = sphereNormal
-			.clone()
-			.addScaledVector(tangentA, epsilon)
-			.normalize();
-
-		const normalA2 = sphereNormal
-			.clone()
-			.addScaledVector(tangentA, -epsilon)
-			.normalize();
-
-		const normalB1 = sphereNormal
-			.clone()
-			.addScaledVector(tangentB, epsilon)
-			.normalize();
-
-		const normalB2 = sphereNormal
-			.clone()
-			.addScaledVector(tangentB, -epsilon)
-			.normalize();
-
-		const pointA1 = this.getTerrainPoint(normalA1);
-		const pointA2 = this.getTerrainPoint(normalA2);
-		const pointB1 = this.getTerrainPoint(normalB1);
-		const pointB2 = this.getTerrainPoint(normalB2);
-
-		const deltaA = pointA1.sub(pointA2);
-		const deltaB = pointB1.sub(pointB2);
-
-		return deltaA.cross(deltaB).normalize();
 	}
 
 	getStats(): {
@@ -734,109 +644,6 @@ export class TerrainPatch extends THREE.Group {
 		for (const child of this.childrenPatches) {
 			child.forceSplitToLevel(targetLevel);
 		}
-	}
-
-	private getSmoothedTerrainSample(
-		sphereNormal: THREE.Vector3,
-	): TerrainSampleData {
-		const center = getTerrainSample(sphereNormal);
-
-		const {
-			      tangentA,
-			      tangentB,
-		      } = this.getTangentBasis(sphereNormal);
-
-		const epsilon = 0.012;
-
-		const sample1 = getTerrainSample(
-			sphereNormal.clone().addScaledVector(tangentA, epsilon).normalize(),
-		);
-
-		const sample2 = getTerrainSample(
-			sphereNormal.clone().addScaledVector(tangentA, -epsilon).normalize(),
-		);
-
-		const sample3 = getTerrainSample(
-			sphereNormal.clone().addScaledVector(tangentB, epsilon).normalize(),
-		);
-
-		const sample4 = getTerrainSample(
-			sphereNormal.clone().addScaledVector(tangentB, -epsilon).normalize(),
-		);
-
-		const centerWeight = 0.52;
-		const sideWeight = 0.12;
-
-		const landMask =
-			      center.landMask * centerWeight +
-			      (sample1.landMask + sample2.landMask + sample3.landMask + sample4.landMask) * sideWeight;
-
-		const height =
-			      center.height * centerWeight +
-			      (sample1.height + sample2.height + sample3.height + sample4.height) * sideWeight;
-
-		return {
-			...center,
-			landMask,
-			height,
-		};
-	}
-
-	private getSmoothedTerrainHeight(sphereNormal: THREE.Vector3): number {
-		const center = getTerrainHeight(sphereNormal);
-
-		const {
-			      tangentA,
-			      tangentB,
-		      } = this.getTangentBasis(sphereNormal);
-
-		const epsilon = 0.010;
-
-		const h1 = getTerrainHeight(
-			sphereNormal.clone().addScaledVector(tangentA, epsilon).normalize(),
-		);
-
-		const h2 = getTerrainHeight(
-			sphereNormal.clone().addScaledVector(tangentA, -epsilon).normalize(),
-		);
-
-		const h3 = getTerrainHeight(
-			sphereNormal.clone().addScaledVector(tangentB, epsilon).normalize(),
-		);
-
-		const h4 = getTerrainHeight(
-			sphereNormal.clone().addScaledVector(tangentB, -epsilon).normalize(),
-		);
-
-		return (
-			center * 0.58 +
-			(h1 + h2 + h3 + h4) * 0.105
-		);
-	}
-
-	private getTangentBasis(sphereNormal: THREE.Vector3): {
-		tangentA: THREE.Vector3;
-		tangentB: THREE.Vector3;
-	} {
-		const reference =
-			      Math.abs(sphereNormal.y) < 0.95
-			      ? new THREE.Vector3(0, 1, 0)
-			      : new THREE.Vector3(1, 0, 0);
-
-		const tangentA = reference
-			.clone()
-			.cross(sphereNormal)
-			.normalize();
-
-		const tangentB = sphereNormal
-			.clone()
-			.cross(tangentA)
-			.normalize();
-
-		return {
-			tangentA,
-			tangentB,
-		};
 	}
 
 	private smoothstep(edge0: number, edge1: number, value: number): number {
