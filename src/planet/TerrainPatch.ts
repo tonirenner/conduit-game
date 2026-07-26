@@ -296,6 +296,10 @@ export class TerrainPatch extends THREE.Group {
 		const positions: number[] = [];
 		const normals: number[] = [];
 		const uvs: number[] = [];
+		const terrainHeights: number[] = [];
+		const landMasks: number[] = [];
+		const mountainMasks: number[] = [];
+		const waterHints: number[] = [];
 		const indices: number[] = [];
 
 		const rowSize = this.resolution + 1;
@@ -312,6 +316,13 @@ export class TerrainPatch extends THREE.Group {
 
 				const sphereNormal = this.getSphereNormal(cubeX, cubeY);
 				const height = this.terrainGrid.heights[index];
+				const landMask = this.terrainGrid.landMasks[index];
+				const mountainMask = this.terrainGrid.mountainMasks[index];
+				const waterHint = 1.0 - THREE.MathUtils.smoothstep(
+					landMask,
+					0.42,
+					0.76,
+				);
 
 				const spherePoint = sphereNormal
 					.clone()
@@ -328,6 +339,11 @@ export class TerrainPatch extends THREE.Group {
 					this.terrainGrid.colors[colorIndex + 1],
 					this.terrainGrid.colors[colorIndex + 2],
 				);
+
+				terrainHeights.push(height);
+				landMasks.push(landMask);
+				mountainMasks.push(mountainMask);
+				waterHints.push(waterHint);
 			}
 		}
 
@@ -348,6 +364,10 @@ export class TerrainPatch extends THREE.Group {
 			normals,
 			uvs,
 			colors,
+			terrainHeights,
+			landMasks,
+			mountainMasks,
+			waterHints,
 			indices,
 			rowSize,
 		);
@@ -374,6 +394,26 @@ export class TerrainPatch extends THREE.Group {
 			new THREE.Float32BufferAttribute(uvs, 2),
 		);
 
+		geometry.setAttribute(
+			'terrainHeight',
+			new THREE.Float32BufferAttribute(terrainHeights, 1),
+		);
+
+		geometry.setAttribute(
+			'landMask',
+			new THREE.Float32BufferAttribute(landMasks, 1),
+		);
+
+		geometry.setAttribute(
+			'mountainMask',
+			new THREE.Float32BufferAttribute(mountainMasks, 1),
+		);
+
+		geometry.setAttribute(
+			'waterHint',
+			new THREE.Float32BufferAttribute(waterHints, 1),
+		);
+
 		geometry.setIndex(indices);
 		geometry.computeBoundingSphere();
 
@@ -385,6 +425,10 @@ export class TerrainPatch extends THREE.Group {
 		normals: number[],
 		uvs: number[],
 		colors: number[],
+		terrainHeights: number[],
+		landMasks: number[],
+		mountainMasks: number[],
+		waterHints: number[],
 		indices: number[],
 		rowSize: number,
 	): void {
@@ -400,10 +444,57 @@ export class TerrainPatch extends THREE.Group {
 			right.push(i * rowSize + (rowSize - 1));
 		}
 
-		this.addSkirtEdge(top, positions, normals, uvs, colors, indices);
-		this.addSkirtEdge(bottom, positions, normals, uvs, colors, indices);
-		this.addSkirtEdge(left, positions, normals, uvs, colors, indices);
-		this.addSkirtEdge(right, positions, normals, uvs, colors, indices);
+		this.addSkirtEdge(
+			top,
+			positions,
+			normals,
+			uvs,
+			colors,
+			terrainHeights,
+			landMasks,
+			mountainMasks,
+			waterHints,
+			indices,
+		);
+
+		this.addSkirtEdge(
+			bottom,
+			positions,
+			normals,
+			uvs,
+			colors,
+			terrainHeights,
+			landMasks,
+			mountainMasks,
+			waterHints,
+			indices,
+		);
+
+		this.addSkirtEdge(
+			left,
+			positions,
+			normals,
+			uvs,
+			colors,
+			terrainHeights,
+			landMasks,
+			mountainMasks,
+			waterHints,
+			indices,
+		);
+
+		this.addSkirtEdge(
+			right,
+			positions,
+			normals,
+			uvs,
+			colors,
+			terrainHeights,
+			landMasks,
+			mountainMasks,
+			waterHints,
+			indices,
+		);
 	}
 
 	private addSkirtEdge(
@@ -412,6 +503,10 @@ export class TerrainPatch extends THREE.Group {
 		normals: number[],
 		uvs: number[],
 		colors: number[],
+		terrainHeights: number[],
+		landMasks: number[],
+		mountainMasks: number[],
+		waterHints: number[],
 		indices: number[],
 	): void {
 		const skirtIndices: number[] = [];
@@ -439,6 +534,11 @@ export class TerrainPatch extends THREE.Group {
 				colors[colorIndex + 1],
 				colors[colorIndex + 2],
 			);
+
+			terrainHeights.push(terrainHeights[sourceIndex]);
+			landMasks.push(landMasks[sourceIndex]);
+			mountainMasks.push(mountainMasks[sourceIndex]);
+			waterHints.push(waterHints[sourceIndex]);
 
 			const downDirection = point.clone().normalize();
 

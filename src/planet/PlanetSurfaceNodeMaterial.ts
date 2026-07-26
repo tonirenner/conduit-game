@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 
 import {
+	attribute,
 	cameraPosition,
 	color,
 	dot,
@@ -20,16 +21,22 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 /**
- * Phase 4c.3:
+ * Phase 4d.2:
  *
- * TSL surface lighting balance pass.
+ * TSL material-data pass.
  *
- * 4c.2 added contrast, but the night/ocean side became too heavy.
- * This version pulls the look back toward readable orbit lighting:
- * - softer shadow floor
- * - less aggressive direct contrast
- * - stronger blue twilight/edge readability
- * - less polar over-lift
+ * Reads custom TerrainPatch BufferGeometry attributes:
+ * - terrainHeight
+ * - landMask
+ * - mountainMask
+ * - waterHint
+ *
+ * Goal:
+ * Keep the 4c.3 lighting balance, but finally separate material behavior:
+ * - water gets deeper tint + fresnel
+ * - coasts get a subtle edge lift
+ * - mountains get slightly more light contrast
+ * - high terrain gets a cooler snow/ice lift
  */
 export function createPlanetSurfaceNodeMaterial(): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -54,8 +61,61 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const rimTint = color(0x9fd2ff);
 	const fakeAtmosphereTint = color(0x78bdff);
 	const oceanFresnelTint = color(0x3ab4d0);
+	const oceanDeepTint = color(0x051827);
+	const oceanShelfTint = color(0x0b4054);
+	const coastTint = color(0x4f755c);
 	const warmDayTint = color(0xffefd2);
+	const mountainTint = color(0x776f5f);
 	const coolIceTint = color(0xd8ecff);
+
+	const terrainHeight = attribute('terrainHeight', 'float');
+	const landMask = attribute('landMask', 'float');
+	const mountainMask = attribute('mountainMask', 'float');
+	const waterHint = attribute('waterHint', 'float');
+
+	const landOnly = smoothstep(
+		0.58,
+		0.78,
+		landMask,
+	);
+
+	const shallowWater = waterHint.mul(
+		smoothstep(
+			0.32,
+			0.74,
+			landMask,
+		),
+	);
+
+	const deepWater = waterHint.mul(
+		oneMinus(
+			smoothstep(
+				0.16,
+				0.52,
+				landMask,
+			),
+		),
+	);
+
+	const coastMask = oneMinus(
+		smoothstep(
+			0.035,
+			0.22,
+			landMask.sub(0.55).abs(),
+		),
+	);
+
+	const heightSnow = smoothstep(
+		0.18,
+		0.30,
+		terrainHeight,
+	).mul(landOnly);
+
+	const mountainMaterial = smoothstep(
+		0.22,
+		0.82,
+		mountainMask,
+	).mul(landOnly);
 
 	const baseColorRaw = vertexColor().toVec3();
 
@@ -63,11 +123,41 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	 * Subtle color lift.
 	 * Less aggressive than 4c.2, so the terrain does not crush into hard patches.
 	 */
-	const baseColor = baseColorRaw
+	let baseColor = baseColorRaw
 		.mul(1.045)
 		.add(
 			baseColorRaw.mul(baseColorRaw).mul(0.055),
 		);
+
+	baseColor = mix(
+		baseColor,
+		oceanDeepTint,
+		deepWater.mul(0.48),
+	);
+
+	baseColor = mix(
+		baseColor,
+		oceanShelfTint,
+		shallowWater.mul(0.22),
+	);
+
+	baseColor = mix(
+		baseColor,
+		coastTint,
+		coastMask.mul(0.075),
+	);
+
+	baseColor = mix(
+		baseColor,
+		mountainTint,
+		mountainMaterial.mul(0.10),
+	);
+
+	baseColor = mix(
+		baseColor,
+		coolIceTint,
+		heightSnow.mul(0.20),
+	);
 
 	const worldNormal = normalize(normalWorld);
 	const viewDirection = normalize(
@@ -93,6 +183,14 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		ndl,
 	).mul(0.035);
 
+	const mountainContrast = mountainMaterial.mul(
+		smoothstep(
+			0.10,
+			0.90,
+			ndl,
+		).mul(0.16),
+	);
+
 	const dayTintedBase = mix(
 		baseColor,
 		baseColor.mul(warmDayTint),
@@ -101,16 +199,23 @@ export function createPlanetSurfaceNodeMaterial(): any {
 
 	const dayColor = dayTintedBase.mul(
 		ambient.add(
-			directLight.mul(1.22),
+			directLight
+				.mul(1.22)
+				.add(mountainContrast),
 		),
 	);
 
 	/**
 	 * Keep the dark side dark, but not empty.
+	 * Water stays darker than land, but not fully crushed.
 	 */
-	const nightColor = nightTint.add(
-		baseColorRaw.mul(0.36),
-	);
+	const nightColor = nightTint
+		.add(
+			baseColorRaw.mul(0.36),
+		)
+		.add(
+			oceanShelfTint.mul(shallowWater).mul(0.045),
+		);
 
 	let surfaceColor = mix(
 		nightColor,
@@ -175,7 +280,13 @@ export function createPlanetSurfaceNodeMaterial(): any {
 			oceanFresnelTint
 				.mul(fresnel)
 				.mul(day)
-				.mul(0.10),
+				.mul(waterHint.mul(0.22).add(0.035)),
+		)
+		.add(
+			coastTint
+				.mul(coastMask)
+				.mul(day)
+				.mul(0.055),
 		)
 		.add(
 			rimTint
@@ -195,7 +306,13 @@ export function createPlanetSurfaceNodeMaterial(): any {
 		.add(
 			coolIceTint
 				.mul(polarLift)
-				.mul(0.045),
+				.mul(0.035),
+		)
+		.add(
+			coolIceTint
+				.mul(heightSnow)
+				.mul(day)
+				.mul(0.09),
 		)
 		.mul(exposure);
 
