@@ -22,20 +22,20 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 /**
- * Phase 4k.3b:
+ * Phase 4k.4:
  *
- * Per-pixel terrain/coast material sampling, hybrid tuned.
+ * Coast anti-alias / shoreline softening pass.
  *
  * Based on Phase 4k.2.
  *
  * Change:
  * - terrain sample is rebuilt in WGSL from local `sphereNormal`
- * - landMask / waterHint / mountainMask are blended more conservatively
- * - vertex attributes remain dominant enough to stay aligned with geometry
+ * - keeps the hybrid per-pixel coast masks from 4k.3b
+ * - softens the visible water/land transition
+ * - reduces dark stair-step coast contrast
  *
  * Goal:
- * Keep the smoother WebGPU coast material, but reduce the cyan shelf halo
- * and the visible mismatch between shader coast and mesh coast.
+ * Hide vertex/LOD coast jaggies without increasing CubeSphere resolution.
  */
 export function createPlanetSurfaceNodeMaterial(): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -532,7 +532,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	                                              });
 
 	/**
-	 * Phase 4k.3b:
+	 * Phase 4k.4:
 	 *
 	 * Material masks are now mostly sampled per pixel from the same terrain
 	 * logic that generates the mesh. Geometry still uses the cached vertex
@@ -609,16 +609,36 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
+	const coastDistance = landMask.sub(0.55).abs();
+
 	const coastMask = oneMinus(
 		smoothstep(
-			0.030,
-			0.235,
-			landMask.sub(0.55).abs(),
+			0.020,
+			0.265,
+			coastDistance,
+		),
+	);
+
+	const softCoastMask = oneMinus(
+		smoothstep(
+			0.035,
+			0.355,
+			coastDistance,
+		),
+	);
+
+	const coastCore = oneMinus(
+		smoothstep(
+			0.010,
+			0.145,
+			coastDistance,
 		),
 	);
 
 	const coastWaterEdge = coastMask.mul(waterHint);
 	const coastLandEdge = coastMask.mul(landOnly);
+	const softCoastWater = softCoastMask.mul(waterHint);
+	const softCoastLand = softCoastMask.mul(landOnly);
 
 	const highland = smoothstep(
 		0.055,
@@ -673,13 +693,25 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	baseColor = mix(
 		baseColor,
 		oceanCoastLightTint,
-		coastWaterEdge.mul(0.135),
+		coastWaterEdge.mul(0.105),
+	);
+
+	baseColor = mix(
+		baseColor,
+		oceanLightTint,
+		softCoastWater.mul(0.060),
 	);
 
 	baseColor = mix(
 		baseColor,
 		coastTint,
-		coastLandEdge.mul(0.085),
+		coastLandEdge.mul(0.065),
+	);
+
+	baseColor = mix(
+		baseColor,
+		highlandTint,
+		softCoastLand.mul(0.035),
 	);
 
 	baseColor = mix(
@@ -780,7 +812,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			shelfWater.mul(0.08),
 		)
 		.add(
-			coastWaterEdge.mul(0.115),
+			coastWaterEdge.mul(0.090),
 		);
 
 	const dayTintedBase = mix(
@@ -814,7 +846,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			oceanShelfTint.mul(shallowWater).mul(0.125),
 		)
 		.add(
-			oceanCoastLightTint.mul(coastWaterEdge).mul(0.070),
+			oceanCoastLightTint.mul(softCoastWater).mul(0.055),
 		);
 
 	let surfaceColor = mix(
@@ -839,7 +871,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		waterHint
 			.mul(0.42)
 			.add(shelfWater.mul(0.10))
-			.add(coastWaterEdge.mul(0.15))
+			.add(coastWaterEdge.mul(0.115))
 			.add(0.045),
 	);
 
@@ -953,13 +985,25 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			oceanCoastLightTint
 				.mul(coastSurf)
-				.mul(0.115),
+				.mul(0.085),
+		)
+		.add(
+			oceanLightTint
+				.mul(softCoastWater)
+				.mul(day.mul(0.70).add(0.12))
+				.mul(0.045),
 		)
 		.add(
 			coastTint
 				.mul(coastLandEdge)
 				.mul(day)
-				.mul(0.070),
+				.mul(0.052),
+		)
+		.add(
+			highlandTint
+				.mul(softCoastLand)
+				.mul(day)
+				.mul(0.026),
 		)
 		.add(
 			mountainLightTint
