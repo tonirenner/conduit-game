@@ -510,8 +510,21 @@ export class TerrainPatch extends THREE.Group {
 					 * Blend toward the sphere normal to avoid noisy patch-border shading.
 					 * High enough to show mountains, soft enough for orbit.
 					 */
+					const edgeDistance = Math.min(
+						x,
+						y,
+						rowSize - 1 - x,
+						rowSize - 1 - y,
+					);
+
+					const edgeBlend = edgeDistance <= 1
+					                  ? 0.62
+					                  : edgeDistance <= 2
+					                    ? 0.38
+					                    : 0.18;
+
 					normal
-						.lerp(sphereNormal, 0.18)
+						.lerp(sphereNormal, edgeBlend)
 						.normalize();
 				}
 
@@ -647,6 +660,6 @@ export class TerrainPatch extends THREE.Group {
 	}
 
 	private getSkirtDepth(): number {
-		return 0.010 * Math.pow(0.68, this.level);
+		return 0.024 * Math.pow(0.72, this.level);
 	}
 }
