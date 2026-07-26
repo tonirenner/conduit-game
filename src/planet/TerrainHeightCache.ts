@@ -5,6 +5,8 @@ import {
 	type TerrainSample,
 } from '../utils/noise';
 
+import { getClimateSample } from './Climate';
+
 import type {
 	CubeFace,
 	PatchBounds,
@@ -14,10 +16,20 @@ export type TerrainHeightGrid = {
 	key: string;
 	resolution: number;
 	rowSize: number;
+
 	heights: Float32Array;
 	landMasks: Float32Array;
 	continents: Float32Array;
 	mountainMasks: Float32Array;
+
+	colors: Float32Array;
+};
+
+type CachedTerrainSampleData = {
+	height: number;
+	landMask: number;
+	continent: number;
+	mountainMask: number;
 };
 
 export class TerrainHeightCache {
@@ -92,6 +104,8 @@ export class TerrainHeightCache {
 		const continents = new Float32Array(vertexCount);
 		const mountainMasks = new Float32Array(vertexCount);
 
+		const colors = new Float32Array(vertexCount * 3);
+
 		let index = 0;
 
 		for (let y = 0; y <= resolution; y++) {
@@ -115,6 +129,17 @@ export class TerrainHeightCache {
 				continents[index] = sample.continent;
 				mountainMasks[index] = sample.mountainMask;
 
+				const color = this.getTerrainColor(
+					sphereNormal,
+					sample,
+				);
+
+				const colorIndex = index * 3;
+
+				colors[colorIndex + 0] = color.r;
+				colors[colorIndex + 1] = color.g;
+				colors[colorIndex + 2] = color.b;
+
 				index++;
 			}
 		}
@@ -127,7 +152,169 @@ export class TerrainHeightCache {
 			landMasks,
 			continents,
 			mountainMasks,
+			colors,
 		};
+	}
+
+	private getTerrainColor(
+		sphereNormal: THREE.Vector3,
+		sample: CachedTerrainSampleData,
+	): THREE.Color {
+		const land = sample.landMask;
+		const height = sample.height;
+
+		const climate = getClimateSample(
+			sphereNormal,
+			height,
+			land,
+		);
+
+		const deepWater = new THREE.Color(0x071f2f);
+		const midWater = new THREE.Color(0x0b3347);
+		const shallowWater = new THREE.Color(0x155463);
+		const coastalWater = new THREE.Color(0x1d6a70);
+		const wetCoast = new THREE.Color(0x58664f);
+
+		if (land < 0.30) {
+			return deepWater.clone().lerp(
+				midWater,
+				this.smoothstep(0.00, 0.30, land),
+			);
+		}
+
+		if (land < 0.43) {
+			return midWater.clone().lerp(
+				shallowWater,
+				this.smoothstep(0.30, 0.43, land),
+			);
+		}
+
+		if (land < 0.54) {
+			return shallowWater.clone().lerp(
+				coastalWater,
+				this.smoothstep(0.43, 0.54, land),
+			);
+		}
+
+		if (land < 0.62) {
+			return coastalWater.clone().lerp(
+				wetCoast,
+				this.smoothstep(0.54, 0.62, land),
+			);
+		}
+
+		const color = this.getClimateLandColor(
+			climate,
+			height,
+		);
+
+		const coastInfluence =
+			      1 -
+			      Math.abs(this.clamp01((land - 0.62) / 0.24) * 2 - 1);
+
+		if (coastInfluence > 0) {
+			const coastGreen = new THREE.Color(0x496f3f);
+
+			color.lerp(
+				coastGreen,
+				coastInfluence * climate.humidity * 0.18,
+			);
+		}
+
+		const rockInfluence =
+			      this.smoothstep(0.095, 0.22, height) *
+			      (1 - climate.vegetation * 0.55);
+
+		if (rockInfluence > 0) {
+			const rock = new THREE.Color(0x706d61);
+
+			color.lerp(
+				rock,
+				rockInfluence * 0.52,
+			);
+		}
+
+		if (climate.snow > 0) {
+			const snow = new THREE.Color(0xd0d4cb);
+
+			color.lerp(
+				snow,
+				climate.snow * 0.82,
+			);
+		}
+
+		const polar = this.smoothstep(0.74, 0.98, Math.abs(sphereNormal.y));
+
+		if (polar > 0) {
+			const polarTint = new THREE.Color(0x7d8674);
+
+			color.lerp(
+				polarTint,
+				polar * 0.14 * (1 - climate.snow),
+			);
+		}
+
+		return color;
+	}
+
+	private getClimateLandColor(
+		climate: ReturnType<typeof getClimateSample>,
+		height: number,
+	): THREE.Color {
+		const coldLand = new THREE.Color(0x667263);
+		const humidForest = new THREE.Color(0x2f6b3d);
+		const grassland = new THREE.Color(0x5f7840);
+		const dryGrass = new THREE.Color(0x8a7a48);
+		const semiDry = new THREE.Color(0x8f7045);
+		const desert = new THREE.Color(0xa88755);
+		const highland = new THREE.Color(0x746f58);
+
+		const temperature = climate.temperature;
+		const humidity = climate.humidity;
+		const aridity = climate.aridity;
+		const vegetation = climate.vegetation;
+
+		const color = grassland.clone();
+
+		color.lerp(
+			coldLand,
+			(1 - temperature) * 0.30,
+		);
+
+		color.lerp(
+			humidForest,
+			vegetation * 0.42,
+		);
+
+		color.lerp(
+			dryGrass,
+			aridity * 0.24,
+		);
+
+		const savanna =
+			      this.smoothstep(0.50, 0.82, aridity) *
+			      this.smoothstep(0.42, 0.78, temperature);
+
+		color.lerp(
+			semiDry,
+			savanna * 0.30,
+		);
+
+		const desertMask =
+			      this.smoothstep(0.72, 0.92, aridity) *
+			      (1 - this.smoothstep(0.28, 0.52, humidity));
+
+		color.lerp(
+			desert,
+			desertMask * 0.55,
+		);
+
+		color.lerp(
+			highland,
+			this.smoothstep(0.065, 0.18, height) * 0.22,
+		);
+
+		return color;
 	}
 
 	private getSphereNormal(
@@ -195,5 +382,15 @@ export class TerrainHeightCache {
 			this.grids.delete(key);
 			this.usage.delete(key);
 		}
+	}
+
+	private smoothstep(edge0: number, edge1: number, value: number): number {
+		const x = this.clamp01((value - edge0) / (edge1 - edge0));
+
+		return x * x * (3 - 2 * x);
+	}
+
+	private clamp01(value: number): number {
+		return Math.max(0, Math.min(1, value));
 	}
 }
