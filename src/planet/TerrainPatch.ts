@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 
 import { getClimateSample } from './Climate';
-import { getTerrainHeight, getTerrainSample } from '../utils/noise';
 import { HorizonCulling } from './HorizonCulling';
+import {
+	TerrainHeightCache,
+	type TerrainHeightGrid,
+} from './TerrainHeightCache';
 
 export type CubeFace = {
 	normal: THREE.Vector3;
@@ -25,12 +28,19 @@ export type LodOptions = {
 	};
 };
 
-type TerrainSampleData = ReturnType<typeof getTerrainSample>;
 type ClimateSampleData = ReturnType<typeof getClimateSample>;
+
+type CachedTerrainSampleData = {
+	height: number;
+	landMask: number;
+	continent: number;
+	mountainMask: number;
+};
 
 export class TerrainPatch extends THREE.Group {
 	private readonly mesh: THREE.Mesh;
 	private readonly childrenPatches: TerrainPatch[] = [];
+	private readonly heightGrid: TerrainHeightGrid;
 
 	constructor(
 		private readonly face: CubeFace,
@@ -38,11 +48,18 @@ export class TerrainPatch extends THREE.Group {
 		private readonly radius: number,
 		private readonly resolution: number,
 		private readonly material: THREE.Material,
+		private readonly terrainHeightCache: TerrainHeightCache,
 		private readonly level: number = 0,
 	) {
 		super();
 
 		this.name = `TerrainPatch L${level}`;
+
+		this.heightGrid = this.terrainHeightCache.getPatchGrid(
+			this.face,
+			this.bounds,
+			this.resolution,
+		);
 
 		this.mesh = new THREE.Mesh(
 			this.createGeometry(),
@@ -81,7 +98,10 @@ export class TerrainPatch extends THREE.Group {
 			      this.radius * this.bounds.size * options.splitMultiplier;
 
 		const mergeDistance = splitDistance * 1.90;
-		const shouldSplit = distance < splitDistance && this.level < options.maxLevel;
+
+		const shouldSplit =
+			      distance < splitDistance &&
+			      this.level < options.maxLevel;
 
 		if (shouldSplit && this.childrenPatches.length === 0) {
 			const canSplit =
@@ -110,7 +130,11 @@ export class TerrainPatch extends THREE.Group {
 					b.getCenterWorld().distanceToSquared(cameraPosition)
 				))
 				.forEach((child) => {
-					child.updateLOD(cameraPosition, options, horizonCulling);
+					child.updateLOD(
+						cameraPosition,
+						options,
+						horizonCulling,
+					);
 				});
 		}
 	}
@@ -154,6 +178,7 @@ export class TerrainPatch extends THREE.Group {
 				this.radius,
 				this.resolution,
 				this.material,
+				this.terrainHeightCache,
 				this.level + 1,
 			);
 
@@ -182,6 +207,42 @@ export class TerrainPatch extends THREE.Group {
 		this.mesh.geometry.dispose();
 	}
 
+	getStats(): {
+		totalPatches: number;
+		visibleMeshes: number;
+		maxLevel: number;
+	} {
+		let totalPatches = 1;
+		let visibleMeshes = this.mesh.visible ? 1 : 0;
+		let maxLevel = this.level;
+
+		for (const child of this.childrenPatches) {
+			const childStats = child.getStats();
+
+			totalPatches += childStats.totalPatches;
+			visibleMeshes += childStats.visibleMeshes;
+			maxLevel = Math.max(maxLevel, childStats.maxLevel);
+		}
+
+		return {
+			totalPatches,
+			visibleMeshes,
+			maxLevel,
+		};
+	}
+
+	forceSplitToLevel(targetLevel: number): void {
+		if (this.level >= targetLevel) {
+			return;
+		}
+
+		this.split();
+
+		for (const child of this.childrenPatches) {
+			child.forceSplitToLevel(targetLevel);
+		}
+	}
+
 	private restoreVisibleState(): void {
 		if (this.childrenPatches.length > 0) {
 			this.mesh.visible = false;
@@ -208,20 +269,7 @@ export class TerrainPatch extends THREE.Group {
 		const cubeX = this.bounds.x + this.bounds.size / 2;
 		const cubeY = this.bounds.y + this.bounds.size / 2;
 
-		const cubePoint = this.face.normal
-			.clone()
-			.add(
-				this.face.right
-					.clone()
-					.multiplyScalar(cubeX),
-			)
-			.add(
-				this.face.up
-					.clone()
-					.multiplyScalar(cubeY),
-			);
-
-		const sphereNormal = cubePoint.normalize();
+		const sphereNormal = this.getSphereNormal(cubeX, cubeY);
 		const spherePoint = this.getTerrainPoint(sphereNormal);
 
 		return this.localToWorld(spherePoint);
@@ -251,20 +299,7 @@ export class TerrainPatch extends THREE.Group {
 	}
 
 	private getPointWorld(cubeX: number, cubeY: number): THREE.Vector3 {
-		const cubePoint = this.face.normal
-			.clone()
-			.add(
-				this.face.right
-					.clone()
-					.multiplyScalar(cubeX),
-			)
-			.add(
-				this.face.up
-					.clone()
-					.multiplyScalar(cubeY),
-			);
-
-		const sphereNormal = cubePoint.normalize();
+		const sphereNormal = this.getSphereNormal(cubeX, cubeY);
 		const spherePoint = this.getTerrainPoint(sphereNormal);
 
 		return this.localToWorld(spherePoint);
@@ -287,25 +322,17 @@ export class TerrainPatch extends THREE.Group {
 				const cubeX = this.bounds.x + localU * this.bounds.size;
 				const cubeY = this.bounds.y + localV * this.bounds.size;
 
-				const cubePoint = this.face.normal
-					.clone()
-					.add(
-						this.face.right
-							.clone()
-							.multiplyScalar(cubeX),
-					)
-					.add(
-						this.face.up
-							.clone()
-							.multiplyScalar(cubeY),
-					);
+				const sphereNormal = this.getSphereNormal(cubeX, cubeY);
+				const sample = this.getCachedSampleAtGrid(x, y);
 
-				const sphereNormal = cubePoint
+				const spherePoint = sphereNormal
 					.clone()
-					.normalize();
+					.multiplyScalar(this.radius + sample.height);
 
-				const spherePoint = this.getTerrainPoint(sphereNormal);
-				const color = this.getTerrainColor(sphereNormal);
+				const color = this.getTerrainColor(
+					sphereNormal,
+					sample,
+				);
 
 				positions.push(spherePoint.x, spherePoint.y, spherePoint.z);
 				normals.push(sphereNormal.x, sphereNormal.y, sphereNormal.z);
@@ -326,7 +353,14 @@ export class TerrainPatch extends THREE.Group {
 			}
 		}
 
-		this.addSkirts(positions, normals, uvs, colors, indices, rowSize);
+		this.addSkirts(
+			positions,
+			normals,
+			uvs,
+			colors,
+			indices,
+			rowSize,
+		);
 
 		const geometry = new THREE.BufferGeometry();
 
@@ -442,13 +476,10 @@ export class TerrainPatch extends THREE.Group {
 		}
 	}
 
-	private getSkirtDepth(): number {
-		return 0.010 * Math.pow(0.68, this.level);
-	}
-
-	private getTerrainColor(sphereNormal: THREE.Vector3): THREE.Color {
-		const sample = getTerrainSample(sphereNormal);
-
+	private getTerrainColor(
+		sphereNormal: THREE.Vector3,
+		sample: CachedTerrainSampleData,
+	): THREE.Color {
 		const land = sample.landMask;
 		const height = sample.height;
 
@@ -577,8 +608,9 @@ export class TerrainPatch extends THREE.Group {
 			aridity * 0.24,
 		);
 
-		const savanna = this.smoothstep(0.50, 0.82, aridity) *
-		                this.smoothstep(0.42, 0.78, temperature);
+		const savanna =
+			      this.smoothstep(0.50, 0.82, aridity) *
+			      this.smoothstep(0.42, 0.78, temperature);
 
 		color.lerp(
 			semiDry,
@@ -602,48 +634,49 @@ export class TerrainPatch extends THREE.Group {
 		return color;
 	}
 
-	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {
-		const height = getTerrainHeight(sphereNormal);
-
-		return sphereNormal
-			.clone()
-			.multiplyScalar(this.radius + height);
-	}
-
-	getStats(): {
-		totalPatches: number;
-		visibleMeshes: number;
-		maxLevel: number;
-	} {
-		let totalPatches = 1;
-		let visibleMeshes = this.mesh.visible ? 1 : 0;
-		let maxLevel = this.level;
-
-		for (const child of this.childrenPatches) {
-			const childStats = child.getStats();
-
-			totalPatches += childStats.totalPatches;
-			visibleMeshes += childStats.visibleMeshes;
-			maxLevel = Math.max(maxLevel, childStats.maxLevel);
-		}
+	private getCachedSampleAtGrid(
+		x: number,
+		y: number,
+	): CachedTerrainSampleData {
+		const index = x + y * this.heightGrid.rowSize;
 
 		return {
-			totalPatches,
-			visibleMeshes,
-			maxLevel,
+			height: this.heightGrid.heights[index],
+			landMask: this.heightGrid.landMasks[index],
+			continent: this.heightGrid.continents[index],
+			mountainMask: this.heightGrid.mountainMasks[index],
 		};
 	}
 
-	forceSplitToLevel(targetLevel: number): void {
-		if (this.level >= targetLevel) {
-			return;
-		}
+	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {
+		const sample = this.terrainHeightCache.sampleNormal(sphereNormal);
 
-		this.split();
+		return sphereNormal
+			.clone()
+			.multiplyScalar(this.radius + sample.height);
+	}
 
-		for (const child of this.childrenPatches) {
-			child.forceSplitToLevel(targetLevel);
-		}
+	private getSphereNormal(
+		cubeX: number,
+		cubeY: number,
+	): THREE.Vector3 {
+		return this.face.normal
+			.clone()
+			.add(
+				this.face.right
+					.clone()
+					.multiplyScalar(cubeX),
+			)
+			.add(
+				this.face.up
+					.clone()
+					.multiplyScalar(cubeY),
+			)
+			.normalize();
+	}
+
+	private getSkirtDepth(): number {
+		return 0.010 * Math.pow(0.68, this.level);
 	}
 
 	private smoothstep(edge0: number, edge1: number, value: number): number {

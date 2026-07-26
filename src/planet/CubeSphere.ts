@@ -11,6 +11,8 @@ import {
 	type HorizonCullingStats,
 } from './HorizonCulling';
 
+import { TerrainHeightCache } from './TerrainHeightCache';
+
 export type TerrainLodProfile =
 	| 'far'
 	| 'orbit'
@@ -20,8 +22,8 @@ export type TerrainLodProfile =
 
 export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
-
 	private readonly horizonCulling: HorizonCulling;
+	private readonly terrainHeightCache = new TerrainHeightCache(2200);
 
 	private currentLodProfile: TerrainLodProfile = 'orbit';
 
@@ -79,6 +81,7 @@ export class CubeSphere extends THREE.Group {
 				this.radius,
 				this.resolution,
 				material,
+				this.terrainHeightCache,
 			);
 
 			this.rootPatches.push(patch);
@@ -95,12 +98,14 @@ export class CubeSphere extends THREE.Group {
 		this.horizonCulling.resetFrameStats();
 
 		const cameraDistance = cameraPosition.length();
+
 		const heightAboveSurface = Math.max(
 			0,
 			cameraDistance - this.radius,
 		);
 
 		const nextProfile = this.selectLodProfile(heightAboveSurface);
+
 		this.currentLodProfile = nextProfile;
 
 		const frameSplitBudget = this.getFrameSplitBudget(nextProfile);
@@ -136,6 +141,13 @@ export class CubeSphere extends THREE.Group {
 
 	getCurrentLodOptions(): LodOptions {
 		return this.lodProfiles[this.currentLodProfile];
+	}
+
+	getTerrainHeightCacheStats(): {
+		entries: number;
+		maxEntries: number;
+	} {
+		return this.terrainHeightCache.getStats();
 	}
 
 	setHorizonCullingEnabled(enabled: boolean): void {
