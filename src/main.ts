@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {RenderQuality} from './render/RenderQuality';
 import {createAppRenderer, getPreferredRendererMode, renderFrame,} from './render/RendererFactory';
+import {TerrainTextureBakeManager} from './planet/TerrainTextureBakeManager';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
 import {createStarBackground} from './scene/createStarBackground';
@@ -501,6 +502,25 @@ scene.add(sunLight);
 
 const ambientLight = new THREE.AmbientLight(0x223344, 0.08);
 scene.add(ambientLight);
+
+let terrainTextureSet = null;
+
+if (rendererMode === 'webgpu') {
+	const bakeManager = new TerrainTextureBakeManager(
+		renderer,
+		rendererMode,
+	);
+
+	console.time('terrain-gpu-bake');
+
+	terrainTextureSet = await bakeManager.bake({
+		                                           resolution: 1024,
+		                                           maxEncodedHeight: 0.42,
+	                                           });
+
+	console.timeEnd('terrain-gpu-bake');
+	console.log('terrainTextureSet', terrainTextureSet);
+}
 
 // Planet
 const planet = new Planet(PLANET_RADIUS, rendererMode);
