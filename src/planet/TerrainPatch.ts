@@ -14,6 +14,16 @@ export type {
 	PatchBounds,
 } from './TerrainSource';
 
+export type AdaptiveDetailLodOptions = {
+	enabled: boolean;
+	maxBoost: number;
+	minLevel: number;
+	maxCameraHeightMultiplier: number;
+	coastWeight: number;
+	reliefWeight: number;
+	mountainWeight: number;
+};
+
 export type LodOptions = {
 	maxLevel: number;
 	splitMultiplier: number;
@@ -21,12 +31,20 @@ export type LodOptions = {
 	splitBudget?: {
 		remaining: number;
 	};
+	adaptiveDetail?: AdaptiveDetailLodOptions;
+};
+
+type PatchDetailFactors = {
+	coastFactor: number;
+	reliefFactor: number;
+	mountainFactor: number;
 };
 
 export class TerrainPatch extends THREE.Group {
 	private readonly mesh: THREE.Mesh;
 	private readonly childrenPatches: TerrainPatch[] = [];
 	private readonly terrainGrid: TerrainGrid;
+	private readonly detailFactors: PatchDetailFactors;
 
 	constructor(
 		private readonly face: CubeFace,
@@ -46,6 +64,8 @@ export class TerrainPatch extends THREE.Group {
 			this.bounds,
 			this.resolution,
 		);
+
+		this.detailFactors = this.computePatchDetailFactors();
 
 		this.mesh = new THREE.Mesh(
 			this.createGeometry(),
@@ -80,8 +100,17 @@ export class TerrainPatch extends THREE.Group {
 
 		const distance = center.distanceTo(cameraPosition);
 
-		const splitDistance =
+		const baseSplitDistance =
 			      this.radius * this.bounds.size * options.splitMultiplier;
+
+		const adaptiveBoost = this.getAdaptiveDetailBoost(
+			cameraPosition,
+			options,
+		);
+
+		const splitDistance =
+			      baseSplitDistance *
+			      (1.0 + adaptiveBoost);
 
 		const mergeDistance = splitDistance * 1.90;
 
@@ -227,6 +256,177 @@ export class TerrainPatch extends THREE.Group {
 		for (const child of this.childrenPatches) {
 			child.forceSplitToLevel(targetLevel);
 		}
+	}
+
+
+	private getAdaptiveDetailBoost(
+		cameraPosition: THREE.Vector3,
+		options: LodOptions,
+	): number {
+		const adaptiveDetail = options.adaptiveDetail;
+
+		if (!adaptiveDetail?.enabled) {
+			return 0;
+		}
+
+		if (this.level < adaptiveDetail.minLevel) {
+			return 0;
+		}
+
+		const cameraHeight = Math.max(
+			0,
+			cameraPosition.length() - this.radius,
+		);
+
+		const maxCameraHeight =
+			      this.radius *
+			      adaptiveDetail.maxCameraHeightMultiplier;
+
+		const heightInfluence =
+			      1.0 -
+			      this.smoothstep(
+				      maxCameraHeight * 0.42,
+				      maxCameraHeight,
+				      cameraHeight,
+			      );
+
+		if (heightInfluence <= 0.001) {
+			return 0;
+		}
+
+		const detailScore = this.clamp01(
+			this.detailFactors.coastFactor *
+			adaptiveDetail.coastWeight +
+			this.detailFactors.reliefFactor *
+			adaptiveDetail.reliefWeight +
+			this.detailFactors.mountainFactor *
+			adaptiveDetail.mountainWeight,
+		);
+
+		return detailScore *
+		       adaptiveDetail.maxBoost *
+		       heightInfluence;
+	}
+
+	private computePatchDetailFactors(): PatchDetailFactors {
+		const rowSize = this.resolution + 1;
+		const sampleCount = rowSize * rowSize;
+
+		let coastMax = 0;
+		let coastSum = 0;
+
+		let gradientMax = 0;
+		let gradientSum = 0;
+		let gradientCount = 0;
+
+		let minHeight = Number.POSITIVE_INFINITY;
+		let maxHeight = Number.NEGATIVE_INFINITY;
+
+		let mountainMax = 0;
+		let mountainSum = 0;
+
+		for (let y = 0; y < rowSize; y++) {
+			for (let x = 0; x < rowSize; x++) {
+				const index = x + y * rowSize;
+
+				const landMask = this.terrainGrid.landMasks[index];
+				const height = this.terrainGrid.heights[index];
+				const mountainMask = this.terrainGrid.mountainMasks[index];
+
+				const coastDistance = Math.abs(landMask - 0.55);
+
+				const coastValue =
+					      1.0 -
+					      this.smoothstep(
+						      0.035,
+						      0.235,
+						      coastDistance,
+					      );
+
+				coastMax = Math.max(coastMax, coastValue);
+				coastSum += coastValue;
+
+				minHeight = Math.min(minHeight, height);
+				maxHeight = Math.max(maxHeight, height);
+
+				mountainMax = Math.max(mountainMax, mountainMask);
+				mountainSum += mountainMask;
+
+				if (x < rowSize - 1) {
+					const rightIndex = index + 1;
+
+					const gradient = Math.abs(
+						landMask -
+						this.terrainGrid.landMasks[rightIndex],
+					);
+
+					gradientMax = Math.max(gradientMax, gradient);
+					gradientSum += gradient;
+					gradientCount++;
+				}
+
+				if (y < rowSize - 1) {
+					const downIndex = index + rowSize;
+
+					const gradient = Math.abs(
+						landMask -
+						this.terrainGrid.landMasks[downIndex],
+					);
+
+					gradientMax = Math.max(gradientMax, gradient);
+					gradientSum += gradient;
+					gradientCount++;
+				}
+			}
+		}
+
+		const coastAverage = coastSum / sampleCount;
+		const gradientAverage = gradientSum / Math.max(1, gradientCount);
+
+		const coastFactor = this.clamp01(
+			coastMax * 0.52 +
+			coastAverage * 0.24 +
+			this.smoothstep(0.04, 0.36, gradientMax) * 0.18 +
+			this.smoothstep(0.01, 0.08, gradientAverage) * 0.06,
+		);
+
+		const heightRange = maxHeight - minHeight;
+
+		const reliefFactor = this.clamp01(
+			this.smoothstep(0.012, 0.080, heightRange) * 0.74 +
+			this.smoothstep(0.035, 0.145, maxHeight) * 0.26,
+		);
+
+		const mountainFactor = this.clamp01(
+			mountainMax * 0.76 +
+			(mountainSum / sampleCount) * 0.24,
+		);
+
+		return {
+			coastFactor,
+			reliefFactor,
+			mountainFactor,
+		};
+	}
+
+	private smoothstep(
+		edge0: number,
+		edge1: number,
+		value: number,
+	): number {
+		const t = this.clamp01(
+			(value - edge0) /
+			(edge1 - edge0),
+		);
+
+		return t * t * (3 - 2 * t);
+	}
+
+	private clamp01(value: number): number {
+		return Math.max(
+			0,
+			Math.min(1, value),
+		);
 	}
 
 	private restoreVisibleState(): void {

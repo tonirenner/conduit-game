@@ -11,7 +11,7 @@ import {
 	type HorizonCullingStats,
 } from './HorizonCulling';
 
-import { CachedTerrainSource } from './CachedTerrainSource';
+import { TextureTerrainSource } from './TextureTerrainSource';
 
 import type {
 	TerrainSource,
@@ -28,7 +28,10 @@ export type TerrainLodProfile =
 export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
 	private readonly horizonCulling: HorizonCulling;
-	private readonly terrainSource: TerrainSource = new CachedTerrainSource();
+	private readonly terrainSource: TerrainSource = new TextureTerrainSource({
+		                                                                         faceResolution: 512,
+		                                                                         maxEncodedHeight: 0.42,
+	                                                                         });
 
 	private currentLodProfile: TerrainLodProfile = 'orbit';
 
@@ -44,17 +47,17 @@ export class CubeSphere extends THREE.Group {
 		},
 
 		approach: {
-			maxLevel: 5,
+			maxLevel: 6,
 			splitMultiplier: 3.7,
 		},
 
 		near: {
-			maxLevel: 6,
+			maxLevel: 7,
 			splitMultiplier: 4.3,
 		},
 
 		surface: {
-			maxLevel: 6,
+			maxLevel: 7,
 			splitMultiplier: 5.0,
 		},
 	};
@@ -123,6 +126,7 @@ export class CubeSphere extends THREE.Group {
 			splitBudget: {
 				remaining: frameSplitBudget,
 			},
+			adaptiveDetail: this.getAdaptiveDetailOptions(nextProfile),
 		};
 
 		this.horizonCulling.setEnabled(
@@ -207,6 +211,67 @@ export class CubeSphere extends THREE.Group {
 		};
 	}
 
+	private getAdaptiveDetailOptions(
+		profile: TerrainLodProfile,
+	): NonNullable<LodOptions['adaptiveDetail']> {
+		switch (profile) {
+			case 'far':
+				return {
+					enabled: false,
+					maxBoost: 0,
+					minLevel: 99,
+					maxCameraHeightMultiplier: 0,
+					coastWeight: 0,
+					reliefWeight: 0,
+					mountainWeight: 0,
+				};
+
+			case 'orbit':
+				return {
+					enabled: true,
+					maxBoost: 0.12,
+					minLevel: 3,
+					maxCameraHeightMultiplier: 1.55,
+					coastWeight: 0.80,
+					reliefWeight: 0.15,
+					mountainWeight: 0.05,
+				};
+
+			case 'approach':
+				return {
+					enabled: true,
+					maxBoost: 0.34,
+					minLevel: 2,
+					maxCameraHeightMultiplier: 1.20,
+					coastWeight: 0.72,
+					reliefWeight: 0.20,
+					mountainWeight: 0.08,
+				};
+
+			case 'near':
+				return {
+					enabled: true,
+					maxBoost: 0.48,
+					minLevel: 2,
+					maxCameraHeightMultiplier: 0.70,
+					coastWeight: 0.60,
+					reliefWeight: 0.28,
+					mountainWeight: 0.12,
+				};
+
+			case 'surface':
+				return {
+					enabled: true,
+					maxBoost: 0.56,
+					minLevel: 2,
+					maxCameraHeightMultiplier: 0.36,
+					coastWeight: 0.48,
+					reliefWeight: 0.34,
+					mountainWeight: 0.18,
+				};
+		}
+	}
+
 	private getFrameSplitBudget(profile: TerrainLodProfile): number {
 		switch (profile) {
 			case 'far':
@@ -216,13 +281,13 @@ export class CubeSphere extends THREE.Group {
 				return 4;
 
 			case 'approach':
-				return 3;
+				return 4;
 
 			case 'near':
-				return 2;
+				return 3;
 
 			case 'surface':
-				return 1;
+				return 2;
 		}
 	}
 
