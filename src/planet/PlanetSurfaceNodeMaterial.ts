@@ -25,9 +25,9 @@ import { SUN_DIRECTION } from './Sun';
 import type { TerrainTextureSet } from './TerrainTextureSet';
 
 /**
- * Phase 4k.5:
+ * Phase 5d.4:
  *
- * WebGL coast parity pass.
+ * WebGL SurfaceMaterial parity pass.
  *
  * Based on Phase 4k.4b.
  *
@@ -58,34 +58,34 @@ export function createPlanetSurfaceNodeMaterial(
 		SUN_DIRECTION.clone().normalize(),
 	);
 
-	const ambient = uniform(0.52);
-	const exposure = uniform(1.38);
-	const terminatorSoftness = uniform(1.24);
+	const ambient = uniform(0.40);
+	const exposure = uniform(1.34);
+	const terminatorSoftness = uniform(0.92);
 	const bakedTerrainBlend = uniform(
 		terrainTextureSet ? 1.0 : 0.0,
 	);
 
-	const nightTint = color(0x0b2035);
+	const nightTint = color(0x061426);
 	const twilightTint = color(0x285f96);
 	const rimTint = color(0xa8d8ff);
 	const fakeAtmosphereTint = color(0x7fc2ff);
 	const horizonHazeTint = color(0x9ed4ff);
 	const lowSunHazeTint = color(0xffe6c2);
 
-	const oceanFresnelTint = color(0x49c3dc);
-	const oceanDeepTint = color(0x071f2f);
-	const oceanNightTint = color(0x071b2b);
-	const oceanShelfTint = color(0x155463);
+	const oceanFresnelTint = color(0x2b8eb6);
+	const oceanDeepTint = color(0x061d2a);
+	const oceanNightTint = color(0x061426);
+	const oceanShelfTint = color(0x0c586b);
 	const oceanLightTint = color(0x4aa5bb);
 	const oceanSpecularTint = color(0xfff3d8);
-	const oceanCoastLightTint = color(0x58b8ad);
+	const oceanCoastLightTint = color(0x1d6a70);
 
-	const coastTint = color(0x587b61);
-	const warmDayTint = color(0xffefd2);
-	const mountainTint = color(0x6f685b);
-	const mountainLightTint = color(0xb9ad91);
-	const highlandTint = color(0x8a8065);
-	const coolIceTint = color(0xd8ecff);
+	const coastTint = color(0x56614d);
+	const warmDayTint = color(0xffffff);
+	const mountainTint = color(0x69675b);
+	const mountainLightTint = color(0xaea89a);
+	const highlandTint = color(0x716a4e);
+	const coolIceTint = color(0xaeb2a7);
 
 	const terrainHeightAttribute = attribute('terrainHeight', 'float');
 	const landMaskAttribute = attribute('landMask', 'float');
@@ -550,9 +550,26 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * B = mountainMask
 	 * A = continent
 	 */
-	let terrainHeight: any;
-	let landMask: any;
-	let mountainMask: any;
+	/**
+	 * Phase 5d.4:
+	 *
+	 * WebGL SurfaceMaterial parity.
+	 *
+	 * The WebGL shader looks better because its visual coast/color logic is
+	 * fully procedural and continuous in fragment space. Therefore:
+	 *
+	 * - terrainSample is always calculated from sphereNormal
+	 * - visual landMask comes from terrainSample.y
+	 * - baked atlas may only slightly assist mountain masks
+	 * - visible height stays terrainHeightAttribute for stable current geometry
+	 */
+	const terrainSample = proceduralTerrainSample({
+		                                              normalInput: sphereNormal,
+	                                              });
+
+	let terrainHeight: any = terrainHeightAttribute;
+	let landMask: any = terrainSample.y;
+	let mountainMask: any = terrainSample.w;
 
 	if (terrainTextureSet) {
 		const bakedTerrainData = texture(
@@ -560,48 +577,16 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			terrainDataUv,
 		);
 
-		const bakedHeight = bakedTerrainData.r.mul(
-			float(terrainTextureSet.options.maxEncodedHeight),
-		);
-
-		terrainHeight = terrainHeightAttribute;
-
-		landMask = mix(
-			landMaskAttribute,
-			bakedTerrainData.g,
-			bakedTerrainBlend,
-		);
+		const bakedMaskBlend = bakedTerrainBlend.mul(0.10);
 
 		mountainMask = mix(
-			mountainMaskAttribute,
+			mountainMask,
 			bakedTerrainData.b,
-			bakedTerrainBlend,
-		);
-	} else {
-		const terrainSample = proceduralTerrainSample({
-			                                              normalInput: sphereNormal,
-		                                              });
-
-		terrainHeight = mix(
-			terrainHeightAttribute,
-			terrainSample.x,
-			float(0.34),
-		);
-
-		landMask = mix(
-			landMaskAttribute,
-			terrainSample.y,
-			float(0.86),
-		);
-
-		mountainMask = mix(
-			mountainMaskAttribute,
-			terrainSample.w,
-			float(0.68),
+			bakedMaskBlend,
 		);
 	}
 
-	const gpuVertexHeight = terrainHeight;
+	const gpuVertexHeight = terrainHeightAttribute;
 
 	/**
 	 * Phase 5c.1b:
@@ -713,88 +698,181 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const baseColorRaw = vertexColor().toVec3();
 
-	let baseColor = baseColorRaw
-		.mul(1.045)
-		.add(
-			baseColorRaw.mul(baseColorRaw).mul(0.055),
-		);
+	/**
+	 * WebGL-like getTerrainColorGL().
+	 *
+	 * This intentionally uses landMask/height thresholds from the WebGL
+	 * ShaderMaterial instead of the newer experimental WebGPU palette.
+	 */
+	const deepWaterColor = color(0x071f2f);
+	const midWaterColor = color(0x0c3545);
+	const shallowWaterColor = color(0x155463);
+	const coastalWaterColor = color(0x1d6a70);
+
+	const wetCoastColor = color(0x56614d);
+	const lowLandColor = color(0x315d35);
+	const grassColor = color(0x3f6d3b);
+	const hillsColor = color(0x596842);
+	const dryHillsColor = color(0x716a4e);
+	const rockColor = color(0x69675b);
+	const snowColor = color(0xaeb2a7);
+
+	let waterColor = mix(
+		deepWaterColor,
+		midWaterColor,
+		smoothstep(
+			0.00,
+			0.30,
+			landMask,
+		),
+	);
+
+	waterColor = mix(
+		waterColor,
+		shallowWaterColor,
+		smoothstep(
+			0.30,
+			0.43,
+			landMask,
+		),
+	);
+
+	waterColor = mix(
+		waterColor,
+		coastalWaterColor,
+		smoothstep(
+			0.43,
+			0.54,
+			landMask,
+		),
+	);
+
+	let lowCoastLandColor = mix(
+		coastalWaterColor,
+		wetCoastColor,
+		smoothstep(
+			0.54,
+			0.62,
+			landMask,
+		),
+	);
+
+	lowCoastLandColor = mix(
+		lowCoastLandColor,
+		lowLandColor,
+		smoothstep(
+			0.62,
+			0.72,
+			landMask,
+		),
+	);
+
+	let heightLandColor = mix(
+		lowLandColor,
+		grassColor,
+		smoothstep(
+			0.00,
+			0.035,
+			terrainHeight,
+		),
+	);
+
+	heightLandColor = mix(
+		heightLandColor,
+		hillsColor,
+		smoothstep(
+			0.035,
+			0.080,
+			terrainHeight,
+		),
+	);
+
+	heightLandColor = mix(
+		heightLandColor,
+		dryHillsColor,
+		smoothstep(
+			0.080,
+			0.135,
+			terrainHeight,
+		),
+	);
+
+	heightLandColor = mix(
+		heightLandColor,
+		rockColor,
+		smoothstep(
+			0.135,
+			0.205,
+			terrainHeight,
+		),
+	);
+
+	heightLandColor = mix(
+		heightLandColor,
+		snowColor,
+		smoothstep(
+			0.205,
+			0.310,
+			terrainHeight,
+		),
+	);
+
+	let landColor = mix(
+		lowCoastLandColor,
+		heightLandColor,
+		smoothstep(
+			0.70,
+			0.82,
+			landMask,
+		),
+	);
+
+	const polar = smoothstep(
+		0.74,
+		0.98,
+		sphereNormal.y.abs(),
+	);
+
+	landColor = mix(
+		landColor,
+		color(0x7d8674),
+		polar.mul(0.16),
+	);
+
+	let proceduralColor = mix(
+		waterColor,
+		landColor,
+		smoothstep(
+			0.54,
+			0.72,
+			landMask,
+		),
+	);
+
+	let baseColor = mix(
+		baseColorRaw,
+		proceduralColor,
+		float(0.72),
+	);
+
+	/**
+	 * Similar to WebGL adjustSaturation(..., 0.82).
+	 */
+	const luminance = baseColor.r
+		.mul(0.2126)
+		.add(baseColor.g.mul(0.7152))
+		.add(baseColor.b.mul(0.0722));
+
+	baseColor = mix(
+		luminance.toVec3(),
+		baseColor,
+		float(0.82),
+	);
 
 	baseColor = mix(
 		baseColor,
 		oceanDeepTint,
-		deepWater.mul(0.28),
-	);
-
-	baseColor = mix(
-		baseColor,
-		oceanShelfTint,
-		shallowWater.mul(0.32),
-	);
-
-	baseColor = mix(
-		baseColor,
-		oceanLightTint,
-		shelfWater.mul(0.055),
-	);
-
-	baseColor = mix(
-		baseColor,
-		oceanCoastLightTint,
-		coastWaterEdge.mul(0.050),
-	);
-
-	baseColor = mix(
-		baseColor,
-		oceanLightTint,
-		softCoastWater.mul(0.022),
-	);
-
-	baseColor = mix(
-		baseColor,
-		coastTint,
-		coastLandEdge.mul(0.040),
-	);
-
-	baseColor = mix(
-		baseColor,
-		highlandTint,
-		softCoastLand.mul(0.020),
-	);
-
-	baseColor = mix(
-		baseColor,
-		coastTint,
-		softCoastMask.mul(0.012),
-	);
-
-	baseColor = mix(
-		baseColor,
-		oceanShelfTint,
-		softCoastWater.mul(0.010),
-	);
-
-	baseColor = mix(
-		baseColor,
-		highlandTint,
-		highland.mul(0.09),
-	);
-
-	baseColor = mix(
-		baseColor,
-		mountainTint,
-		mountainMaterial.mul(0.15),
-	);
-
-	baseColor = mix(
-		baseColor,
-		mountainLightTint,
-		mountainPeak.mul(0.10),
-	);
-
-	baseColor = mix(
-		baseColor,
-		coolIceTint,
-		heightSnow.mul(0.23),
+		waterHint.mul(0.16),
 	);
 
 	const worldNormal = normalize(normalWorld);
@@ -877,13 +955,13 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	const dayTintedBase = mix(
 		baseColor,
 		baseColor.mul(warmDayTint),
-		dayWarmth,
+		float(0.0),
 	);
 
 	const dayColor = dayTintedBase.mul(
 		ambient.add(
 			directLight
-				.mul(1.22)
+				.mul(1.12)
 				.add(mountainContrast)
 				.add(mountainGrazingLift)
 				.add(highlandLight)
@@ -893,7 +971,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const nightColor = nightTint
 		.add(
-			baseColorRaw.mul(0.38),
+			baseColor.mul(0.20),
 		)
 		.add(
 			mountainLightTint.mul(mountainPeak).mul(0.020),
@@ -1044,31 +1122,31 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			oceanCoastLightTint
 				.mul(coastSurf)
-				.mul(0.046),
+				.mul(0.020),
 		)
 		.add(
 			oceanLightTint
 				.mul(softCoastWater)
 				.mul(day.mul(0.55).add(0.08))
-				.mul(0.018),
+				.mul(0.006),
 		)
 		.add(
 			coastTint
 				.mul(coastLandEdge)
 				.mul(day)
-				.mul(0.034),
+				.mul(0.012),
 		)
 		.add(
 			highlandTint
 				.mul(softCoastLand)
 				.mul(day)
-				.mul(0.018),
+				.mul(0.006),
 		)
 		.add(
 			coastTint
 				.mul(softCoastMask)
 				.mul(day.mul(0.45).add(0.04))
-				.mul(0.010),
+				.mul(0.004),
 		)
 		.add(
 			mountainLightTint
@@ -1089,12 +1167,12 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			fakeAtmosphereTint
 				.mul(atmosphereEdge)
-				.mul(0.18),
+				.mul(0.10),
 		)
 		.add(
 			horizonHazeTint
 				.mul(dayHaze)
-				.mul(0.115),
+				.mul(0.070),
 		)
 		.add(
 			fakeAtmosphereTint

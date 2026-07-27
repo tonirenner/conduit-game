@@ -10,6 +10,11 @@ import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
 
+import {
+	mergePlanetRenderFeatures,
+	type PlanetRenderFeatures,
+} from './PlanetRenderFeatures';
+
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
 
@@ -48,12 +53,16 @@ export class Planet {
 
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
 	private bakedTerrainEnabled = true;
+	private readonly features: PlanetRenderFeatures;
 
 	constructor(
 		private readonly radius: number,
 		private readonly rendererMode: PlanetRendererMode = 'webgl',
 		private readonly terrainTextureSet: TerrainTextureSet | null = null,
+		features: Partial<PlanetRenderFeatures> = {},
 	) {
+		this.features = mergePlanetRenderFeatures(features);
+
 		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
 
@@ -81,6 +90,13 @@ export class Planet {
 		}
 
 		if (this.rendererMode === 'webgpu') {
+			/**
+			 * Phase 5e.1:
+			 *
+			 * WebGPU clouds are raymarched by default.
+			 * Atmosphere is feature-ready and quality controlled.
+			 * Surface raymarching intentionally remains disabled.
+			 */
 			this.webGPUClouds = new WebGPUCloudLayer(radius);
 			this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
 
@@ -99,7 +115,9 @@ export class Planet {
 
 		this.clouds?.update(deltaSeconds);
 		this.clouds?.updateLOD(cameraPosition.length(), this.radius);
+
 		this.webGPUClouds?.update(deltaSeconds);
+		this.webGPUClouds?.updateLOD(cameraPosition.length(), this.radius);
 
 		this.atmosphere?.update();
 		this.webGPUAtmosphere?.update();
@@ -120,8 +138,14 @@ export class Planet {
 			this.setUniform('uSurfaceTextureStrength', 0.35);
 			this.clouds?.setRenderQuality(quality);
 			this.webGPUClouds?.setRenderQuality(quality);
+			this.webGPUClouds?.setRaymarchSteps(
+				this.features.cloudSteps.moving,
+			);
 			this.atmosphere?.setRenderQuality(quality);
 			this.webGPUAtmosphere?.setRenderQuality(quality);
+			this.webGPUAtmosphere?.setRaymarchSteps(
+				this.features.atmosphereSteps.moving,
+			);
 			return;
 		}
 
@@ -130,8 +154,14 @@ export class Planet {
 		this.setUniform('uSurfaceTextureStrength', 1.0);
 		this.clouds?.setRenderQuality(quality);
 		this.webGPUClouds?.setRenderQuality(quality);
+		this.webGPUClouds?.setRaymarchSteps(
+			this.features.cloudSteps.idle,
+		);
 		this.atmosphere?.setRenderQuality(quality);
 		this.webGPUAtmosphere?.setRenderQuality(quality);
+		this.webGPUAtmosphere?.setRaymarchSteps(
+			this.features.atmosphereSteps.idle,
+		);
 	}
 
 	private createSurfaceMaterial(
@@ -338,6 +368,45 @@ export class Planet {
 			atlasHeight: image.height ?? 0,
 			atlasColumns: this.terrainTextureSet.options.atlasColumns,
 			atlasRows: this.terrainTextureSet.options.atlasRows,
+		};
+	}
+
+	getRenderFeatureStats(): {
+		clouds: {
+			raymarched: boolean;
+			steps: number;
+		};
+		atmosphere: {
+			raymarched: boolean;
+			steps: number;
+		};
+		surface: {
+			raymarched: boolean;
+			steps: number;
+		};
+	} {
+		const qualitySteps =
+			      this.currentRenderQuality === 'moving'
+			      ? 'moving'
+			      : 'idle';
+
+		return {
+			clouds: {
+				raymarched: this.features.raymarchedClouds,
+				steps:
+					this.webGPUClouds?.getRaymarchSteps() ??
+					this.features.cloudSteps[qualitySteps],
+			},
+			atmosphere: {
+				raymarched: this.features.raymarchedAtmosphere,
+				steps:
+					this.webGPUAtmosphere?.getRaymarchSteps() ??
+					this.features.atmosphereSteps[qualitySteps],
+			},
+			surface: {
+				raymarched: this.features.raymarchedSurface,
+				steps: this.features.surfaceSteps[qualitySteps],
+			},
 		};
 	}
 

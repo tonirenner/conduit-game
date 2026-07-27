@@ -511,6 +511,18 @@ export class TerrainPatch extends THREE.Group {
 		const atlasColumn = terrainFaceIndex % 3;
 		const atlasRow = Math.floor(terrainFaceIndex / 3);
 
+		/**
+		 * Phase 5d.2:
+		 *
+		 * Keep atlas samples slightly inside each tile.
+		 * Without this, linear filtering can sample neighbouring atlas tiles
+		 * at exact face borders and create visible seams.
+		 *
+		 * This is expressed in face-local UV space.
+		 * 2 / 2048 = one conservative texel-ish inset for the current atlas.
+		 */
+		const atlasFaceUvInset = 2.0 / 2048.0;
+
 		for (let y = 0; y <= this.resolution; y++) {
 			for (let x = 0; x <= this.resolution; x++) {
 				const index = x + y * rowSize;
@@ -533,9 +545,21 @@ export class TerrainPatch extends THREE.Group {
 					1,
 				);
 
+				const atlasFaceU = THREE.MathUtils.lerp(
+					atlasFaceUvInset,
+					1.0 - atlasFaceUvInset,
+					faceU,
+				);
+
+				const atlasFaceV = THREE.MathUtils.lerp(
+					atlasFaceUvInset,
+					1.0 - atlasFaceUvInset,
+					faceV,
+				);
+
 				terrainDataUvs.push(
-					(atlasColumn + faceU) / 3.0,
-					(atlasRow + faceV) / 2.0,
+					(atlasColumn + atlasFaceU) / 3.0,
+					(atlasRow + atlasFaceV) / 2.0,
 				);
 
 				const sphereNormal = this.getSphereNormal(cubeX, cubeY);

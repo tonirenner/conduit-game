@@ -158,6 +158,10 @@ export class TerrainTextureBakeManager {
 		);
 
 		target.texture.name = 'TerrainDataTexture.Atlas';
+		target.texture.wrapS = THREE.ClampToEdgeWrapping;
+		target.texture.wrapT = THREE.ClampToEdgeWrapping;
+		target.texture.generateMipmaps = false;
+		target.texture.needsUpdate = true;
 
 		return target;
 	}

@@ -12,25 +12,31 @@ import { SUN_DIRECTION } from './Sun';
 export type WebGPUCloudQuality = 'moving' | 'idle';
 
 /**
- * Phase 4j.1d:
+ * Phase 5e.1:
  *
- * WebGPU Cloud Raymarch Prototype, brighter cloud tops.
+ * Raymarched clouds with quality-controlled steps.
  *
- * This replaces the multi-shell approximation with a real raymarch through
- * an inner/outer cloud shell, closer to the existing WebGL CloudLayer.
- *
- * Prototype choices:
- * - 8 samples instead of WebGL's 16
- * - simpler density than WebGL climate/weather model
- * - WGSL function via TSL wgslFn
- * - no texture dependency
- * - no separate compute pass yet
+ * Keeps the already working WebGPU cloud raymarch structure, but ports the
+ * visible WebGL CloudLayer values:
+ * - same cloud shell radii
+ * - denser orbit clouds
+ * - WebGL-like shadow/mid/sun colors
+ * - stronger coverage/density/alpha balance
+ * - quality switch for moving/idle
  */
 export class WebGPUCloudLayer {
 	public readonly group: THREE.Group;
 	public readonly mesh: THREE.Mesh;
 
 	private readonly material: any;
+
+	private readonly cloudCoverage: any;
+	private readonly cloudDensity: any;
+	private readonly cloudAlpha: any;
+	private readonly cloudDetailStrength: any;
+	private readonly cloudStepCount: any;
+
+	private currentRenderQuality: WebGPUCloudQuality = 'idle';
 
 	constructor(radius: number) {
 		this.group = new THREE.Group();
@@ -41,9 +47,15 @@ export class WebGPUCloudLayer {
 
 		const geometry = new THREE.SphereGeometry(
 			outerRadius,
-			128,
+			96,
 			96,
 		);
+
+		this.cloudCoverage = uniform(0.505);
+		this.cloudDensity = uniform(2.25);
+		this.cloudAlpha = uniform(0.82);
+		this.cloudDetailStrength = uniform(1.0);
+		this.cloudStepCount = uniform(16.0);
 
 		this.material = this.createMaterial(
 			radius,
@@ -68,17 +80,61 @@ export class WebGPUCloudLayer {
 		 * Cheap weather drift for now.
 		 * Later we can pass real time into the WGSL function.
 		 */
-		this.mesh.rotation.y += deltaSeconds * 0.0032;
-		this.mesh.rotation.x += deltaSeconds * 0.00025;
+		this.mesh.rotation.y += deltaSeconds * 0.0032 * 0.14;
+		this.mesh.rotation.x += deltaSeconds * 0.00025 * 0.14;
 	}
 
 	setRenderQuality(quality: WebGPUCloudQuality): void {
+		if (quality === this.currentRenderQuality) {
+			return;
+		}
+
+		this.currentRenderQuality = quality;
+
 		if (quality === 'moving') {
+			this.cloudDetailStrength.value = 0.0;
+			this.cloudStepCount.value = 8.0;
 			this.material.opacity = 0.52;
 			return;
 		}
 
-		this.material.opacity = 0.70;
+		this.cloudDetailStrength.value = 1.0;
+		this.cloudStepCount.value = 16.0;
+		this.material.opacity = 0.74;
+	}
+
+	setRaymarchSteps(steps: number): void {
+		this.cloudStepCount.value = THREE.MathUtils.clamp(
+			steps,
+			1,
+			16,
+		);
+	}
+
+	getRaymarchSteps(): number {
+		return this.cloudStepCount.value;
+	}
+
+	updateLOD(cameraDistance: number, planetRadius: number): void {
+		const heightAboveSurface = cameraDistance - planetRadius;
+
+		if (heightAboveSurface > 8) {
+			this.cloudDensity.value = 1.95;
+			this.cloudCoverage.value = 0.535;
+			this.cloudAlpha.value = 0.74;
+			return;
+		}
+
+		if (heightAboveSurface > 3) {
+			this.cloudDensity.value = 2.25;
+			this.cloudCoverage.value = 0.505;
+			this.cloudAlpha.value = 0.84;
+			return;
+		}
+
+		this.cloudDensity.value = 2.58;
+		this.cloudCoverage.value = 0.475;
+		this.cloudAlpha.value = 0.92;
 	}
 
 	private createMaterial(
@@ -95,7 +151,7 @@ export class WebGPUCloudLayer {
 		                                                 });
 
 		material.name = 'WebGPUCloudRaymarchNodeMaterial';
-		material.opacity = 0.70;
+		material.opacity = 0.74;
 		material.toneMapped = false;
 
 		const sunDirection = uniform(
@@ -113,7 +169,12 @@ fn cloud_raymarch(
 	sunDir: vec3<f32>,
 	planetRadius: f32,
 	innerRadius: f32,
-	outerRadius: f32
+	outerRadius: f32,
+	cloudCoverage: f32,
+	cloudDensityMultiplier: f32,
+	cloudAlphaMultiplier: f32,
+	cloudDetailStrength: f32,
+	cloudStepCount: f32
 ) -> vec4<f32> {
 	let rayOrigin = camPos;
 	let rayDirection = normalize(surfacePosition - camPos);
@@ -150,14 +211,17 @@ fn cloud_raymarch(
 		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 	}
 
-	let steps = 8.0;
+	let steps = cloudStepCount;
 	let thickness = tFar - tNear;
 	let stepSize = thickness / steps;
 
 	var alpha = 0.0;
 	var cloudColorAccum = vec3<f32>(0.0, 0.0, 0.0);
 
-	for (var i = 0; i < 8; i = i + 1) {
+	for (var i = 0; i < 16; i = i + 1) {
+		if (f32(i) >= cloudStepCount) {
+			break;
+		}
 		let t = tNear + stepSize * (f32(i) + 0.5);
 		let p = rayOrigin + rayDirection * t;
 		let r = length(p);
@@ -169,8 +233,10 @@ fn cloud_raymarch(
 		let d = cloud_density(
 			p,
 			innerRadius,
-			outerRadius
-		) * 1.46;
+			outerRadius,
+			cloudCoverage,
+			cloudDetailStrength
+		) * cloudDensityMultiplier;
 
 		if (d <= 0.012) {
 			continue;
@@ -185,9 +251,9 @@ fn cloud_raymarch(
 		let viewFacing = clamp(dot(n, -rayDirection), 0.0, 1.0);
 		let limbFade = smoothstep(0.012, 0.22, viewFacing);
 
-		let shadowColor = vec3<f32>(0.68, 0.71, 0.74);
-		let midColor = vec3<f32>(1.0, 1.0, 0.990);
-		let sunColor = vec3<f32>(1.0, 0.998, 0.940);
+		let shadowColor = vec3<f32>(0.56, 0.59, 0.64);
+		let midColor = vec3<f32>(0.94, 0.955, 0.965);
+		let sunColor = vec3<f32>(1.0, 0.995, 0.985);
 
 		var sampleColor = mix(
 			shadowColor,
@@ -198,7 +264,7 @@ fn cloud_raymarch(
 		sampleColor = mix(
 			sampleColor,
 			sunColor,
-			directLight * 1.22
+			directLight * 0.88
 		);
 
 		let forwardLight =
@@ -208,7 +274,7 @@ fn cloud_raymarch(
 			vec3<f32>(1.0, 0.84, 0.60) *
 			forwardLight *
 			dayLight *
-			0.155;
+			0.105;
 
 		let silverLining =
 			pow(1.0 - viewFacing, 2.4) *
@@ -218,12 +284,12 @@ fn cloud_raymarch(
 		sampleColor = sampleColor +
 			vec3<f32>(0.82, 0.94, 1.0) *
 			silverLining *
-			0.090;
+			0.055;
 
-		sampleColor = sampleColor * 1.34;
+		sampleColor = sampleColor * 1.12;
 
 		var sampleAlpha =
-			1.0 - exp(-d * stepSize * 1.02);
+			1.0 - exp(-d * stepSize * 1.42);
 
 		sampleAlpha = sampleAlpha * mix(0.36, 1.0, dayLight);
 		sampleAlpha = sampleAlpha * mix(0.62, 1.0, limbFade);
@@ -246,7 +312,7 @@ fn cloud_raymarch(
 	alpha = alpha * mix(0.55, 1.0, finalLimbFade);
 	cloudColorAccum = cloudColorAccum * mix(0.84, 1.0, finalLimbFade);
 
-	alpha = clamp(alpha * 0.66, 0.0, 0.64);
+	alpha = clamp(alpha * cloudAlphaMultiplier, 0.0, 0.76);
 
 	if (alpha < 0.018) {
 		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -361,7 +427,9 @@ fn cloud_sphere_far(
 fn cloud_density(
 	position: vec3<f32>,
 	innerRadius: f32,
-	outerRadius: f32
+	outerRadius: f32,
+	cloudCoverage: f32,
+	cloudDetailStrength: f32
 ) -> f32 {
 	let radius = length(position);
 	let shell =
@@ -373,8 +441,8 @@ fn cloud_density(
 	let latitude = asin(clamp(normal.y, -1.0, 1.0));
 
 	let large = cloud_fbm(normal * 1.45 + vec3<f32>(2.4, 5.1, 1.7));
-	let medium = cloud_fbm(normal * 4.40 + vec3<f32>(7.3, 1.9, 4.6));
-	let detail = cloud_fbm_low(normal * 7.20 + vec3<f32>(17.0, 3.0, 11.0));
+	let medium = cloud_fbm(normal * 4.40 + vec3<f32>(7.3, 1.9, 4.6)) * cloudDetailStrength;
+	let detail = cloud_fbm_low(normal * 7.20 + vec3<f32>(17.0, 3.0, 11.0)) * cloudDetailStrength;
 
 	let bandNoise = cloud_fbm_low(normal * 2.0 + vec3<f32>(1.5, 8.0, 2.0)) - 0.5;
 
@@ -399,13 +467,13 @@ fn cloud_density(
 		);
 
 	var d =
-		large * 0.32 +
-		medium * 0.36 +
-		bands * 0.13 +
-		streaks * 0.19;
+		large * 0.36 +
+		medium * 0.31 * cloudDetailStrength +
+		bands * mix(0.34, 0.18, cloudDetailStrength) +
+		streaks * 0.09 * cloudDetailStrength;
 
-	d = smoothstep(0.555, 0.745, d);
-	d = pow(d, 1.46);
+	d = smoothstep(cloudCoverage, cloudCoverage + 0.175, d);
+	d = pow(d, 1.30);
 
 	return d * shell;
 }
@@ -420,6 +488,11 @@ fn cloud_density(
 			                                  planetRadius,
 			                                  innerRadius,
 			                                  outerRadius,
+			                                  cloudCoverage: this.cloudCoverage,
+			                                  cloudDensityMultiplier: this.cloudDensity,
+			                                  cloudAlphaMultiplier: this.cloudAlpha,
+			                                  cloudDetailStrength: this.cloudDetailStrength,
+			                                  cloudStepCount: this.cloudStepCount,
 		                                  });
 
 		material.colorNode = cloudResult.rgb;
