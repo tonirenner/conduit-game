@@ -42,6 +42,7 @@ import type { TerrainTextureSet } from './TerrainTextureSet';
  * behavior closer to the WebGL ShaderMaterial reference.
  */
 export function createPlanetSurfaceNodeMaterial(
+	planetRadius: number,
 	terrainTextureSet: TerrainTextureSet | null = null,
 ): any {
 	const material = new THREE.MeshBasicNodeMaterial({
@@ -89,7 +90,6 @@ export function createPlanetSurfaceNodeMaterial(
 	const terrainHeightAttribute = attribute('terrainHeight', 'float');
 	const landMaskAttribute = attribute('landMask', 'float');
 	const mountainMaskAttribute = attribute('mountainMask', 'float');
-	const waterHintAttribute = attribute('waterHint', 'float');
 	const terrainDataUv = attribute('terrainDataUv', 'vec2');
 	const sphereNormal = normalize(attribute('sphereNormal', 'vec3'));
 
@@ -564,11 +564,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			float(terrainTextureSet.options.maxEncodedHeight),
 		);
 
-		terrainHeight = mix(
-			terrainHeightAttribute,
-			bakedHeight,
-			bakedTerrainBlend,
-		);
+		terrainHeight = terrainHeightAttribute;
 
 		landMask = mix(
 			landMaskAttribute,
@@ -604,6 +600,21 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			float(0.68),
 		);
 	}
+
+	const gpuVertexHeight = terrainHeight;
+
+	/**
+	 * Phase 5c.1b:
+	 *
+	 * WebGPU vertex displacement.
+	 *
+	 * TerrainPatch can now build flat sphere grids while this material
+	 * moves vertices in the vertex stage from the terrainHeight attribute.
+	 * The same baked atlas data is used for surface masks.
+	 */
+	material.positionNode = sphereNormal.mul(
+		float(planetRadius).add(gpuVertexHeight),
+	);
 
 	const waterHint = oneMinus(
 		smoothstep(

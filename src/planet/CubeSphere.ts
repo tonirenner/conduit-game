@@ -11,7 +11,7 @@ import {
 	type HorizonCullingStats,
 } from './HorizonCulling';
 
-import { TextureTerrainSource } from './TextureTerrainSource';
+import { CachedTerrainSource } from './CachedTerrainSource';
 
 import type {
 	TerrainSource,
@@ -28,10 +28,21 @@ export type TerrainLodProfile =
 export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
 	private readonly horizonCulling: HorizonCulling;
-	private readonly terrainSource: TerrainSource = new TextureTerrainSource({
-		                                                                         faceResolution: 512,
-		                                                                         maxEncodedHeight: 0.42,
-	                                                                         });
+
+	/**
+	 * Phase 5c.1 hotfix:
+	 *
+	 * Do not use TextureTerrainSource here.
+	 *
+	 * TextureTerrainSource performs a CPU-side full-face bake and causes
+	 * brutal startup time. In the WebGPU path the visible surface already uses
+	 * the GPU-baked terrain atlas, so CPU geometry only needs the old lazy
+	 * patch cache for:
+	 * - initial patch attributes
+	 * - normals
+	 * - LOD / bounds
+	 */
+	private readonly terrainSource: TerrainSource = new CachedTerrainSource();
 
 	private currentLodProfile: TerrainLodProfile = 'orbit';
 
@@ -66,6 +77,7 @@ export class CubeSphere extends THREE.Group {
 		private readonly radius: number,
 		private readonly resolution: number,
 		material: THREE.Material,
+		private readonly useGpuVertexDisplacement: boolean = false,
 	) {
 		super();
 
@@ -90,6 +102,8 @@ export class CubeSphere extends THREE.Group {
 				this.resolution,
 				material,
 				this.terrainSource,
+				0,
+				this.useGpuVertexDisplacement,
 			);
 
 			this.rootPatches.push(patch);

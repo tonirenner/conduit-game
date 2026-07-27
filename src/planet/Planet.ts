@@ -140,6 +140,7 @@ export class Planet {
 	): PlanetSurfaceRuntimeMaterial {
 		if (this.rendererMode === 'webgpu') {
 			return createPlanetSurfaceNodeMaterial(
+				radius,
 				this.terrainTextureSet,
 			) as PlanetSurfaceRuntimeMaterial;
 		}
@@ -229,7 +230,12 @@ export class Planet {
 		radius: number,
 		material: THREE.Material,
 	): CubeSphere {
-		const cubeSphere = new CubeSphere(radius, 24, material);
+		const cubeSphere = new CubeSphere(
+			radius,
+			24,
+			material,
+			this.rendererMode === 'webgpu',
+		);
 
 		cubeSphere.name = 'PlanetTerrain';
 		cubeSphere.renderOrder = 1;
