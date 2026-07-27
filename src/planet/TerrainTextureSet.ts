@@ -7,29 +7,29 @@ import type {
 export type TerrainTextureSetOptions = {
 	resolution: number;
 	maxEncodedHeight: number;
+	atlasColumns: number;
+	atlasRows: number;
 };
 
 export type TerrainTextureFace = {
 	index: number;
 	name: string;
 	face: CubeFace;
-	dataTarget: THREE.WebGLRenderTarget;
 };
 
 export class TerrainTextureSet {
 	constructor(
 		public readonly options: TerrainTextureSetOptions,
 		public readonly faces: TerrainTextureFace[],
+		public readonly dataAtlasTarget: THREE.WebGLRenderTarget,
 	) {}
 
-	getDataTexture(faceIndex: number): THREE.Texture {
-		return this.faces[faceIndex].dataTarget.texture;
+	getDataAtlasTexture(): THREE.Texture {
+		return this.dataAtlasTarget.texture;
 	}
 
 	dispose(): void {
-		for (const face of this.faces) {
-			face.dataTarget.dispose();
-		}
+		this.dataAtlasTarget.dispose();
 	}
 }
 

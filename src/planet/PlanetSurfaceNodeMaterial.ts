@@ -16,10 +16,13 @@ import {
 	smoothstep,
 	uniform,
 	vertexColor,
+	texture,
 	wgslFn,
 } from 'three/tsl';
 
 import { SUN_DIRECTION } from './Sun';
+
+import type { TerrainTextureSet } from './TerrainTextureSet';
 
 /**
  * Phase 4k.5:
@@ -38,7 +41,9 @@ import { SUN_DIRECTION } from './Sun';
  * Stop fighting the coast with cosmetic blur and bring WebGPU material
  * behavior closer to the WebGL ShaderMaterial reference.
  */
-export function createPlanetSurfaceNodeMaterial(): any {
+export function createPlanetSurfaceNodeMaterial(
+	terrainTextureSet: TerrainTextureSet | null = null,
+): any {
 	const material = new THREE.MeshBasicNodeMaterial({
 		                                                 vertexColors: true,
 		                                                 transparent: false,
@@ -82,6 +87,7 @@ export function createPlanetSurfaceNodeMaterial(): any {
 	const landMaskAttribute = attribute('landMask', 'float');
 	const mountainMaskAttribute = attribute('mountainMask', 'float');
 	const waterHintAttribute = attribute('waterHint', 'float');
+	const terrainDataUv = attribute('terrainDataUv', 'vec2');
 	const sphereNormal = normalize(attribute('sphereNormal', 'vec3'));
 
 	const proceduralTerrainSample = wgslFn(`
@@ -528,35 +534,73 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	`);
 
 
-	const terrainSample = proceduralTerrainSample({
-		                                              normalInput: sphereNormal,
-	                                              });
-
 	/**
-	 * Phase 4k.5:
+	 * Phase 5b.2:
 	 *
-	 * Material masks are now mostly sampled per pixel from the same terrain
-	 * logic that generates the mesh. Geometry still uses the cached vertex
-	 * data, but coast/water shading no longer depends purely on vertex
-	 * interpolation.
+	 * When a baked TerrainTextureSet is available, WebGPU samples terrain
+	 * masks from the GPU-baked atlas instead of recomputing
+	 * proceduralTerrainSample() per pixel.
+	 *
+	 * Atlas encoding:
+	 * R = height / maxEncodedHeight
+	 * G = landMask
+	 * B = mountainMask
+	 * A = continent
 	 */
-	const terrainHeight = mix(
-		terrainHeightAttribute,
-		terrainSample.x,
-		float(0.34),
-	);
+	let terrainHeight: any;
+	let landMask: any;
+	let mountainMask: any;
 
-	const landMask = mix(
-		landMaskAttribute,
-		terrainSample.y,
-		float(0.86),
-	);
+	if (terrainTextureSet) {
+		const bakedTerrainData = texture(
+			terrainTextureSet.getDataAtlasTexture(),
+			terrainDataUv,
+		);
 
-	const mountainMask = mix(
-		mountainMaskAttribute,
-		terrainSample.w,
-		float(0.68),
-	);
+		const bakedHeight = bakedTerrainData.r.mul(
+			float(terrainTextureSet.options.maxEncodedHeight),
+		);
+
+		terrainHeight = mix(
+			terrainHeightAttribute,
+			bakedHeight,
+			float(0.88),
+		);
+
+		landMask = mix(
+			landMaskAttribute,
+			bakedTerrainData.g,
+			float(0.96),
+		);
+
+		mountainMask = mix(
+			mountainMaskAttribute,
+			bakedTerrainData.b,
+			float(0.88),
+		);
+	} else {
+		const terrainSample = proceduralTerrainSample({
+			                                              normalInput: sphereNormal,
+		                                              });
+
+		terrainHeight = mix(
+			terrainHeightAttribute,
+			terrainSample.x,
+			float(0.34),
+		);
+
+		landMask = mix(
+			landMaskAttribute,
+			terrainSample.y,
+			float(0.86),
+		);
+
+		mountainMask = mix(
+			mountainMaskAttribute,
+			terrainSample.w,
+			float(0.68),
+		);
+	}
 
 	const waterHint = oneMinus(
 		smoothstep(

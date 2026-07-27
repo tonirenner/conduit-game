@@ -55,24 +55,52 @@ export class TerrainTextureBakeManager {
 			return null;
 		}
 
+		const atlasColumns = 3;
+		const atlasRows = 2;
+
+		const atlasTarget = this.createAtlasRenderTarget(
+			options.resolution,
+			atlasColumns,
+			atlasRows,
+		);
+
 		const faceDefinitions = createDefaultCubeFaces();
 		const faces: TerrainTextureFace[] = [];
 
 		const previousRenderTarget = this.renderer.getRenderTarget();
 
+		this.renderer.setRenderTarget(atlasTarget);
+		this.renderer.setClearColor(0x000000, 0);
+		this.renderer.clear();
+
+		const previousScissorTest = this.renderer.getScissorTest();
+
+		this.renderer.setScissorTest(true);
+
 		for (let index = 0; index < faceDefinitions.length; index++) {
 			const definition = faceDefinitions[index];
 
-			const target = this.createRenderTarget(
+			const column = index % atlasColumns;
+			const row = Math.floor(index / atlasColumns);
+
+			const x = column * options.resolution;
+			const y = row * options.resolution;
+
+			this.renderer.setViewport(
+				x,
+				y,
 				options.resolution,
-				definition.name,
+				options.resolution,
+			);
+
+			this.renderer.setScissor(
+				x,
+				y,
+				options.resolution,
+				options.resolution,
 			);
 
 			this.bakeMaterial.setFace(definition.face);
-
-			this.renderer.setRenderTarget(target);
-			this.renderer.setClearColor(0x000000, 0);
-			this.renderer.clear();
 
 			await this.renderBakeScene();
 
@@ -80,44 +108,43 @@ export class TerrainTextureBakeManager {
 				           index,
 				           name: definition.name,
 				           face: definition.face,
-				           dataTarget: target,
 			           });
 		}
 
+		this.renderer.setScissorTest(previousScissorTest);
 		this.renderer.setRenderTarget(previousRenderTarget);
 
 		return new TerrainTextureSet(
 			{
 				resolution: options.resolution,
 				maxEncodedHeight: options.maxEncodedHeight,
+				atlasColumns,
+				atlasRows,
 			},
 			faces,
+			atlasTarget,
 		);
 	}
 
 	private async renderBakeScene(): Promise<void> {
-		if (typeof this.renderer.renderAsync === 'function') {
-			await this.renderer.renderAsync(
-				this.scene,
-				this.camera,
-			);
-
-			return;
-		}
-
+		/**
+		 * renderAsync() is deprecated in recent Three versions.
+		 * The renderer was already awaited during init(), so render() is enough here.
+		 */
 		this.renderer.render(
 			this.scene,
 			this.camera,
 		);
 	}
 
-	private createRenderTarget(
+	private createAtlasRenderTarget(
 		resolution: number,
-		name: string,
+		atlasColumns: number,
+		atlasRows: number,
 	): THREE.WebGLRenderTarget {
 		const target = new THREE.WebGLRenderTarget(
-			resolution,
-			resolution,
+			resolution * atlasColumns,
+			resolution * atlasRows,
 			{
 				format: THREE.RGBAFormat,
 				type: THREE.HalfFloatType,
@@ -130,7 +157,7 @@ export class TerrainTextureBakeManager {
 			},
 		);
 
-		target.texture.name = `TerrainDataTexture.${name}`;
+		target.texture.name = 'TerrainDataTexture.Atlas';
 
 		return target;
 	}

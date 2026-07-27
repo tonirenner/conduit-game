@@ -514,7 +514,7 @@ if (rendererMode === 'webgpu') {
 	console.time('terrain-gpu-bake');
 
 	terrainTextureSet = await bakeManager.bake({
-		                                           resolution: 1024,
+		                                           resolution: 2048,
 		                                           maxEncodedHeight: 0.42,
 	                                           });
 
@@ -523,7 +523,11 @@ if (rendererMode === 'webgpu') {
 }
 
 // Planet
-const planet = new Planet(PLANET_RADIUS, rendererMode);
+const planet = new Planet(
+	PLANET_RADIUS,
+	rendererMode,
+	terrainTextureSet,
+);
 scene.add(planet.group);
 
 function resizeRenderer(): void {

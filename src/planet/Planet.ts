@@ -8,6 +8,8 @@ import { WebGPUCloudLayer } from './WebGPUCloudLayer';
 import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 
+import type { TerrainTextureSet } from './TerrainTextureSet';
+
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
 
@@ -18,7 +20,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 4i.1:
+ * Phase 5b.2:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
@@ -26,6 +28,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
  *
  * WebGPU:
  * - TSL/NodeMaterial terrain surface
+ * - optional baked TerrainTextureSet for material masks
  * - lightweight WebGPU/TSL cloud shell
  * - lightweight WebGPU/TSL atmosphere shell
  */
@@ -48,6 +51,7 @@ export class Planet {
 	constructor(
 		private readonly radius: number,
 		private readonly rendererMode: PlanetRendererMode = 'webgl',
+		private readonly terrainTextureSet: TerrainTextureSet | null = null,
 	) {
 		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
@@ -134,7 +138,9 @@ export class Planet {
 		atmosphereRadius: number,
 	): PlanetSurfaceRuntimeMaterial {
 		if (this.rendererMode === 'webgpu') {
-			return createPlanetSurfaceNodeMaterial() as PlanetSurfaceRuntimeMaterial;
+			return createPlanetSurfaceNodeMaterial(
+				this.terrainTextureSet,
+			) as PlanetSurfaceRuntimeMaterial;
 		}
 
 		return createPlanetSurfaceMaterial(

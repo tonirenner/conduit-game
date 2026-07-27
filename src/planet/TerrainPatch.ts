@@ -501,9 +501,14 @@ export class TerrainPatch extends THREE.Group {
 		const landMasks: number[] = [];
 		const mountainMasks: number[] = [];
 		const waterHints: number[] = [];
+		const terrainDataUvs: number[] = [];
 		const indices: number[] = [];
 
 		const rowSize = this.resolution + 1;
+
+		const terrainFaceIndex = this.getTerrainFaceIndex();
+		const atlasColumn = terrainFaceIndex % 3;
+		const atlasRow = Math.floor(terrainFaceIndex / 3);
 
 		for (let y = 0; y <= this.resolution; y++) {
 			for (let x = 0; x <= this.resolution; x++) {
@@ -514,6 +519,23 @@ export class TerrainPatch extends THREE.Group {
 
 				const cubeX = this.bounds.x + localU * this.bounds.size;
 				const cubeY = this.bounds.y + localV * this.bounds.size;
+
+				const faceU = THREE.MathUtils.clamp(
+					(cubeX + 1.0) * 0.5,
+					0,
+					1,
+				);
+
+				const faceV = THREE.MathUtils.clamp(
+					(cubeY + 1.0) * 0.5,
+					0,
+					1,
+				);
+
+				terrainDataUvs.push(
+					(atlasColumn + faceU) / 3.0,
+					(atlasRow + faceV) / 2.0,
+				);
 
 				const sphereNormal = this.getSphereNormal(cubeX, cubeY);
 				const height = this.terrainGrid.heights[index];
@@ -577,6 +599,7 @@ export class TerrainPatch extends THREE.Group {
 			landMasks,
 			mountainMasks,
 			waterHints,
+			terrainDataUvs,
 			indices,
 			rowSize,
 		);
@@ -633,6 +656,11 @@ export class TerrainPatch extends THREE.Group {
 		geometry.setAttribute(
 			'waterHint',
 			new THREE.Float32BufferAttribute(waterHints, 1),
+		);
+
+		geometry.setAttribute(
+			'terrainDataUv',
+			new THREE.Float32BufferAttribute(terrainDataUvs, 2),
 		);
 
 		geometry.setAttribute(
@@ -748,6 +776,7 @@ export class TerrainPatch extends THREE.Group {
 		landMasks: number[],
 		mountainMasks: number[],
 		waterHints: number[],
+		terrainDataUvs: number[],
 		indices: number[],
 		rowSize: number,
 	): void {
@@ -763,10 +792,10 @@ export class TerrainPatch extends THREE.Group {
 			right.push(i * rowSize + (rowSize - 1));
 		}
 
-		this.addSkirtEdge(top, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
-		this.addSkirtEdge(bottom, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
-		this.addSkirtEdge(left, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
-		this.addSkirtEdge(right, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, indices);
+		this.addSkirtEdge(top, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, terrainDataUvs, indices);
+		this.addSkirtEdge(bottom, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, terrainDataUvs, indices);
+		this.addSkirtEdge(left, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, terrainDataUvs, indices);
+		this.addSkirtEdge(right, positions, sphereNormals, normals, uvs, colors, terrainHeights, landMasks, mountainMasks, waterHints, terrainDataUvs, indices);
 	}
 
 	private addSkirtEdge(
@@ -780,6 +809,7 @@ export class TerrainPatch extends THREE.Group {
 		landMasks: number[],
 		mountainMasks: number[],
 		waterHints: number[],
+		terrainDataUvs: number[],
 		indices: number[],
 	): void {
 		const skirtIndices: number[] = [];
@@ -789,6 +819,7 @@ export class TerrainPatch extends THREE.Group {
 			const pIndex = sourceIndex * 3;
 			const uvIndex = sourceIndex * 2;
 			const colorIndex = sourceIndex * 3;
+			const terrainDataUvIndex = sourceIndex * 2;
 
 			const point = new THREE.Vector3(
 				positions[pIndex + 0],
@@ -820,6 +851,11 @@ export class TerrainPatch extends THREE.Group {
 
 			uvs.push(uvs[uvIndex + 0], uvs[uvIndex + 1]);
 
+			terrainDataUvs.push(
+				terrainDataUvs[terrainDataUvIndex + 0],
+				terrainDataUvs[terrainDataUvIndex + 1],
+			);
+
 			colors.push(
 				colors[colorIndex + 0],
 				colors[colorIndex + 1],
@@ -843,6 +879,32 @@ export class TerrainPatch extends THREE.Group {
 			indices.push(a, b, c);
 			indices.push(b, d, c);
 		}
+	}
+
+	private getTerrainFaceIndex(): number {
+		const normal = this.face.normal;
+
+		if (normal.x > 0.5) {
+			return 0;
+		}
+
+		if (normal.x < -0.5) {
+			return 1;
+		}
+
+		if (normal.y > 0.5) {
+			return 2;
+		}
+
+		if (normal.y < -0.5) {
+			return 3;
+		}
+
+		if (normal.z > 0.5) {
+			return 4;
+		}
+
+		return 5;
 	}
 
 	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {
