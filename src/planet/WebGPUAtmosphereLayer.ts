@@ -2,18 +2,9 @@ import * as THREE from 'three/webgpu';
 
 import {
 	cameraPosition,
-	color,
-	dot,
-	float,
-	max,
-	mix,
-	normalize,
-	normalWorld,
-	oneMinus,
 	positionWorld,
-	pow,
-	smoothstep,
 	uniform,
+	wgslFn,
 } from 'three/tsl';
 
 import { SUN_DIRECTION } from './Sun';
@@ -21,21 +12,25 @@ import { SUN_DIRECTION } from './Sun';
 export type WebGPUAtmosphereQuality = 'moving' | 'idle';
 
 /**
- * Phase 5e.1:
+ * Phase 5e.2:
  *
- * Raymarch feature-ready safe TSL atmosphere shell.
+ * Raymarched WebGPU atmosphere.
  *
- * The full WGSL raymarch path is not compatible with the current TSL parser
- * setup. This version stays pure TSL nodes and ports the WebGL atmosphere
- * values/look without custom WGSL helper functions.
+ * Important TSL parser rule:
+ * The entry function must be the first WGSL function in the wgslFn string.
+ * Helper functions are placed after atmosphere_raymarch().
  */
 export class WebGPUAtmosphereLayer {
 	public readonly mesh: THREE.Mesh;
 
 	private readonly material: any;
+
+	private readonly sunIntensity: any;
 	private readonly atmosphereAlpha: any;
 	private readonly scatteringBoost: any;
 	private readonly atmosphereStepCount: any;
+
+	private currentRenderQuality: WebGPUAtmosphereQuality = 'idle';
 
 	constructor(radius: number) {
 		const atmosphereRadius = radius * 1.038;
@@ -46,46 +41,58 @@ export class WebGPUAtmosphereLayer {
 			160,
 		);
 
+		this.sunIntensity = uniform(46.0);
 		this.atmosphereAlpha = uniform(0.86);
 		this.scatteringBoost = uniform(1.0);
 		this.atmosphereStepCount = uniform(12.0);
 
-		this.material = this.createMaterial();
+		this.material = this.createMaterial(
+			radius,
+			atmosphereRadius,
+		);
 
 		this.mesh = new THREE.Mesh(
 			geometry,
 			this.material,
 		);
 
-		this.mesh.name = 'WebGPUAtmosphereLayer';
+		this.mesh.name = 'WebGPUAtmosphereRaymarchLayer';
 		this.mesh.renderOrder = 20;
 		this.mesh.frustumCulled = false;
 	}
 
 	update(): void {
-		// Reserved for later animated atmosphere parameters.
+		// Static for now.
 	}
 
 	setRenderQuality(quality: WebGPUAtmosphereQuality): void {
-		if (quality === 'moving') {
-			this.material.opacity = 0.40;
-			this.atmosphereAlpha.value = 0.62;
-			this.scatteringBoost.value = 0.78;
-			this.atmosphereStepCount.value = 6.0;
+		if (quality === this.currentRenderQuality) {
 			return;
 		}
 
-		this.material.opacity = 0.56;
+		this.currentRenderQuality = quality;
+
+		if (quality === 'moving') {
+			this.sunIntensity.value = 34.0;
+			this.atmosphereAlpha.value = 0.62;
+			this.scatteringBoost.value = 0.78;
+			this.atmosphereStepCount.value = 6.0;
+			this.material.opacity = 0.42;
+			return;
+		}
+
+		this.sunIntensity.value = 46.0;
 		this.atmosphereAlpha.value = 0.86;
 		this.scatteringBoost.value = 1.0;
 		this.atmosphereStepCount.value = 12.0;
+		this.material.opacity = 0.58;
 	}
 
 	setRaymarchSteps(steps: number): void {
 		this.atmosphereStepCount.value = THREE.MathUtils.clamp(
 			steps,
 			1,
-			16,
+			12,
 		);
 	}
 
@@ -93,7 +100,10 @@ export class WebGPUAtmosphereLayer {
 		return this.atmosphereStepCount.value;
 	}
 
-	private createMaterial(): any {
+	private createMaterial(
+		planetRadiusValue: number,
+		atmosphereRadiusValue: number,
+	): any {
 		const material = new THREE.MeshBasicNodeMaterial({
 			                                                 transparent: true,
 			                                                 depthWrite: false,
@@ -102,218 +112,443 @@ export class WebGPUAtmosphereLayer {
 			                                                 blending: THREE.AdditiveBlending,
 		                                                 });
 
-		material.name = 'WebGPUAtmosphereNodeMaterial';
-		material.opacity = 0.56;
+		material.name = 'WebGPUAtmosphereRaymarchNodeMaterial';
+		material.opacity = 0.58;
 		material.toneMapped = false;
 
 		const sunDirection = uniform(
 			SUN_DIRECTION.clone().normalize(),
 		);
 
-		const cyanRimColor = color(0x1ad1ff);
-		const deepBlueRimColor = color(0x0a38ff);
-		const whiteHorizonColor = color(0xdcfaff);
-		const warmHazeColor = color(0xff9e4d);
-		const goldenBackScatterColor = color(0xffc275);
-		const twilightColor = color(0x294f86);
-		const nightEdgeColor = color(0x071426);
+		const planetRadius = uniform(planetRadiusValue);
+		const atmosphereRadius = uniform(atmosphereRadiusValue);
+		const rayleighStrength = uniform(1.36);
+		const mieStrength = uniform(0.62);
+		const mieG = uniform(0.82);
 
-		const worldNormal = normalize(normalWorld);
-		const viewDirection = normalize(
-			cameraPosition.sub(positionWorld),
+		const atmosphereRaymarch = wgslFn(`
+fn atmosphere_raymarch(
+	surfacePosition: vec3<f32>,
+	camPos: vec3<f32>,
+	sunDirInput: vec3<f32>,
+	planetRadius: f32,
+	atmosphereRadius: f32,
+	sunIntensity: f32,
+	rayleighStrength: f32,
+	mieStrength: f32,
+	mieG: f32,
+	atmosphereAlpha: f32,
+	scatteringBoost: f32,
+	atmosphereStepCount: f32
+) -> vec4<f32> {
+	let rayOrigin = camPos;
+	let rayDirection = normalize(surfacePosition - camPos);
+	let sunDirection = normalize(sunDirInput);
+
+	var tNear = atmosphere_sphere_near(
+		rayOrigin,
+		rayDirection,
+		atmosphereRadius
+	);
+
+	var tFar = atmosphere_sphere_far(
+		rayOrigin,
+		rayDirection,
+		atmosphereRadius
+	);
+
+	if (tFar < 0.0) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+
+	tNear = max(tNear, 0.0);
+
+	let tPlanet = atmosphere_sphere_near(
+		rayOrigin,
+		rayDirection,
+		planetRadius
+	);
+
+	if (tPlanet > 0.0) {
+		tFar = min(tFar, tPlanet);
+	}
+
+	if (tFar <= tNear) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+
+	let rayLength = tFar - tNear;
+	let steps = max(1.0, atmosphereStepCount);
+	let stepLength = rayLength / steps;
+	let atmosphereHeight = atmosphereRadius - planetRadius;
+
+	var samplePoint =
+		rayOrigin +
+		rayDirection *
+		(tNear + stepLength * 0.5);
+
+	var viewDepth = vec2<f32>(0.0, 0.0);
+
+	var rayleighSum = vec3<f32>(0.0, 0.0, 0.0);
+	var mieSum = vec3<f32>(0.0, 0.0, 0.0);
+
+	let betaRayleigh =
+		vec3<f32>(5.602, 9.473, 19.643) *
+		0.0029 *
+		rayleighStrength *
+		scatteringBoost;
+
+	let betaMie =
+		vec3<f32>(0.0034, 0.0034, 0.0034) *
+		mieStrength *
+		scatteringBoost;
+
+	for (var i = 0; i < 12; i = i + 1) {
+		if (f32(i) >= steps) {
+			break;
+		}
+
+		let h01 = atmosphere_height01(
+			samplePoint,
+			planetRadius,
+			atmosphereRadius
 		);
 
-		const ndl = dot(worldNormal, sunDirection);
+		let localRayleigh = atmosphere_rayleigh_density(h01);
+		let localMie = atmosphere_mie_density(h01);
 
-		const viewDot = max(
-			dot(worldNormal, viewDirection),
-			0.0,
+		viewDepth.x = viewDepth.x +
+			localRayleigh *
+			stepLength /
+			atmosphereHeight;
+
+		viewDepth.y = viewDepth.y +
+			localMie *
+			stepLength /
+			atmosphereHeight;
+
+		let tSun = atmosphere_sphere_far(
+			samplePoint,
+			sunDirection,
+			atmosphereRadius
 		);
 
-		const limb = oneMinus(viewDot);
-
-		const limbSoft = pow(
-			limb,
-			2.05,
+		let tSunPlanet = atmosphere_sphere_near(
+			samplePoint,
+			sunDirection,
+			planetRadius
 		);
 
-		const limbSharp = pow(
-			limb,
-			4.40,
+		if (tSun > 0.0 && tSunPlanet < 0.0) {
+			let sunDepth = atmosphere_optical_depth(
+				samplePoint,
+				sunDirection,
+				tSun,
+				planetRadius,
+				atmosphereRadius
+			);
+
+			let extinction = exp(
+				-(
+					betaRayleigh *
+					(viewDepth.x + sunDepth.x) *
+					3.35 +
+
+					betaMie *
+					(viewDepth.y + sunDepth.y) *
+					2.65
+				)
+			);
+
+			rayleighSum = rayleighSum +
+				extinction *
+				localRayleigh *
+				stepLength /
+				atmosphereHeight;
+
+			mieSum = mieSum +
+				extinction *
+				localMie *
+				stepLength /
+				atmosphereHeight;
+		}
+
+		samplePoint = samplePoint + rayDirection * stepLength;
+	}
+
+	let mu = dot(rayDirection, sunDirection);
+
+	let phaseRayleigh = atmosphere_rayleigh_phase(mu);
+	let phaseMie = atmosphere_hg_phase(mu, mieG);
+
+	var color =
+		sunIntensity *
+		(
+			rayleighSum *
+			betaRayleigh *
+			phaseRayleigh +
+
+			mieSum *
+			betaMie *
+			phaseMie
 		);
 
-		const limbUltra = pow(
-			limb,
-			11.0,
-		);
+	let normal = normalize(surfacePosition);
+	let viewDirection = normalize(camPos - surfacePosition);
 
-		const dayDisc = smoothstep(
-			-0.24,
-			0.68,
-			ndl,
-		);
+	let viewDot = clamp(dot(normal, viewDirection), 0.0, 1.0);
+	let limb = 1.0 - viewDot;
 
-		const sunEdge = smoothstep(
-			-0.10,
-			0.42,
-			ndl,
-		).mul(
-			oneMinus(
-				smoothstep(
-					0.62,
-					0.96,
-					ndl,
-				),
-			),
-		);
+	let limbSoft = pow(limb, 2.05);
+	let limbSharp = pow(limb, 4.4);
+	let limbUltra = pow(limb, 11.0);
 
-		const forwardMie = smoothstep(
+	let sunDot = dot(normal, sunDirection);
+
+	let dayDisc = smoothstep(-0.24, 0.68, sunDot);
+
+	let sunEdge =
+		smoothstep(-0.10, 0.42, sunDot) *
+		(1.0 - smoothstep(0.62, 0.96, sunDot));
+
+	let forwardMie =
+		smoothstep(
 			0.22,
 			0.98,
-			dot(viewDirection, sunDirection),
+			dot(viewDirection, sunDirection)
 		);
 
-		const backLit = smoothstep(
+	let backLit =
+		smoothstep(
 			0.18,
 			0.98,
-			dot(viewDirection.mul(-1.0), sunDirection),
+			dot(-viewDirection, sunDirection)
 		);
 
-		const mieDisc = dayDisc
-			.mul(forwardMie)
-			.mul(limbSharp);
+	let mieDisc =
+		dayDisc *
+		forwardMie *
+		limbSharp;
 
-		const horizonSunGlow = sunEdge
-			.mul(limbSoft)
-			.mul(
-				forwardMie.mul(0.75).add(0.55),
-			);
+	let horizonSunGlow =
+		sunEdge *
+		limbSoft *
+		(0.55 + forwardMie * 0.75);
 
-		const cinematicRim = limbSharp
-			.mul(dayDisc)
-			.mul(
-				forwardMie.mul(0.45).add(0.68),
-			);
+	let cinematicRim =
+		limbSharp *
+		dayDisc *
+		(0.68 + forwardMie * 0.45);
 
-		const cyanRim = cinematicRim
-			.mul(0.82)
-			.mul(this.scatteringBoost);
+	color = color +
+		vec3<f32>(0.10, 0.82, 1.0) *
+		cinematicRim *
+		0.82 *
+		scatteringBoost;
 
-		const deepBlueRim = limbSoft
-			.mul(0.22)
-			.mul(dayDisc)
-			.mul(this.scatteringBoost);
+	color = color +
+		vec3<f32>(0.04, 0.22, 1.0) *
+		limbSoft *
+		0.26 *
+		dayDisc *
+		scatteringBoost;
 
-		const whiteHorizonLine = limbUltra
-			.mul(0.58)
-			.mul(dayDisc)
-			.mul(this.scatteringBoost);
+	let whiteHorizonLine =
+		vec3<f32>(0.86, 0.98, 1.0) *
+		limbUltra *
+		0.64 *
+		dayDisc *
+		scatteringBoost;
 
-		const warmSunHaze = horizonSunGlow
-			.mul(0.34)
-			.mul(this.scatteringBoost);
+	color = color + whiteHorizonLine;
 
-		const goldenBackScatter = backLit
-			.mul(limbSharp)
-			.mul(dayDisc)
-			.mul(0.16)
-			.mul(this.scatteringBoost);
+	color = color +
+		vec3<f32>(1.0, 0.62, 0.30) *
+		horizonSunGlow *
+		mieStrength *
+		0.38 *
+		scatteringBoost;
 
-		const twilight = smoothstep(
-			-0.76,
-			0.10,
-			ndl,
-		).mul(
-			oneMinus(
-				smoothstep(
-					0.04,
-					0.60,
-					ndl,
-				),
-			),
+	color = color +
+		vec3<f32>(1.0, 0.76, 0.46) *
+		backLit *
+		limbSharp *
+		dayDisc *
+		mieStrength *
+		0.16 *
+		scatteringBoost;
+
+	color = color +
+		vec3<f32>(1.0, 0.82, 0.56) *
+		mieDisc *
+		mieStrength *
+		scatteringBoost *
+		0.28;
+
+	let luminance = dot(
+		color,
+		vec3<f32>(0.2126, 0.7152, 0.0722)
+	);
+
+	let outerFade =
+		smoothstep(0.00, 0.20, viewDot);
+
+	let nightFade =
+		smoothstep(-0.35, 0.22, sunDot);
+
+	var alpha =
+		luminance *
+		atmosphereAlpha *
+		0.92 +
+
+		limbSharp *
+		0.30 *
+		dayDisc *
+		scatteringBoost +
+
+		whiteHorizonLine.r *
+		0.25 +
+
+		horizonSunGlow *
+		0.080 +
+
+		mieDisc *
+		0.060;
+
+	alpha = alpha * outerFade;
+	alpha = alpha * mix(0.22, 1.0, nightFade);
+
+	alpha = clamp(alpha, 0.0, 0.62);
+
+	if (alpha < 0.003) {
+		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+	}
+
+	return vec4<f32>(
+		color,
+		alpha
+	);
+}
+
+fn atmosphere_sphere_near(
+	rayOrigin: vec3<f32>,
+	rayDirection: vec3<f32>,
+	radius: f32
+) -> f32 {
+	let b = dot(rayOrigin, rayDirection);
+	let c = dot(rayOrigin, rayOrigin) - radius * radius;
+	let h = b * b - c;
+
+	if (h < 0.0) {
+		return -1.0;
+	}
+
+	return -b - sqrt(h);
+}
+
+fn atmosphere_sphere_far(
+	rayOrigin: vec3<f32>,
+	rayDirection: vec3<f32>,
+	radius: f32
+) -> f32 {
+	let b = dot(rayOrigin, rayDirection);
+	let c = dot(rayOrigin, rayOrigin) - radius * radius;
+	let h = b * b - c;
+
+	if (h < 0.0) {
+		return -1.0;
+	}
+
+	return -b + sqrt(h);
+}
+
+fn atmosphere_rayleigh_phase(mu: f32) -> f32 {
+	return 3.0 / (16.0 * 3.141592653589793) * (1.0 + mu * mu);
+}
+
+fn atmosphere_hg_phase(mu: f32, g: f32) -> f32 {
+	let g2 = g * g;
+
+	let denominator = pow(
+		max(0.0001, 1.0 + g2 - 2.0 * g * mu),
+		1.5
+	);
+
+	return (1.0 / (4.0 * 3.141592653589793)) *
+		((1.0 - g2) / denominator);
+}
+
+fn atmosphere_height01(
+	position: vec3<f32>,
+	planetRadius: f32,
+	atmosphereRadius: f32
+) -> f32 {
+	let height = length(position) - planetRadius;
+	let atmosphereHeight = atmosphereRadius - planetRadius;
+
+	return clamp(height / atmosphereHeight, 0.0, 1.0);
+}
+
+fn atmosphere_rayleigh_density(height01: f32) -> f32 {
+	return exp(-height01 / 0.22);
+}
+
+fn atmosphere_mie_density(height01: f32) -> f32 {
+	return exp(-height01 / 0.080);
+}
+
+fn atmosphere_optical_depth(
+	rayOrigin: vec3<f32>,
+	rayDirection: vec3<f32>,
+	rayLength: f32,
+	planetRadius: f32,
+	atmosphereRadius: f32
+) -> vec2<f32> {
+	let stepLength = rayLength / 3.0;
+	let atmosphereHeight = atmosphereRadius - planetRadius;
+
+	var samplePoint =
+		rayOrigin +
+		rayDirection *
+		stepLength *
+		0.5;
+
+	var depth = vec2<f32>(0.0, 0.0);
+
+	for (var i = 0; i < 3; i = i + 1) {
+		let h01 = atmosphere_height01(
+			samplePoint,
+			planetRadius,
+			atmosphereRadius
 		);
 
-		const nightFade = smoothstep(
-			-0.35,
-			0.22,
-			ndl,
-		);
+		depth.x = depth.x + atmosphere_rayleigh_density(h01);
+		depth.y = depth.y + atmosphere_mie_density(h01);
 
-		const nightEdge = oneMinus(dayDisc)
-			.mul(limbSharp)
-			.mul(0.12);
+		samplePoint = samplePoint + rayDirection * stepLength;
+	}
 
-		const atmosphereColor = cyanRimColor
-			.mul(cyanRim)
-			.add(
-				deepBlueRimColor
-					.mul(deepBlueRim),
-			)
-			.add(
-				whiteHorizonColor
-					.mul(whiteHorizonLine),
-			)
-			.add(
-				warmHazeColor
-					.mul(warmSunHaze),
-			)
-			.add(
-				goldenBackScatterColor
-					.mul(goldenBackScatter),
-			)
-			.add(
-				warmHazeColor
-					.mul(mieDisc)
-					.mul(0.28),
-			)
-			.add(
-				twilightColor
-					.mul(twilight)
-					.mul(limbSoft)
-					.mul(0.18),
-			)
-			.add(
-				nightEdgeColor
-					.mul(nightEdge),
-			);
+	return depth * stepLength / atmosphereHeight;
+}
+		`);
 
-		const outerFade = smoothstep(
-			0.00,
-			0.20,
-			viewDot,
-		);
+		const atmosphereResult = atmosphereRaymarch({
+			                                            surfacePosition: positionWorld,
+			                                            camPos: cameraPosition,
+			                                            sunDirInput: sunDirection,
+			                                            planetRadius,
+			                                            atmosphereRadius,
+			                                            sunIntensity: this.sunIntensity,
+			                                            rayleighStrength,
+			                                            mieStrength,
+			                                            mieG,
+			                                            atmosphereAlpha: this.atmosphereAlpha,
+			                                            scatteringBoost: this.scatteringBoost,
+			                                            atmosphereStepCount: this.atmosphereStepCount,
+		                                            });
 
-		const alpha = limbSharp
-			.mul(0.30)
-			.mul(dayDisc)
-			.mul(this.scatteringBoost)
-			.add(
-				whiteHorizonLine.mul(0.25),
-			)
-			.add(
-				horizonSunGlow.mul(0.080),
-			)
-			.add(
-				mieDisc.mul(0.060),
-			)
-			.add(
-				limbSoft.mul(0.050).mul(dayDisc),
-			)
-			.add(
-				nightEdge.mul(0.030),
-			)
-			.mul(outerFade)
-			.mul(
-				mix(
-					float(0.22),
-					float(1.0),
-					nightFade,
-				),
-			)
-			.mul(this.atmosphereAlpha);
-
-		material.colorNode = atmosphereColor;
-		material.opacityNode = alpha;
+		material.colorNode = atmosphereResult.rgb;
+		material.opacityNode = atmosphereResult.a;
 
 		return material;
 	}

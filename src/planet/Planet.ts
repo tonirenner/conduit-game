@@ -73,6 +73,8 @@ export class Planet {
 			this.atmosphereRadius,
 		);
 
+		this.configureSurfaceRaymarching();
+
 		this.planetBody = this.createPlanetBody(radius);
 		this.planet = this.createPlanet(radius, this.surfaceMaterial);
 		this.depthOccluder = this.createDepthOccluder(radius);
@@ -136,6 +138,9 @@ export class Planet {
 			this.setUniform('uSurfaceDetailStrength', 0.25);
 			this.setUniform('uProceduralColorStrength', 0.25);
 			this.setUniform('uSurfaceTextureStrength', 0.35);
+			this.setSurfaceRaymarchSteps(
+				this.features.surfaceSteps.moving,
+			);
 			this.clouds?.setRenderQuality(quality);
 			this.webGPUClouds?.setRenderQuality(quality);
 			this.webGPUClouds?.setRaymarchSteps(
@@ -152,6 +157,9 @@ export class Planet {
 		this.setUniform('uSurfaceDetailStrength', 1.0);
 		this.setUniform('uProceduralColorStrength', 0.65);
 		this.setUniform('uSurfaceTextureStrength', 1.0);
+		this.setSurfaceRaymarchSteps(
+			this.features.surfaceSteps.idle,
+		);
 		this.clouds?.setRenderQuality(quality);
 		this.webGPUClouds?.setRenderQuality(quality);
 		this.webGPUClouds?.setRaymarchSteps(
@@ -161,6 +169,37 @@ export class Planet {
 		this.webGPUAtmosphere?.setRenderQuality(quality);
 		this.webGPUAtmosphere?.setRaymarchSteps(
 			this.features.atmosphereSteps.idle,
+		);
+	}
+
+	private configureSurfaceRaymarching(): void {
+		const setter = (this.surfaceMaterial as any).setRaymarchedSurfaceEnabled;
+
+		if (typeof setter === 'function') {
+			setter(
+				this.rendererMode === 'webgpu' &&
+				this.features.raymarchedSurface,
+			);
+		}
+
+		this.setSurfaceRaymarchSteps(
+			this.currentRenderQuality === 'moving'
+			? this.features.surfaceSteps.moving
+			: this.features.surfaceSteps.idle,
+		);
+	}
+
+	private setSurfaceRaymarchSteps(steps: number): void {
+		const setter = (this.surfaceMaterial as any).setSurfaceRaymarchSteps;
+
+		if (typeof setter !== 'function') {
+			return;
+		}
+
+		setter(
+			this.features.raymarchedSurface
+			? steps
+			: 0,
 		);
 	}
 
@@ -405,7 +444,9 @@ export class Planet {
 			},
 			surface: {
 				raymarched: this.features.raymarchedSurface,
-				steps: this.features.surfaceSteps[qualitySteps],
+				steps:
+					(this.surfaceMaterial as any).getSurfaceRaymarchSteps?.() ??
+					this.features.surfaceSteps[qualitySteps],
 			},
 		};
 	}

@@ -25,12 +25,10 @@ export type PlanetRenderFeatures = {
 	raymarchedAtmosphere: boolean;
 
 	/**
-	 * Surface raymarching is intentionally off by default.
+	 * Surface raymarching is a light terrain-occlusion pass.
 	 *
-	 * Surface should first use:
-	 * - GPU vertex displacement
-	 * - better normals
-	 * - WebGL parity shading
+	 * This is not full path tracing. It raymarches the procedural height field
+	 * along the sun tangent and adds terrain self-shadowing.
 	 */
 	raymarchedSurface: boolean;
 
@@ -42,7 +40,7 @@ export type PlanetRenderFeatures = {
 export const DEFAULT_PLANET_RENDER_FEATURES: PlanetRenderFeatures = {
 	raymarchedClouds: true,
 	raymarchedAtmosphere: true,
-	raymarchedSurface: false,
+	raymarchedSurface: true,
 
 	cloudSteps: {
 		moving: 8,

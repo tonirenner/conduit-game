@@ -25,9 +25,9 @@ import { SUN_DIRECTION } from './Sun';
 import type { TerrainTextureSet } from './TerrainTextureSet';
 
 /**
- * Phase 5d.4:
+ * Phase 5e.2:
  *
- * WebGL SurfaceMaterial parity pass.
+ * WebGL Surface parity + optional surface raymarch occlusion.
  *
  * Based on Phase 4k.4b.
  *
@@ -64,6 +64,9 @@ export function createPlanetSurfaceNodeMaterial(
 	const bakedTerrainBlend = uniform(
 		terrainTextureSet ? 1.0 : 0.0,
 	);
+
+	const surfaceRaymarchStrength = uniform(0.0);
+	const surfaceRaymarchSteps = uniform(0.0);
 
 	const nightTint = color(0x061426);
 	const twilightTint = color(0x285f96);
@@ -551,7 +554,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * A = continent
 	 */
 	/**
-	 * Phase 5d.4:
+	 * Phase 5e.2:
 	 *
 	 * WebGL SurfaceMaterial parity.
 	 *
@@ -905,6 +908,13 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		0.62,
 	);
 
+	const surfaceOcclusion = surfaceRaymarchOcclusion({
+		                                                  normalInput: sphereNormal,
+		                                                  sunDirInput: sunDirection,
+		                                                  steps: surfaceRaymarchSteps,
+		                                                  strength: surfaceRaymarchStrength,
+	                                                  });
+
 	const lowAngleLight = smoothstep(
 		-0.10,
 		0.42,
@@ -961,6 +971,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	const dayColor = dayTintedBase.mul(
 		ambient.add(
 			directLight
+				.mul(surfaceOcclusion)
 				.mul(1.12)
 				.add(mountainContrast)
 				.add(mountainGrazingLift)
@@ -1211,6 +1222,21 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * 1.0 = baked GPU terrain atlas
 	 * 0.0 = legacy proceduralTerrainSample fallback
 	 */
+	(material as any).setRaymarchedSurfaceEnabled = (enabled: boolean): void => {
+		surfaceRaymarchStrength.value = enabled ? 0.42 : 0.0;
+	};
+
+	(material as any).setSurfaceRaymarchSteps = (steps: number): void => {
+		surfaceRaymarchSteps.value = Math.max(
+			0,
+			Math.min(6, steps),
+		);
+	};
+
+	(material as any).getSurfaceRaymarchSteps = (): number => {
+		return surfaceRaymarchSteps.value;
+	};
+
 	(material as any).setBakedTerrainBlend = (value: number): void => {
 		bakedTerrainBlend.value = Math.max(
 			0,
@@ -1224,3 +1250,220 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	return material;
 }
+
+/**
+ * Surface raymarch occlusion.
+ *
+ * This is not a full path tracer. It raymarches along the light tangent
+ * over the procedural terrain field and adds cheap terrain self-shadowing.
+ *
+ * Default strength is 0.0 and gets enabled by Planet feature flags.
+ */
+const surfaceRaymarchOcclusion = wgslFn(`
+fn surface_raymarch_occlusion(
+	normalInput: vec3<f32>,
+	sunDirInput: vec3<f32>,
+	steps: f32,
+	strength: f32
+) -> f32 {
+	if (strength <= 0.001 || steps < 1.0) {
+		return 1.0;
+	}
+
+	let n = normalize(normalInput);
+	let sunDir = normalize(sunDirInput);
+
+	let ndl = dot(n, sunDir);
+
+	if (ndl <= 0.02) {
+		return 1.0;
+	}
+
+	let tangent = normalize(
+		sunDir -
+		n * ndl +
+		vec3<f32>(0.0001, 0.0, 0.0)
+	);
+
+	let baseHeight = surface_height(n);
+
+	var visibility = 1.0;
+
+	for (var i = 1; i <= 6; i = i + 1) {
+		if (f32(i) > steps) {
+			break;
+		}
+
+		let t = f32(i) * 0.0105;
+
+		let sampleNormal = normalize(
+			n +
+			tangent * t
+		);
+
+		let sampleHeight = surface_height(sampleNormal);
+
+		let expectedHeight =
+			baseHeight +
+			t * 0.065;
+
+		let blocker = smoothstep(
+			0.010,
+			0.055,
+			sampleHeight - expectedHeight
+		);
+
+		visibility = min(
+			visibility,
+			1.0 - blocker * 0.34
+		);
+	}
+
+	return mix(
+		1.0,
+		visibility,
+		clamp(strength, 0.0, 1.0)
+	);
+}
+
+fn surface_hash3(p: vec3<f32>) -> f32 {
+	return fract(
+		sin(
+			p.x * 127.1 +
+			p.y * 311.7 +
+			p.z * 74.7
+		) *
+		43758.5453123
+	);
+}
+
+fn surface_noise(p: vec3<f32>) -> f32 {
+	let i = floor(p);
+	var f = fract(p);
+
+	f = f * f * (3.0 - 2.0 * f);
+
+	let v000 = surface_hash3(i + vec3<f32>(0.0, 0.0, 0.0));
+	let v100 = surface_hash3(i + vec3<f32>(1.0, 0.0, 0.0));
+	let v010 = surface_hash3(i + vec3<f32>(0.0, 1.0, 0.0));
+	let v110 = surface_hash3(i + vec3<f32>(1.0, 1.0, 0.0));
+
+	let v001 = surface_hash3(i + vec3<f32>(0.0, 0.0, 1.0));
+	let v101 = surface_hash3(i + vec3<f32>(1.0, 0.0, 1.0));
+	let v011 = surface_hash3(i + vec3<f32>(0.0, 1.0, 1.0));
+	let v111 = surface_hash3(i + vec3<f32>(1.0, 1.0, 1.0));
+
+	let x00 = mix(v000, v100, f.x);
+	let x10 = mix(v010, v110, f.x);
+	let x01 = mix(v001, v101, f.x);
+	let x11 = mix(v011, v111, f.x);
+
+	let y0 = mix(x00, x10, f.y);
+	let y1 = mix(x01, x11, f.y);
+
+	return mix(y0, y1, f.z);
+}
+
+fn surface_fbm(p_input: vec3<f32>) -> f32 {
+	var p = p_input;
+	var value = 0.0;
+	var amplitude = 0.5;
+	var frequency = 1.0;
+	var normalizer = 0.0;
+
+	for (var i = 0; i < 6; i = i + 1) {
+		value = value + surface_noise(p * frequency) * amplitude;
+		normalizer = normalizer + amplitude;
+
+		frequency = frequency * 2.0;
+		amplitude = amplitude * 0.5;
+	}
+
+	return value / normalizer;
+}
+
+fn surface_ridged_fbm(p_input: vec3<f32>) -> f32 {
+	var p = p_input;
+	var value = 0.0;
+	var amplitude = 0.52;
+	var frequency = 1.0;
+	var normalizer = 0.0;
+
+	for (var i = 0; i < 5; i = i + 1) {
+		let noiseValue = surface_noise(p * frequency);
+		let ridge = 1.0 - abs(noiseValue * 2.0 - 1.0);
+		let sharpened = ridge * ridge;
+
+		value = value + sharpened * amplitude;
+		normalizer = normalizer + amplitude;
+
+		frequency = frequency * 2.15;
+		amplitude = amplitude * 0.48;
+	}
+
+	return value / normalizer;
+}
+
+fn surface_height(normalInput: vec3<f32>) -> f32 {
+	let normal = normalize(normalInput);
+
+	let continentBase = surface_fbm(normal * 1.25);
+
+	let coastNoise =
+		(surface_fbm(normal * 2.4) - 0.5) *
+		0.045;
+
+	let continent = continentBase + coastNoise;
+
+	let landMask = smoothstep(
+		0.525,
+		0.585,
+		continent
+	);
+
+	let highlands = max(0.0, continent - 0.54);
+
+	let mountainMask =
+		smoothstep(0.62, 0.78, continent) *
+		landMask;
+
+	let ridgeLarge = surface_ridged_fbm(normal * 3.8);
+	let ridgeMedium = surface_ridged_fbm(normal * 8.5);
+	let ridgeFine = surface_ridged_fbm(normal * 18.0);
+
+	let mountainChains =
+		smoothstep(0.46, 0.84, ridgeLarge) *
+		(
+			ridgeMedium * 0.72 +
+			ridgeFine * 0.28
+		);
+
+	let sharpPeaks = pow(
+		clamp(mountainChains, 0.0, 1.0),
+		1.75
+	);
+
+	let mountains =
+		sharpPeaks *
+		mountainMask;
+
+	let foothills =
+		smoothstep(0.48, 0.74, ridgeLarge) *
+		mountainMask *
+		0.45;
+
+	let detail =
+		(surface_fbm(normal * 24.0) - 0.5) *
+		0.010 *
+		landMask;
+
+	let height =
+		landMask * 0.006 +
+		highlands * 0.095 +
+		foothills * 0.055 +
+		mountains * 0.165 +
+		detail;
+
+	return max(0.0, height);
+}
+	`);
