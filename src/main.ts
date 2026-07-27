@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {RenderQuality} from './render/RenderQuality';
 import {createAppRenderer, getPreferredRendererMode, renderFrame,} from './render/RendererFactory';
-import {TerrainTextureBakeManager} from './planet/TerrainTextureBakeManager';
+import { TerrainTextureBakeManager } from './planet/TerrainTextureBakeManager';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
 import {createStarBackground} from './scene/createStarBackground';
@@ -503,6 +503,7 @@ scene.add(sunLight);
 const ambientLight = new THREE.AmbientLight(0x223344, 0.08);
 scene.add(ambientLight);
 
+// Planet
 let terrainTextureSet = null;
 
 if (rendererMode === 'webgpu') {
@@ -522,12 +523,12 @@ if (rendererMode === 'webgpu') {
 	console.log('terrainTextureSet', terrainTextureSet);
 }
 
-// Planet
 const planet = new Planet(
 	PLANET_RADIUS,
 	rendererMode,
 	terrainTextureSet,
 );
+
 scene.add(planet.group);
 
 function resizeRenderer(): void {
@@ -566,6 +567,7 @@ window.addEventListener('keydown', (event) => {
 		'KeyC',
 		'KeyV',
 		'KeyH',
+		'KeyT',
 		'ShiftLeft',
 		'ShiftRight',
 	];
@@ -616,6 +618,17 @@ window.addEventListener('keydown', (event) => {
 				renderQuality.forceMoving();
 			}
 			break;
+
+		case 'KeyT': {
+			const enabled = planet.toggleBakedTerrain();
+
+			console.log(
+				`baked terrain ${enabled ? 'enabled' : 'disabled'}`,
+			);
+
+			renderQuality.forceMoving();
+			break;
+		}
 
 		case 'KeyH':
 			hudVisible        = !hudVisible;
@@ -673,8 +686,9 @@ function updateHud(): void {
 
 	const distanceFromCenter = camera.position.length();
 	const heightAboveSurface = distanceFromCenter - PLANET_RADIUS;
-	const terrainStats       = planet.getTerrainStats();
-	const horizonStats       = terrainStats.horizon;
+	const terrainStats        = planet.getTerrainStats();
+	const horizonStats        = terrainStats.horizon;
+	const terrainTextureStats = planet.getTerrainTextureStats();
 
 	const horizonCullPercent =
 		      horizonStats.tested > 0
@@ -701,7 +715,14 @@ function updateHud(): void {
 		`near: ${horizonStats.forcedVisibleNearSurface}\n` +
 		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio()
 			.toFixed(2)}\n` +
-		`keys: F flight/orbit | G cinematic | W/S A/D Q/E | mouse-drag look | H hud`;
+		(
+			terrainTextureStats.available
+			? `terrain atlas: ${terrainTextureStats.enabled ? 'baked' : 'procedural'} | ` +
+		`${terrainTextureStats.resolution}px face | ` +
+		`${terrainTextureStats.atlasWidth}x${terrainTextureStats.atlasHeight}\n`
+			: ''
+		) +
+		`keys: F flight/orbit | G cinematic | T terrain | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
 // Animation loop

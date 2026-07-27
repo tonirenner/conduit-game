@@ -60,6 +60,9 @@ export function createPlanetSurfaceNodeMaterial(
 	const ambient = uniform(0.52);
 	const exposure = uniform(1.38);
 	const terminatorSoftness = uniform(1.24);
+	const bakedTerrainBlend = uniform(
+		terrainTextureSet ? 1.0 : 0.0,
+	);
 
 	const nightTint = color(0x0b2035);
 	const twilightTint = color(0x285f96);
@@ -564,19 +567,19 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		terrainHeight = mix(
 			terrainHeightAttribute,
 			bakedHeight,
-			float(0.88),
+			bakedTerrainBlend,
 		);
 
 		landMask = mix(
 			landMaskAttribute,
 			bakedTerrainData.g,
-			float(0.96),
+			bakedTerrainBlend,
 		);
 
 		mountainMask = mix(
 			mountainMaskAttribute,
 			bakedTerrainData.b,
-			float(0.88),
+			bakedTerrainBlend,
 		);
 	} else {
 		const terrainSample = proceduralTerrainSample({
@@ -1112,6 +1115,23 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	material.colorNode = surfaceColor;
 	material.toneMapped = false;
+
+	/**
+	 * Debug / comparison hook.
+	 *
+	 * 1.0 = baked GPU terrain atlas
+	 * 0.0 = legacy proceduralTerrainSample fallback
+	 */
+	(material as any).setBakedTerrainBlend = (value: number): void => {
+		bakedTerrainBlend.value = Math.max(
+			0,
+			Math.min(1, value),
+		);
+	};
+
+	(material as any).getBakedTerrainBlend = (): number => {
+		return bakedTerrainBlend.value;
+	};
 
 	return material;
 }

@@ -47,6 +47,7 @@ export class Planet {
 	private readonly atmosphereRadius: number;
 
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
+	private bakedTerrainEnabled = true;
 
 	constructor(
 		private readonly radius: number,
@@ -270,6 +271,68 @@ export class Planet {
 		mesh.renderOrder = -1000;
 
 		return mesh;
+	}
+
+	setBakedTerrainEnabled(enabled: boolean): void {
+		this.bakedTerrainEnabled = enabled;
+
+		const setter = (this.surfaceMaterial as any).setBakedTerrainBlend;
+
+		if (typeof setter !== 'function') {
+			return;
+		}
+
+		setter(enabled ? 1.0 : 0.0);
+	}
+
+	toggleBakedTerrain(): boolean {
+		this.setBakedTerrainEnabled(
+			!this.bakedTerrainEnabled,
+		);
+
+		return this.bakedTerrainEnabled;
+	}
+
+	isBakedTerrainEnabled(): boolean {
+		return this.bakedTerrainEnabled;
+	}
+
+	getTerrainTextureStats(): {
+		available: boolean;
+		enabled: boolean;
+		resolution: number;
+		atlasWidth: number;
+		atlasHeight: number;
+		atlasColumns: number;
+		atlasRows: number;
+	} {
+		if (!this.terrainTextureSet) {
+			return {
+				available: false,
+				enabled: false,
+				resolution: 0,
+				atlasWidth: 0,
+				atlasHeight: 0,
+				atlasColumns: 0,
+				atlasRows: 0,
+			};
+		}
+
+		const texture = this.terrainTextureSet.getDataAtlasTexture();
+		const image = texture.image as {
+			width?: number;
+			height?: number;
+		};
+
+		return {
+			available: true,
+			enabled: this.bakedTerrainEnabled,
+			resolution: this.terrainTextureSet.options.resolution,
+			atlasWidth: image.width ?? 0,
+			atlasHeight: image.height ?? 0,
+			atlasColumns: this.terrainTextureSet.options.atlasColumns,
+			atlasRows: this.terrainTextureSet.options.atlasRows,
+		};
 	}
 
 	getTerrainStats(): {
