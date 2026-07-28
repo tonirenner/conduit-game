@@ -47,6 +47,25 @@ function writePlanetSeedToUrl(seed: number): void {
 
 let currentPlanetSeed = getInitialPlanetSeed();
 
+type ForcedPlanetKind = 'auto' | 'gas_giant';
+
+let forcedPlanetKind: ForcedPlanetKind =
+	    new URLSearchParams(window.location.search).get('kind') === 'gas_giant'
+	    ? 'gas_giant'
+	    : 'auto';
+
+function writeForcedKindToUrl(): void {
+	const url = new URL(window.location.href);
+
+	if (forcedPlanetKind === 'auto') {
+		url.searchParams.delete('kind');
+	} else {
+		url.searchParams.set('kind', forcedPlanetKind);
+	}
+
+	window.history.replaceState(null, '', url);
+}
+
 const ORBIT_MIN_CAMERA_DISTANCE = PLANET_RADIUS + 0.42;
 const ORBIT_MAX_CAMERA_DISTANCE = 60;
 
@@ -558,6 +577,7 @@ function createPlanetDefinitionForSeed(
 			name: `Mira ${seed}`,
 			semiMajorAxis: 1.0,
 			starIrradiance: 1.0,
+			forceGasGiant: forcedPlanetKind === 'gas_giant',
 		},
 	);
 }
@@ -655,6 +675,8 @@ async function setPlanetSeed(seed: number): Promise<void> {
 		planet = nextPlanet;
 
 		writePlanetSeedToUrl(currentPlanetSeed);
+		writeForcedKindToUrl();
+		writeForcedKindToUrl();
 		renderQuality.forceMoving();
 	} finally {
 		isChangingPlanetSeed = false;
@@ -679,6 +701,16 @@ function randomPlanetSeed(): void {
 			Math.random() * 2_147_483_647,
 		) + 1,
 	);
+}
+
+
+function toggleForcedGasGiant(): void {
+	forcedPlanetKind =
+		forcedPlanetKind === 'gas_giant'
+		? 'auto'
+		: 'gas_giant';
+
+	void setPlanetSeed(currentPlanetSeed);
 }
 
 function resizeRenderer(): void {
@@ -721,6 +753,7 @@ window.addEventListener('keydown', (event) => {
 		'KeyN',
 		'KeyB',
 		'KeyR',
+		'KeyY',
 		'ShiftLeft',
 		'ShiftRight',
 	];
@@ -793,6 +826,10 @@ window.addEventListener('keydown', (event) => {
 
 		case 'KeyR':
 			randomPlanetSeed();
+			break;
+
+		case 'KeyY':
+			toggleForcedGasGiant();
 			break;
 
 		case 'KeyH':
@@ -871,7 +908,7 @@ function updateHud(): void {
 
 	hud.textContent =
 		`mode: ${cameraMode.toUpperCase()} | renderer: ${rendererMode.toUpperCase()} | ${atmosphereHint}\n` +
-		`seed: ${currentPlanetSeed}${isChangingPlanetSeed ? ' | rebaking...' : ''}\n` +
+		`seed: ${currentPlanetSeed} | kind: ${forcedPlanetKind}${isChangingPlanetSeed ? ' | rebaking...' : ''}\n` +
 		`distance: ${distanceFromCenter.toFixed(2)} | ` +
 		`height: ${heightAboveSurface.toFixed(2)} | ` +
 		`fov: ${camera.fov.toFixed(0)}\n` +
@@ -921,7 +958,7 @@ function updateHud(): void {
 		`${terrainTextureStats.atlasWidth}x${terrainTextureStats.atlasHeight}\n`
 			: ''
 		) +
-		`keys: F flight/orbit | G cinematic | T terrain | N/B/R seed | W/S A/D Q/E | mouse-drag look | H hud`;
+		`keys: F flight/orbit | G cinematic | T terrain | N/B/R seed | Y gas | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
 // Animation loop

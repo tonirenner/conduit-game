@@ -7,6 +7,7 @@ import { WebGPUAtmosphereLayer } from './WebGPUAtmosphereLayer';
 import { WebGPUCloudLayer } from './WebGPUCloudLayer';
 import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
+import { GasGiantLayer } from './GasGiantLayer';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { PlanetDefinition } from './model/PlanetDefinition';
@@ -36,28 +37,31 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 6c.1:
+ * Phase 7a.1:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
  * - full planet with existing clouds + atmosphere
  *
  * WebGPU:
- * - raymarch visual pass
- * - optional baked TerrainTextureSet for material masks
- * - PlanetDefinition terrainSeed drives CPU terrain source and surface shader
+ * - renderer routing skeleton
+ * - solid_surface uses existing seeded terrain stack
+ * - gas_giant / ice_giant use GasGiantLayer placeholder
  */
 export class Planet {
 	public readonly group: THREE.Group;
 
-	private readonly surfaceMaterial: PlanetSurfaceRuntimeMaterial;
-	private readonly planetBody: THREE.Mesh;
-	private readonly planet: CubeSphere;
+	private readonly surfaceMaterial?: PlanetSurfaceRuntimeMaterial;
+	private readonly planetBody?: THREE.Mesh;
+	private readonly planet?: CubeSphere;
 	private readonly atmosphere?: AtmosphereLayer;
 	private readonly webGPUAtmosphere?: WebGPUAtmosphereLayer;
 	private readonly clouds?: CloudLayer;
 	private readonly webGPUClouds?: WebGPUCloudLayer;
-	private readonly depthOccluder: THREE.Mesh;
+	private readonly depthOccluder?: THREE.Mesh;
+	private readonly gasGiantLayer?: GasGiantLayer;
+
+	private readonly rendererKind: string;
 
 	private readonly atmosphereRadius: number;
 
@@ -88,50 +92,70 @@ export class Planet {
 			this.definition?.render.terrainSeed ?? 1,
 		);
 
+		this.rendererKind =
+			this.renderProfile?.rendererKind ??
+			'solid_surface';
+
 		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
 
 		this.atmosphereRadius = radius * 1.045;
 
-		this.surfaceMaterial = this.createSurfaceMaterial(
-			radius,
-			this.atmosphereRadius,
-		);
+		if (this.isSolidSurfaceRenderer()) {
+			this.surfaceMaterial = this.createSurfaceMaterial(
+				radius,
+				this.atmosphereRadius,
+			);
 
-		this.configureSurfaceRaymarching();
+			this.configureSurfaceRaymarching();
 
-		this.planetBody = this.createPlanetBody(radius);
-		this.planet = this.createPlanet(radius, this.surfaceMaterial);
-		this.depthOccluder = this.createDepthOccluder(radius);
+			this.planetBody = this.createPlanetBody(radius);
+			this.planet = this.createPlanet(radius, this.surfaceMaterial);
+			this.depthOccluder = this.createDepthOccluder(radius);
 
-		this.group.add(this.depthOccluder);
-		this.group.add(this.planetBody);
-		this.group.add(this.planet);
+			this.group.add(this.depthOccluder);
+			this.group.add(this.planetBody);
+			this.group.add(this.planet);
 
-		if (this.rendererMode === 'webgl') {
-			this.clouds = new CloudLayer(radius);
-			this.atmosphere = new AtmosphereLayer(radius);
+			if (this.rendererMode === 'webgl') {
+				this.clouds = new CloudLayer(radius);
+				this.atmosphere = new AtmosphereLayer(radius);
 
-			this.group.add(this.clouds.group);
-			this.group.add(this.atmosphere.mesh);
+				this.group.add(this.clouds.group);
+				this.group.add(this.atmosphere.mesh);
+			}
+
+			if (this.rendererMode === 'webgpu') {
+				this.webGPUClouds = new WebGPUCloudLayer(radius);
+				this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
+
+				this.group.add(this.webGPUClouds.mesh);
+				this.group.add(this.webGPUAtmosphere.mesh);
+			}
+
+			this.applyRenderProfile();
+			return;
 		}
 
-		if (this.rendererMode === 'webgpu') {
-			/**
-			 * Phase 5e.1:
-			 *
-			 * WebGPU clouds are raymarched by default.
-			 * Atmosphere is feature-ready and quality controlled.
-			 * Surface raymarching intentionally remains disabled.
-			 */
-			this.webGPUClouds = new WebGPUCloudLayer(radius);
-			this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
+		this.gasGiantLayer = new GasGiantLayer({
+			                                       kind:
+				                                       this.rendererKind === 'ice_giant'
+				                                       ? 'ice_giant'
+				                                       : 'gas_giant',
+			                                       radius,
+			                                       seed: this.definition?.seed ?? 1,
+		                                       });
 
-			this.group.add(this.webGPUClouds.mesh);
-			this.group.add(this.webGPUAtmosphere.mesh);
-		}
+		this.group.add(this.gasGiantLayer.group);
+
+		this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
+		this.group.add(this.webGPUAtmosphere.mesh);
 
 		this.applyRenderProfile();
+	}
+
+	private isSolidSurfaceRenderer(): boolean {
+		return this.rendererKind === 'solid_surface';
 	}
 
 	private applyRenderProfile(): void {
@@ -162,7 +186,7 @@ export class Planet {
 		}
 
 		const terrainSeedSetter =
-			      (this.surfaceMaterial as any).setTerrainSeed;
+			      (this.surfaceMaterial as any)?.setTerrainSeed;
 
 		if (
 			this.definition &&
@@ -175,7 +199,7 @@ export class Planet {
 		}
 
 		const surfaceProfileSetter =
-			      (this.surfaceMaterial as any).setSurfaceProfile;
+			      (this.surfaceMaterial as any)?.setSurfaceProfile;
 
 		if (
 			this.surfaceProfile &&
@@ -189,7 +213,11 @@ export class Planet {
 	}
 
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
-		this.planet.rotation.y += 0.0008;
+		if (this.planet) {
+			this.planet.rotation.y += 0.0008;
+		}
+
+		this.gasGiantLayer?.update(deltaSeconds);
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
@@ -205,7 +233,7 @@ export class Planet {
 		this.atmosphere?.update();
 		this.webGPUAtmosphere?.update();
 
-		this.planet.updateLOD(cameraPosition);
+		this.planet?.updateLOD(cameraPosition);
 	}
 
 	setRenderQuality(quality: PlanetRenderQuality): void {
@@ -254,6 +282,10 @@ export class Planet {
 	}
 
 	private configureSurfaceRaymarching(): void {
+		if (!this.surfaceMaterial) {
+			return;
+		}
+
 		const setter = (this.surfaceMaterial as any).setRaymarchedSurfaceEnabled;
 
 		if (typeof setter === 'function') {
@@ -271,6 +303,10 @@ export class Planet {
 	}
 
 	private setSurfaceRaymarchSteps(steps: number): void {
+		if (!this.surfaceMaterial) {
+			return;
+		}
+
 		const setter = (this.surfaceMaterial as any).setSurfaceRaymarchSteps;
 
 		if (typeof setter !== 'function') {
@@ -302,7 +338,7 @@ export class Planet {
 	}
 
 	private updateSurfaceCameraUniform(cameraPosition: THREE.Vector3): void {
-		const uniform = this.surfaceMaterial.uniforms?.uCameraPosition;
+		const uniform = this.surfaceMaterial?.uniforms?.uCameraPosition;
 
 		if (!uniform || !(uniform.value instanceof THREE.Vector3)) {
 			return;
@@ -367,7 +403,7 @@ export class Planet {
 	}
 
 	private setUniform(name: string, value: number): void {
-		const uniform = this.surfaceMaterial.uniforms?.[name];
+		const uniform = this.surfaceMaterial?.uniforms?.[name];
 
 		if (!uniform) {
 			return;
@@ -433,7 +469,7 @@ export class Planet {
 	setBakedTerrainEnabled(enabled: boolean): void {
 		this.bakedTerrainEnabled = enabled;
 
-		const setter = (this.surfaceMaterial as any).setBakedTerrainBlend;
+		const setter = (this.surfaceMaterial as any)?.setBakedTerrainBlend;
 
 		if (typeof setter !== 'function') {
 			return;
@@ -672,7 +708,7 @@ export class Planet {
 			surface: {
 				raymarched: this.features.raymarchedSurface,
 				steps:
-					(this.surfaceMaterial as any).getSurfaceRaymarchSteps?.() ??
+					(this.surfaceMaterial as any)?.getSurfaceRaymarchSteps?.() ??
 					this.features.surfaceSteps[qualitySteps],
 			},
 		};
@@ -712,6 +748,21 @@ export class Planet {
 			disabled: number;
 		};
 	} {
+		if (!this.planet) {
+			return {
+				totalPatches: 0,
+				visibleMeshes: 0,
+				maxLevel: 0,
+				horizon: {
+					tested: 0,
+					visible: 0,
+					culled: 0,
+					forcedVisibleNearSurface: 0,
+					disabled: 1,
+				},
+			};
+		}
+
 		return {
 			...this.planet.getStats(),
 			horizon: this.planet.getHorizonCullingStats(),
