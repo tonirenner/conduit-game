@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 
-import type { TerrainSample } from '../utils/noise';
+import {
+	DEFAULT_TERRAIN_SEED_CONFIG,
+	type TerrainSample,
+	type TerrainSeedConfig,
+} from '../utils/noise';
 
 import {
 	TerrainHeightCache,
@@ -16,9 +20,17 @@ import type {
 } from './TerrainSource';
 
 export class CachedTerrainSource implements TerrainSource {
+	private readonly terrainHeightCache: TerrainHeightCache;
+
 	constructor(
-		private readonly terrainHeightCache = new TerrainHeightCache(2200),
-	) {}
+		terrainSeedConfig: TerrainSeedConfig = DEFAULT_TERRAIN_SEED_CONFIG,
+		maxEntries = 2200,
+	) {
+		this.terrainHeightCache = new TerrainHeightCache(
+			maxEntries,
+			terrainSeedConfig,
+		);
+	}
 
 	getPatchGrid(
 		face: CubeFace,

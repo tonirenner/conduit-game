@@ -17,6 +17,11 @@ import {
 } from './rendering/SurfaceRenderProfile';
 
 import {
+	createTerrainSeedConfig,
+	type TerrainSeedConfig,
+} from '../utils/noise';
+
+import {
 	mergePlanetRenderFeatures,
 	type PlanetRenderFeatures,
 } from './rendering/PlanetRenderFeatures';
@@ -31,7 +36,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 6b.3:
+ * Phase 6c.1:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
@@ -40,7 +45,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
  * WebGPU:
  * - raymarch visual pass
  * - optional baked TerrainTextureSet for material masks
- * - PlanetRenderProfile drives clouds/atmosphere and prepares surface profile
+ * - PlanetDefinition terrainSeed drives CPU terrain source and surface shader
  */
 export class Planet {
 	public readonly group: THREE.Group;
@@ -60,6 +65,7 @@ export class Planet {
 	private bakedTerrainEnabled = true;
 	private readonly features: PlanetRenderFeatures;
 	private readonly surfaceProfile: SurfaceRenderProfile | null;
+	private readonly terrainSeedConfig: TerrainSeedConfig;
 
 	constructor(
 		private readonly radius: number,
@@ -77,6 +83,10 @@ export class Planet {
 				this.renderProfile,
 			)
 			: null;
+
+		this.terrainSeedConfig = createTerrainSeedConfig(
+			this.definition?.render.terrainSeed ?? 1,
+		);
 
 		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
@@ -148,6 +158,19 @@ export class Planet {
 				this.webGPUAtmosphere,
 				this.renderProfile.atmosphereDensity,
 				this.definition?.atmosphere.haze ?? 0,
+			);
+		}
+
+		const terrainSeedSetter =
+			      (this.surfaceMaterial as any).setTerrainSeed;
+
+		if (
+			this.definition &&
+			typeof terrainSeedSetter === 'function'
+		) {
+			terrainSeedSetter.call(
+				this.surfaceMaterial,
+				this.definition.render.terrainSeed,
 			);
 		}
 
@@ -362,6 +385,7 @@ export class Planet {
 			24,
 			material,
 			this.rendererMode === 'webgpu',
+			this.terrainSeedConfig,
 		);
 
 		cubeSphere.name = 'PlanetTerrain';
@@ -489,6 +513,7 @@ export class Planet {
 		};
 		rings: boolean;
 		moons: number;
+		terrainSeed: number;
 		render: {
 			enableTerrain: boolean;
 			enableOcean: boolean;
@@ -538,6 +563,7 @@ export class Planet {
 				},
 				rings: false,
 				moons: 0,
+				terrainSeed: 0,
 				render: {
 					enableTerrain: false,
 					enableOcean: false,
@@ -580,6 +606,7 @@ export class Planet {
 			},
 			rings: this.definition.rings?.enabled ?? false,
 			moons: this.definition.moons.length,
+			terrainSeed: this.definition.render.terrainSeed,
 			render: {
 				enableTerrain: this.renderProfile?.enableTerrain ?? false,
 				enableOcean: this.renderProfile?.enableOcean ?? false,

@@ -851,6 +851,7 @@ function updateHud(): void {
 		`atmo ${definitionStats.render.atmosphereDensity.toFixed(2)} | ` +
 		`ocean ${definitionStats.render.oceanLevel.toFixed(2)} | ` +
 		`mountain ${definitionStats.render.mountainScale.toFixed(2)}\n` +
+		`terrain seed: ${definitionStats.terrainSeed}\n` +
 		`surface: ${definitionStats.surfaceProfile.palette} | ` +
 		`ice ${definitionStats.surfaceProfile.hasIceCaps ? 'yes' : 'no'} | ` +
 		`volcano ${definitionStats.surfaceProfile.hasVolcanism ? 'yes' : 'no'} | ` +

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 
 import {
+	DEFAULT_TERRAIN_SEED_CONFIG,
 	getTerrainSample,
 	type TerrainSample,
+	type TerrainSeedConfig,
 } from '../utils/noise';
-
-import { getClimateSample } from './Climate';
 
 import type {
 	CubeFace,
@@ -16,20 +16,11 @@ export type TerrainHeightGrid = {
 	key: string;
 	resolution: number;
 	rowSize: number;
-
 	heights: Float32Array;
 	landMasks: Float32Array;
 	continents: Float32Array;
 	mountainMasks: Float32Array;
-
 	colors: Float32Array;
-};
-
-type CachedTerrainSampleData = {
-	height: number;
-	landMask: number;
-	continent: number;
-	mountainMask: number;
 };
 
 export class TerrainHeightCache {
@@ -40,6 +31,8 @@ export class TerrainHeightCache {
 
 	constructor(
 		private readonly maxEntries = 1800,
+		private readonly terrainSeedConfig: TerrainSeedConfig =
+		DEFAULT_TERRAIN_SEED_CONFIG,
 	) {}
 
 	getPatchGrid(
@@ -71,7 +64,10 @@ export class TerrainHeightCache {
 	}
 
 	sampleNormal(normal: THREE.Vector3): TerrainSample {
-		return getTerrainSample(normal);
+		return getTerrainSample(
+			normal,
+			this.terrainSeedConfig,
+		);
 	}
 
 	getStats(): {
@@ -103,7 +99,6 @@ export class TerrainHeightCache {
 		const landMasks = new Float32Array(vertexCount);
 		const continents = new Float32Array(vertexCount);
 		const mountainMasks = new Float32Array(vertexCount);
-
 		const colors = new Float32Array(vertexCount * 3);
 
 		let index = 0;
@@ -122,18 +117,17 @@ export class TerrainHeightCache {
 					cubeY,
 				);
 
-				const sample = getTerrainSample(sphereNormal);
+				const sample = getTerrainSample(
+					sphereNormal,
+					this.terrainSeedConfig,
+				);
 
 				heights[index] = sample.height;
 				landMasks[index] = sample.landMask;
 				continents[index] = sample.continent;
 				mountainMasks[index] = sample.mountainMask;
 
-				const color = this.getTerrainColor(
-					sphereNormal,
-					sample,
-				);
-
+				const color = this.getTerrainColor(sample);
 				const colorIndex = index * 3;
 
 				colors[colorIndex + 0] = color.r;
@@ -157,23 +151,16 @@ export class TerrainHeightCache {
 	}
 
 	private getTerrainColor(
-		sphereNormal: THREE.Vector3,
-		sample: CachedTerrainSampleData,
+		sample: TerrainSample,
 	): THREE.Color {
 		const land = sample.landMask;
 		const height = sample.height;
 
-		const climate = getClimateSample(
-			sphereNormal,
-			height,
-			land,
-		);
-
 		const deepWater = new THREE.Color(0x071f2f);
-		const midWater = new THREE.Color(0x0b3347);
+		const midWater = new THREE.Color(0x0c3545);
 		const shallowWater = new THREE.Color(0x155463);
 		const coastalWater = new THREE.Color(0x1d6a70);
-		const wetCoast = new THREE.Color(0x58664f);
+		const wetCoast = new THREE.Color(0x56614d);
 
 		if (land < 0.30) {
 			return deepWater.clone().lerp(
@@ -203,115 +190,38 @@ export class TerrainHeightCache {
 			);
 		}
 
-		const color = this.getClimateLandColor(
-			climate,
-			height,
-		);
+		const lowLand = new THREE.Color(0x315d35);
+		const grass = new THREE.Color(0x3f6d3b);
+		const hills = new THREE.Color(0x596842);
+		const dryHills = new THREE.Color(0x716a4e);
+		const rock = new THREE.Color(0x69675b);
+		const snow = new THREE.Color(0xaeb2a7);
 
-		const coastInfluence =
-			      1 -
-			      Math.abs(this.clamp01((land - 0.62) / 0.24) * 2 - 1);
-
-		if (coastInfluence > 0) {
-			const coastGreen = new THREE.Color(0x496f3f);
-
-			color.lerp(
-				coastGreen,
-				coastInfluence * climate.humidity * 0.18,
-			);
-		}
-
-		const rockInfluence =
-			      this.smoothstep(0.095, 0.22, height) *
-			      (1 - climate.vegetation * 0.55);
-
-		if (rockInfluence > 0) {
-			const rock = new THREE.Color(0x706d61);
-
-			color.lerp(
-				rock,
-				rockInfluence * 0.52,
-			);
-		}
-
-		if (climate.snow > 0) {
-			const snow = new THREE.Color(0xd0d4cb);
-
-			color.lerp(
-				snow,
-				climate.snow * 0.82,
-			);
-		}
-
-		const polar = this.smoothstep(0.74, 0.98, Math.abs(sphereNormal.y));
-
-		if (polar > 0) {
-			const polarTint = new THREE.Color(0x7d8674);
-
-			color.lerp(
-				polarTint,
-				polar * 0.14 * (1 - climate.snow),
-			);
-		}
-
-		return color;
-	}
-
-	private getClimateLandColor(
-		climate: ReturnType<typeof getClimateSample>,
-		height: number,
-	): THREE.Color {
-		const coldLand = new THREE.Color(0x667263);
-		const humidForest = new THREE.Color(0x2f6b3d);
-		const grassland = new THREE.Color(0x5f7840);
-		const dryGrass = new THREE.Color(0x8a7a48);
-		const semiDry = new THREE.Color(0x8f7045);
-		const desert = new THREE.Color(0xa88755);
-		const highland = new THREE.Color(0x746f58);
-
-		const temperature = climate.temperature;
-		const humidity = climate.humidity;
-		const aridity = climate.aridity;
-		const vegetation = climate.vegetation;
-
-		const color = grassland.clone();
+		const color = lowLand.clone();
 
 		color.lerp(
-			coldLand,
-			(1 - temperature) * 0.30,
+			grass,
+			this.smoothstep(0.00, 0.035, height),
 		);
 
 		color.lerp(
-			humidForest,
-			vegetation * 0.42,
+			hills,
+			this.smoothstep(0.035, 0.080, height),
 		);
 
 		color.lerp(
-			dryGrass,
-			aridity * 0.24,
-		);
-
-		const savanna =
-			      this.smoothstep(0.50, 0.82, aridity) *
-			      this.smoothstep(0.42, 0.78, temperature);
-
-		color.lerp(
-			semiDry,
-			savanna * 0.30,
-		);
-
-		const desertMask =
-			      this.smoothstep(0.72, 0.92, aridity) *
-			      (1 - this.smoothstep(0.28, 0.52, humidity));
-
-		color.lerp(
-			desert,
-			desertMask * 0.55,
+			dryHills,
+			this.smoothstep(0.080, 0.135, height),
 		);
 
 		color.lerp(
-			highland,
-			this.smoothstep(0.065, 0.18, height) * 0.22,
+			rock,
+			this.smoothstep(0.135, 0.205, height),
+		);
+
+		color.lerp(
+			snow,
+			this.smoothstep(0.205, 0.310, height),
 		);
 
 		return color;
@@ -350,6 +260,7 @@ export class TerrainHeightCache {
 			this.numberKey(bounds.y),
 			this.numberKey(bounds.size),
 			resolution,
+			this.terrainSeedConfig.seed,
 		].join('|');
 	}
 
@@ -359,6 +270,22 @@ export class TerrainHeightCache {
 
 	private numberKey(value: number): string {
 		return value.toFixed(8);
+	}
+
+	private smoothstep(
+		edge0: number,
+		edge1: number,
+		value: number,
+	): number {
+		const x = Math.max(
+			0,
+			Math.min(
+				1,
+				(value - edge0) / (edge1 - edge0),
+			),
+		);
+
+		return x * x * (3 - 2 * x);
 	}
 
 	private touch(key: string): void {
@@ -382,15 +309,5 @@ export class TerrainHeightCache {
 			this.grids.delete(key);
 			this.usage.delete(key);
 		}
-	}
-
-	private smoothstep(edge0: number, edge1: number, value: number): number {
-		const x = this.clamp01((value - edge0) / (edge1 - edge0));
-
-		return x * x * (3 - 2 * x);
-	}
-
-	private clamp01(value: number): number {
-		return Math.max(0, Math.min(1, value));
 	}
 }

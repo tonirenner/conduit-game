@@ -13,6 +13,11 @@ import {
 
 import { CachedTerrainSource } from './CachedTerrainSource';
 
+import {
+	DEFAULT_TERRAIN_SEED_CONFIG,
+	type TerrainSeedConfig,
+} from '../utils/noise';
+
 import type {
 	TerrainSource,
 	TerrainSourceStats,
@@ -42,7 +47,7 @@ export class CubeSphere extends THREE.Group {
 	 * - normals
 	 * - LOD / bounds
 	 */
-	private readonly terrainSource: TerrainSource = new CachedTerrainSource();
+	private readonly terrainSource: TerrainSource;
 
 	private currentLodProfile: TerrainLodProfile = 'orbit';
 
@@ -78,8 +83,13 @@ export class CubeSphere extends THREE.Group {
 		private readonly resolution: number,
 		material: THREE.Material,
 		private readonly useGpuVertexDisplacement: boolean = false,
+		terrainSeedConfig: TerrainSeedConfig = DEFAULT_TERRAIN_SEED_CONFIG,
 	) {
 		super();
+
+		this.terrainSource = new CachedTerrainSource(
+			terrainSeedConfig,
+		);
 
 		this.name = 'CubeSphere';
 

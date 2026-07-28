@@ -1,37 +1,253 @@
 import * as THREE from 'three';
 
-function fract(value: number): number {
-	return value - Math.floor(value);
-}
+export type TerrainSample = {
+	height: number;
+	landMask: number;
+	continent: number;
+	mountainMask: number;
+};
 
-function hash3(x: number, y: number, z: number): number {
-	return fract(
-		Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123,
+export type TerrainSeedConfig = {
+	seed: number;
+	continentOffset: THREE.Vector3;
+	ridgeOffset: THREE.Vector3;
+	detailOffset: THREE.Vector3;
+	continentScale: number;
+	coastScale: number;
+	mountainScale: number;
+	heightScale: number;
+	oceanBias: number;
+};
+
+export const DEFAULT_TERRAIN_SEED_CONFIG: TerrainSeedConfig =
+	             createTerrainSeedConfig(1);
+
+export function createTerrainSeedConfig(seed: number): TerrainSeedConfig {
+	const random = mulberry32(seed >>> 0 || 1);
+
+	const offset = (scale: number) => new THREE.Vector3(
+		(random() * 2 - 1) * scale,
+		(random() * 2 - 1) * scale,
+		(random() * 2 - 1) * scale,
 	);
+
+	return {
+		seed: seed >>> 0 || 1,
+		continentOffset: offset(240.0),
+		ridgeOffset: offset(320.0),
+		detailOffset: offset(420.0),
+
+		continentScale: lerp(0.88, 1.28, random()),
+		coastScale: lerp(0.75, 1.35, random()),
+		mountainScale: lerp(0.74, 1.42, random()),
+		heightScale: lerp(0.82, 1.24, random()),
+
+		/**
+		 * Positive value -> more ocean.
+		 * Negative value -> more land.
+		 */
+		oceanBias: lerp(-0.055, 0.065, random()),
+	};
 }
 
-function smooth(t: number): number {
-	return t * t * (3 - 2 * t);
+export function getTerrainSample(
+	normal: THREE.Vector3,
+	config: TerrainSeedConfig = DEFAULT_TERRAIN_SEED_CONFIG,
+): TerrainSample {
+	const seededContinent = normal
+		.clone()
+		.multiplyScalar(config.continentScale)
+		.add(config.continentOffset);
+
+	const continentBase = fbm(
+		seededContinent.clone().multiplyScalar(1.25),
+		6,
+	);
+
+	const coastNoise =
+		      (
+			      fbm(
+				      normal
+					      .clone()
+					      .multiplyScalar(config.coastScale * 2.4)
+					      .add(config.continentOffset),
+				      5,
+			      ) - 0.5
+		      ) * 0.045;
+
+	const continent =
+		      continentBase +
+		      coastNoise -
+		      config.oceanBias;
+
+	const landMask = smoothstep(
+		0.525,
+		0.585,
+		continent,
+	);
+
+	const highlands = Math.max(
+		0,
+		continent - 0.54,
+	);
+
+	const mountainMask =
+		      smoothstep(
+			      0.62,
+			      0.78,
+			      continent,
+		      ) * landMask;
+
+	const ridgeNormal = normal
+		.clone()
+		.multiplyScalar(config.mountainScale)
+		.add(config.ridgeOffset);
+
+	const ridgeLarge = ridgedFbm(
+		ridgeNormal.clone().multiplyScalar(3.8),
+		5,
+	);
+
+	const ridgeMedium = ridgedFbm(
+		ridgeNormal.clone().multiplyScalar(8.5),
+		5,
+	);
+
+	const ridgeFine = ridgedFbm(
+		ridgeNormal.clone().multiplyScalar(18.0),
+		4,
+	);
+
+	const mountainChains =
+		      smoothstep(
+			      0.46,
+			      0.84,
+			      ridgeLarge,
+		      ) *
+		      (
+			      ridgeMedium * 0.72 +
+			      ridgeFine * 0.28
+		      );
+
+	const sharpPeaks = Math.pow(
+		clamp(
+			mountainChains,
+			0,
+			1,
+		),
+		1.75,
+	);
+
+	const mountains =
+		      sharpPeaks *
+		      mountainMask;
+
+	const foothills =
+		      smoothstep(
+			      0.48,
+			      0.74,
+			      ridgeLarge,
+		      ) *
+		      mountainMask *
+		      0.45;
+
+	const detail =
+		      (
+			      fbm(
+				      normal
+					      .clone()
+					      .multiplyScalar(24.0)
+					      .add(config.detailOffset),
+				      4,
+			      ) - 0.5
+		      ) *
+		      0.010 *
+		      landMask;
+
+	const height =
+		      (
+			      landMask * 0.006 +
+			      highlands * 0.095 +
+			      foothills * 0.055 +
+			      mountains * 0.165 +
+			      detail
+		      ) *
+		      config.heightScale;
+
+	return {
+		height: Math.max(0, height),
+		landMask,
+		continent,
+		mountainMask,
+	};
 }
 
-function smoothstep(edge0: number, edge1: number, x: number): number {
-	const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+export function fbm(
+	position: THREE.Vector3,
+	octaves: number,
+): number {
+	let value = 0;
+	let amplitude = 0.5;
+	let frequency = 1.0;
+	let normalizer = 0;
 
-	return t * t * (3 - 2 * t);
+	for (let i = 0; i < octaves; i++) {
+		value += noise3d(
+		         position.x * frequency,
+		         position.y * frequency,
+		         position.z * frequency,
+		) * amplitude;
+
+		normalizer += amplitude;
+		frequency *= 2.0;
+		amplitude *= 0.5;
+	}
+
+	return value / normalizer;
 }
 
-function lerp(a: number, b: number, t: number): number {
-	return a + (b - a) * t;
+export function ridgedFbm(
+	position: THREE.Vector3,
+	octaves: number,
+): number {
+	let value = 0;
+	let amplitude = 0.52;
+	let frequency = 1.0;
+	let normalizer = 0;
+
+	for (let i = 0; i < octaves; i++) {
+		const noiseValue = noise3d(
+			position.x * frequency,
+			position.y * frequency,
+			position.z * frequency,
+		);
+
+		const ridge = 1.0 - Math.abs(
+		              noiseValue * 2.0 - 1.0,
+		);
+
+		value += ridge * ridge * amplitude;
+
+		normalizer += amplitude;
+		frequency *= 2.15;
+		amplitude *= 0.48;
+	}
+
+	return value / normalizer;
 }
 
-function valueNoise3D(x: number, y: number, z: number): number {
+export function noise3d(
+	x: number,
+	y: number,
+	z: number,
+): number {
 	const ix = Math.floor(x);
 	const iy = Math.floor(y);
 	const iz = Math.floor(z);
 
-	const fx = smooth(x - ix);
-	const fy = smooth(y - iy);
-	const fz = smooth(z - iz);
+	const fx = smoothFraction(x - ix);
+	const fy = smoothFraction(y - iy);
+	const fz = smoothFraction(z - iz);
 
 	const v000 = hash3(ix, iy, iz);
 	const v100 = hash3(ix + 1, iy, iz);
@@ -54,156 +270,84 @@ function valueNoise3D(x: number, y: number, z: number): number {
 	return lerp(y0, y1, fz);
 }
 
-function fbm(point: THREE.Vector3, octaves = 6): number {
-	let value = 0;
-	let amplitude = 0.5;
-	let frequency = 1;
-	let normalizer = 0;
+export function smoothstep(
+	edge0: number,
+	edge1: number,
+	value: number,
+): number {
+	const t = clamp(
+		(value - edge0) / (edge1 - edge0),
+		0,
+		1,
+	);
 
-	for (let i = 0; i < octaves; i++) {
-		value +=
-			amplitude *
-			valueNoise3D(
-			point.x * frequency,
-			point.y * frequency,
-			point.z * frequency,
-			);
-
-		normalizer += amplitude;
-		frequency *= 2;
-		amplitude *= 0.5;
-	}
-
-	return value / normalizer;
+	return t * t * (3 - 2 * t);
 }
 
-function ridgedFbm(point: THREE.Vector3, octaves = 5): number {
-	let value = 0;
-	let amplitude = 0.52;
-	let frequency = 1;
-	let normalizer = 0;
+function smoothFraction(value: number): number {
+	return value * value * (3 - 2 * value);
+}
 
-	for (let i = 0; i < octaves; i++) {
-		const n = valueNoise3D(
-			point.x * frequency,
-			point.y * frequency,
-			point.z * frequency,
+function hash3(
+	x: number,
+	y: number,
+	z: number,
+): number {
+	const dot =
+		      x * 127.1 +
+		      y * 311.7 +
+		      z * 74.7;
+
+	return fract(
+		Math.sin(dot) *
+		43758.5453123,
+	);
+}
+
+function fract(value: number): number {
+	return value - Math.floor(value);
+}
+
+function clamp(
+	value: number,
+	min: number,
+	max: number,
+): number {
+	return Math.min(
+		max,
+		Math.max(
+			min,
+			value,
+		),
+	);
+}
+
+function lerp(
+	a: number,
+	b: number,
+	t: number,
+): number {
+	return a + (b - a) * t;
+}
+
+function mulberry32(seed: number): () => number {
+	let state = seed >>> 0;
+
+	return () => {
+		state += 0x6d2b79f5;
+
+		let t = state;
+
+		t = Math.imul(
+			t ^ (t >>> 15),
+			t | 1,
 		);
 
-		const ridge = 1.0 - Math.abs(n * 2.0 - 1.0);
-		const sharpened = ridge * ridge;
+		t ^= t + Math.imul(
+			t ^ (t >>> 7),
+			t | 61,
+		);
 
-		value += sharpened * amplitude;
-		normalizer += amplitude;
-
-		frequency *= 2.15;
-		amplitude *= 0.48;
-	}
-
-	return value / normalizer;
-}
-
-function clamp01(value: number): number {
-	return Math.max(0, Math.min(1, value));
-}
-
-export type TerrainSample = {
-	height: number;
-	landMask: number;
-	continent: number;
-	mountainMask: number;
-};
-
-export function getTerrainSample(normal: THREE.Vector3): TerrainSample {
-	const continentBase = fbm(
-		normal.clone().multiplyScalar(1.25),
-		6,
-	);
-
-	const coastNoise =
-		      (fbm(
-			      normal.clone().multiplyScalar(2.4),
-			      5,
-		      ) - 0.5) * 0.045;
-
-	const continent = continentBase + coastNoise;
-
-	const landMask = smoothstep(0.525, 0.585, continent);
-
-	const highlands = Math.max(0, continent - 0.54);
-
-	const mountainMask =
-		      smoothstep(0.62, 0.78, continent) *
-		      landMask;
-
-	const ridgeLarge = ridgedFbm(
-		normal.clone().multiplyScalar(3.8),
-		5,
-	);
-
-	const ridgeMedium = ridgedFbm(
-		normal.clone().multiplyScalar(8.5),
-		5,
-	);
-
-	const ridgeFine = ridgedFbm(
-		normal.clone().multiplyScalar(18.0),
-		4,
-	);
-
-	const mountainChains =
-		      smoothstep(0.46, 0.84, ridgeLarge) *
-		      (
-			      ridgeMedium * 0.72 +
-			      ridgeFine * 0.28
-		      );
-
-	const sharpPeaks =
-		      Math.pow(
-			      clamp01(mountainChains),
-			      1.75,
-		      );
-
-	const mountains =
-		      sharpPeaks *
-		      mountainMask;
-
-	const foothills =
-		      smoothstep(0.48, 0.74, ridgeLarge) *
-		      mountainMask *
-		      0.45;
-
-	const detail =
-		      (fbm(
-			      normal.clone().multiplyScalar(24.0),
-			      4,
-		      ) - 0.5) *
-		      0.010 *
-		      landMask;
-
-	const height =
-		      landMask * 0.006 +
-		      highlands * 0.095 +
-		      foothills * 0.055 +
-		      mountains * 0.165 +
-		      detail;
-
-	return {
-		height: Math.max(0, height),
-		landMask,
-		continent,
-		mountainMask,
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 	};
-}
-
-export function getTerrainHeight(normal: THREE.Vector3): number {
-	return getTerrainSample(normal).height;
-}
-
-export function getCloudDensity(normal: THREE.Vector3): number {
-	const large = fbm(normal.clone().multiplyScalar(1.1), 5);
-	const medium = fbm(normal.clone().multiplyScalar(2.6), 4);
-	const detail = fbm(normal.clone().multiplyScalar(7.5), 3);
-
-	return large * 0.58 + medium * 0.30 + detail * 0.12;
 }

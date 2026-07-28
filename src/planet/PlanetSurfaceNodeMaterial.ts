@@ -26,9 +26,9 @@ import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
 
 /**
- * Phase 6b.4:
+ * Phase 6c.1:
  *
- * Surface palette mapping driven by SurfaceRenderProfile.
+ * Surface palette mapping + terrain seed offset.
  *
  * Based on Phase 4k.4b.
  *
@@ -70,7 +70,7 @@ export function createPlanetSurfaceNodeMaterial(
 	const surfaceRaymarchSteps = uniform(0.0);
 
 	/**
-	 * Phase 6b.4:
+	 * Phase 6c.1:
 	 *
 	 * These profile uniforms are intentionally conservative.
 	 * They let PlanetDefinition/SurfaceRenderProfile reach the material
@@ -94,6 +94,7 @@ export function createPlanetSurfaceNodeMaterial(
 	const paletteCarbon = uniform(0.0);
 	const paletteEarthlike = uniform(0.0);
 	const paletteRocky = uniform(1.0);
+	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
 
 	const nightTint = color(0x061426);
 	const twilightTint = color(0x285f96);
@@ -125,9 +126,13 @@ export function createPlanetSurfaceNodeMaterial(
 
 	const proceduralTerrainSample = wgslFn(`
 fn procedural_terrain_sample(
-	normalInput: vec3<f32>
+	normalInput: vec3<f32>,
+	terrainSeedOffset: vec3<f32>
 ) -> vec4<f32> {
-	let normal = normalize(normalInput);
+	let normal = normalize(
+		normalInput +
+		terrainSeedOffset * 0.215
+	);
 
 	let continentBase = terrain_fbm(
 		normal * 1.25,
@@ -581,7 +586,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * A = continent
 	 */
 	/**
-	 * Phase 6b.4:
+	 * Phase 6c.1:
 	 *
 	 * WebGL SurfaceMaterial parity.
 	 *
@@ -595,6 +600,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 */
 	const terrainSample = proceduralTerrainSample({
 		                                              normalInput: sphereNormal,
+		                                              terrainSeedOffset,
 	                                              });
 
 	let terrainHeight: any = terrainHeightAttribute;
@@ -1208,6 +1214,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	const surfaceOcclusion = surfaceRaymarchOcclusion({
 		                                                  normalInput: sphereNormal,
 		                                                  sunDirInput: sunDirection,
+		                                                  terrainSeedOffset,
 		                                                  steps: surfaceRaymarchSteps,
 		                                                  strength: surfaceRaymarchStrength,
 	                                                  });
@@ -1519,6 +1526,38 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * 1.0 = baked GPU terrain atlas
 	 * 0.0 = legacy proceduralTerrainSample fallback
 	 */
+	(material as any).setTerrainSeed = (seed: number): void => {
+		let state = Math.floor(seed) >>> 0;
+
+		if (state === 0) {
+			state = 1;
+		}
+
+		const nextRandom = (): number => {
+			state += 0x6d2b79f5;
+
+			let t = state;
+
+			t = Math.imul(
+				t ^ (t >>> 15),
+				t | 1,
+			);
+
+			t ^= t + Math.imul(
+				t ^ (t >>> 7),
+				t | 61,
+			);
+
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+
+		terrainSeedOffset.value.set(
+			nextRandom() * 2 - 1,
+			nextRandom() * 2 - 1,
+			nextRandom() * 2 - 1,
+		).multiplyScalar(240.0);
+	};
+
 	(material as any).setSurfaceProfile = (
 		profile: SurfaceRenderProfile,
 	): void => {
@@ -1562,6 +1601,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		paletteCarbon: paletteCarbon.value,
 		paletteEarthlike: paletteEarthlike.value,
 		paletteRocky: paletteRocky.value,
+		terrainSeedOffset: terrainSeedOffset.value.clone(),
 		raymarchOcclusionStrength: surfaceRaymarchStrength.value,
 	});
 
@@ -1613,6 +1653,7 @@ const surfaceRaymarchOcclusion = wgslFn(`
 fn surface_raymarch_occlusion(
 	normalInput: vec3<f32>,
 	sunDirInput: vec3<f32>,
+	terrainSeedOffset: vec3<f32>,
 	steps: f32,
 	strength: f32
 ) -> f32 {
@@ -1635,7 +1676,10 @@ fn surface_raymarch_occlusion(
 		vec3<f32>(0.0001, 0.0, 0.0)
 	);
 
-	let baseHeight = surface_height(n);
+	let baseHeight = surface_height(
+		n,
+		terrainSeedOffset
+	);
 
 	var visibility = 1.0;
 
@@ -1651,7 +1695,10 @@ fn surface_raymarch_occlusion(
 			tangent * t
 		);
 
-		let sampleHeight = surface_height(sampleNormal);
+		let sampleHeight = surface_height(
+			sampleNormal,
+			terrainSeedOffset
+		);
 
 		let expectedHeight =
 			baseHeight +
@@ -1754,8 +1801,14 @@ fn surface_ridged_fbm(p_input: vec3<f32>) -> f32 {
 	return value / normalizer;
 }
 
-fn surface_height(normalInput: vec3<f32>) -> f32 {
-	let normal = normalize(normalInput);
+fn surface_height(
+	normalInput: vec3<f32>,
+	terrainSeedOffset: vec3<f32>
+) -> f32 {
+	let normal = normalize(
+		normalInput +
+		terrainSeedOffset * 0.215
+	);
 
 	let continentBase = surface_fbm(normal * 1.25);
 
