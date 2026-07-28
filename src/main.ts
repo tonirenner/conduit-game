@@ -6,6 +6,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
 import {createStarBackground} from './scene/createStarBackground';
 import {Planet} from './planet/Planet';
+import { generatePlanetDefinition } from './planet/generation/PlanetGenerator';
+import { createPlanetRenderProfile } from './planet/rendering/PlanetRenderProfile';
 import {SUN_DIRECTION, SUN_DISTANCE} from './planet/Sun';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -15,6 +17,7 @@ if (!app) {
 }
 
 const PLANET_RADIUS = 3;
+const PLANET_SEED = 123456;
 
 const ORBIT_MIN_CAMERA_DISTANCE = PLANET_RADIUS + 0.42;
 const ORBIT_MAX_CAMERA_DISTANCE = 60;
@@ -523,10 +526,29 @@ if (rendererMode === 'webgpu') {
 	console.log('terrainTextureSet', terrainTextureSet);
 }
 
+const planetDefinition = generatePlanetDefinition(
+	PLANET_SEED,
+	{
+		name: 'Mira Prime',
+		semiMajorAxis: 1.0,
+		starIrradiance: 1.0,
+	},
+);
+
+const planetRenderProfile = createPlanetRenderProfile(
+	planetDefinition,
+);
+
+console.log('planetDefinition', planetDefinition);
+console.log('planetRenderProfile', planetRenderProfile);
+
 const planet = new Planet(
 	PLANET_RADIUS,
 	rendererMode,
 	terrainTextureSet,
+	{},
+	planetDefinition,
+	planetRenderProfile,
 );
 
 scene.add(planet.group);
@@ -689,6 +711,8 @@ function updateHud(): void {
 	const terrainStats        = planet.getTerrainStats();
 	const horizonStats        = terrainStats.horizon;
 	const terrainTextureStats = planet.getTerrainTextureStats();
+	const featureStats        = planet.getRenderFeatureStats();
+	const definitionStats     = planet.getPlanetDefinitionStats();
 
 	const horizonCullPercent =
 		      horizonStats.tested > 0
@@ -715,6 +739,23 @@ function updateHud(): void {
 		`near: ${horizonStats.forcedVisibleNearSurface}\n` +
 		`quality: ${renderQuality.state} | px: ${renderQuality.getPixelRatio()
 			.toFixed(2)}\n` +
+		(
+			definitionStats.available
+			? `planet: ${definitionStats.name} | ${definitionStats.class} | ${definitionStats.rendererKind}\n` +
+		`composition: rock ${(definitionStats.composition.rock * 100).toFixed(0)}% | ` +
+		`metal ${(definitionStats.composition.metal * 100).toFixed(0)}% | ` +
+		`water ${(definitionStats.composition.water * 100).toFixed(0)}% | ` +
+		`ice ${(definitionStats.composition.ice * 100).toFixed(0)}% | ` +
+		`gas ${(definitionStats.composition.gas * 100).toFixed(0)}%\n` +
+		`atmo: ${definitionStats.atmosphere.type} | ` +
+		`clouds ${(definitionStats.atmosphere.cloudCoverage * 100).toFixed(0)}% | ` +
+		`rings: ${definitionStats.rings ? 'yes' : 'no'} | ` +
+		`moons: ${definitionStats.moons}\n`
+			: ''
+		) +
+		`raymarch: clouds ${featureStats.clouds.raymarched ? featureStats.clouds.steps : 'off'} | ` +
+		`atmo ${featureStats.atmosphere.raymarched ? featureStats.atmosphere.steps : 'off'} | ` +
+		`surface ${featureStats.surface.raymarched ? featureStats.surface.steps : 'off'}\n` +
 		(
 			terrainTextureStats.available
 			? `terrain atlas: ${terrainTextureStats.enabled ? 'baked' : 'procedural'} | ` +

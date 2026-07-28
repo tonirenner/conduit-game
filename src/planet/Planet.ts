@@ -9,6 +9,8 @@ import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
+import type { PlanetDefinition } from './model/PlanetDefinition';
+import type { PlanetRenderProfile } from './rendering/PlanetRenderProfile';
 
 import {
 	mergePlanetRenderFeatures,
@@ -25,17 +27,16 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 5b.2:
+ * Phase 6b.1:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
  * - full planet with existing clouds + atmosphere
  *
  * WebGPU:
- * - TSL/NodeMaterial terrain surface
+ * - raymarch visual pass
  * - optional baked TerrainTextureSet for material masks
- * - lightweight WebGPU/TSL cloud shell
- * - lightweight WebGPU/TSL atmosphere shell
+ * - optional PlanetDefinition / PlanetRenderProfile debug integration
  */
 export class Planet {
 	public readonly group: THREE.Group;
@@ -60,6 +61,8 @@ export class Planet {
 		private readonly rendererMode: PlanetRendererMode = 'webgl',
 		private readonly terrainTextureSet: TerrainTextureSet | null = null,
 		features: Partial<PlanetRenderFeatures> = {},
+		private readonly definition: PlanetDefinition | null = null,
+		private readonly renderProfile: PlanetRenderProfile | null = null,
 	) {
 		this.features = mergePlanetRenderFeatures(features);
 
@@ -407,6 +410,69 @@ export class Planet {
 			atlasHeight: image.height ?? 0,
 			atlasColumns: this.terrainTextureSet.options.atlasColumns,
 			atlasRows: this.terrainTextureSet.options.atlasRows,
+		};
+	}
+
+	getPlanetDefinitionStats(): {
+		available: boolean;
+		name: string;
+		class: string;
+		rendererKind: string;
+		composition: {
+			rock: number;
+			metal: number;
+			ice: number;
+			water: number;
+			gas: number;
+			organic: number;
+			volatiles: number;
+		};
+		atmosphere: {
+			type: string;
+			cloudCoverage: number;
+			density: number;
+		};
+		rings: boolean;
+		moons: number;
+	} {
+		if (!this.definition) {
+			return {
+				available: false,
+				name: 'none',
+				class: 'none',
+				rendererKind: 'none',
+				composition: {
+					rock: 0,
+					metal: 0,
+					ice: 0,
+					water: 0,
+					gas: 0,
+					organic: 0,
+					volatiles: 0,
+				},
+				atmosphere: {
+					type: 'none',
+					cloudCoverage: 0,
+					density: 0,
+				},
+				rings: false,
+				moons: 0,
+			};
+		}
+
+		return {
+			available: true,
+			name: this.definition.name,
+			class: this.definition.class,
+			rendererKind: this.renderProfile?.rendererKind ?? 'unknown',
+			composition: this.definition.composition,
+			atmosphere: {
+				type: this.definition.atmosphere.type,
+				cloudCoverage: this.definition.atmosphere.cloudCoverage,
+				density: this.definition.atmosphere.density,
+			},
+			rings: this.definition.rings?.enabled ?? false,
+			moons: this.definition.moons.length,
 		};
 	}
 
