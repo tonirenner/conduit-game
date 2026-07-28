@@ -676,7 +676,6 @@ async function setPlanetSeed(seed: number): Promise<void> {
 
 		writePlanetSeedToUrl(currentPlanetSeed);
 		writeForcedKindToUrl();
-		writeForcedKindToUrl();
 		renderQuality.forceMoving();
 	} finally {
 		isChangingPlanetSeed = false;
@@ -754,6 +753,7 @@ window.addEventListener('keydown', (event) => {
 		'KeyB',
 		'KeyR',
 		'KeyY',
+		'KeyZ',
 		'ShiftLeft',
 		'ShiftRight',
 	];
@@ -829,6 +829,7 @@ window.addEventListener('keydown', (event) => {
 			break;
 
 		case 'KeyY':
+		case 'KeyZ':
 			toggleForcedGasGiant();
 			break;
 
