@@ -535,27 +535,24 @@ const ambientLight = new THREE.AmbientLight(0x223344, 0.08);
 scene.add(ambientLight);
 
 // Planet
+const terrainBakeManager =
+	      rendererMode === 'webgpu'
+	      ? new TerrainTextureBakeManager(
+		      renderer,
+		      rendererMode,
+	      )
+	      : null;
+
 let terrainTextureSet = null;
+let isChangingPlanetSeed = false;
 
-if (rendererMode === 'webgpu') {
-	const bakeManager = new TerrainTextureBakeManager(
-		renderer,
-		rendererMode,
-	);
+type PlanetRuntimeDefinition = ReturnType<typeof generatePlanetDefinition>;
+type PlanetRuntimeProfile = ReturnType<typeof createPlanetRenderProfile>;
 
-	console.time('terrain-gpu-bake');
-
-	terrainTextureSet = await bakeManager.bake({
-		                                           resolution: 2048,
-		                                           maxEncodedHeight: 0.42,
-	                                           });
-
-	console.timeEnd('terrain-gpu-bake');
-	console.log('terrainTextureSet', terrainTextureSet);
-}
-
-function createPlanetForSeed(seed: number): Planet {
-	const planetDefinition = generatePlanetDefinition(
+function createPlanetDefinitionForSeed(
+	seed: number,
+): PlanetRuntimeDefinition {
+	return generatePlanetDefinition(
 		seed,
 		{
 			name: `Mira ${seed}`,
@@ -563,10 +560,51 @@ function createPlanetForSeed(seed: number): Planet {
 			starIrradiance: 1.0,
 		},
 	);
+}
+
+async function bakeTerrainTextureSetForDefinition(
+	planetDefinition: PlanetRuntimeDefinition,
+) {
+	if (!terrainBakeManager) {
+		return null;
+	}
+
+	console.time('terrain-gpu-bake');
+
+	const nextTerrainTextureSet = await terrainBakeManager.bake({
+		                                                            resolution: 2048,
+		                                                            maxEncodedHeight: 0.42,
+		                                                            terrainSeed: planetDefinition.render.terrainSeed,
+	                                                            });
+
+	console.timeEnd('terrain-gpu-bake');
+
+	console.log(
+		'terrainTextureSet',
+		nextTerrainTextureSet,
+	);
+
+	return nextTerrainTextureSet;
+}
+
+async function createPlanetForSeed(
+	seed: number,
+): Promise<Planet> {
+	const planetDefinition = createPlanetDefinitionForSeed(
+		seed,
+	);
 
 	const planetRenderProfile = createPlanetRenderProfile(
 		planetDefinition,
 	);
+
+	const nextTerrainTextureSet =
+		      await bakeTerrainTextureSetForDefinition(
+			      planetDefinition,
+		      );
+
+	terrainTextureSet?.dispose?.();
+	terrainTextureSet = nextTerrainTextureSet;
 
 	console.log('planetSeed', seed);
 	console.log('planetDefinition', planetDefinition);
@@ -582,47 +620,61 @@ function createPlanetForSeed(seed: number): Planet {
 	);
 }
 
-let planet = createPlanetForSeed(
+let planet = await createPlanetForSeed(
 	currentPlanetSeed,
 );
 
 scene.add(planet.group);
 writePlanetSeedToUrl(currentPlanetSeed);
 
-function setPlanetSeed(seed: number): void {
+async function setPlanetSeed(seed: number): Promise<void> {
+	if (isChangingPlanetSeed) {
+		return;
+	}
+
+	isChangingPlanetSeed = true;
+
 	const nextSeed = Math.max(
 		1,
 		Math.floor(seed),
 	);
 
-	scene.remove(planet.group);
-	planet.dispose();
+	try {
+		const previousPlanet = planet;
 
-	currentPlanetSeed = nextSeed;
-	planet = createPlanetForSeed(
-		currentPlanetSeed,
-	);
+		currentPlanetSeed = nextSeed;
 
-	scene.add(planet.group);
-	writePlanetSeedToUrl(currentPlanetSeed);
+		const nextPlanet = await createPlanetForSeed(
+			currentPlanetSeed,
+		);
 
-	renderQuality.forceMoving();
+		scene.add(nextPlanet.group);
+		scene.remove(previousPlanet.group);
+		previousPlanet.dispose();
+
+		planet = nextPlanet;
+
+		writePlanetSeedToUrl(currentPlanetSeed);
+		renderQuality.forceMoving();
+	} finally {
+		isChangingPlanetSeed = false;
+	}
 }
 
 function nextPlanetSeed(): void {
-	setPlanetSeed(
+	void setPlanetSeed(
 		currentPlanetSeed + 1,
 	);
 }
 
 function previousPlanetSeed(): void {
-	setPlanetSeed(
+	void setPlanetSeed(
 		Math.max(1, currentPlanetSeed - 1),
 	);
 }
 
 function randomPlanetSeed(): void {
-	setPlanetSeed(
+	void setPlanetSeed(
 		Math.floor(
 			Math.random() * 2_147_483_647,
 		) + 1,
@@ -819,7 +871,7 @@ function updateHud(): void {
 
 	hud.textContent =
 		`mode: ${cameraMode.toUpperCase()} | renderer: ${rendererMode.toUpperCase()} | ${atmosphereHint}\n` +
-		`seed: ${currentPlanetSeed}\n` +
+		`seed: ${currentPlanetSeed}${isChangingPlanetSeed ? ' | rebaking...' : ''}\n` +
 		`distance: ${distanceFromCenter.toFixed(2)} | ` +
 		`height: ${heightAboveSurface.toFixed(2)} | ` +
 		`fov: ${camera.fov.toFixed(0)}\n` +

@@ -13,6 +13,7 @@ import type {
 export type TerrainTextureBakeMaterialHandle = {
 	material: any;
 	setFace(face: CubeFace): void;
+	setTerrainSeed(seed: number): void;
 };
 
 export function createTerrainTextureBakeMaterial(
@@ -31,6 +32,7 @@ export function createTerrainTextureBakeMaterial(
 	const faceUp = uniform(new THREE.Vector3(0, 1, 0));
 	const faceRight = uniform(new THREE.Vector3(0, 0, -1));
 	const encodedHeightMax = uniform(maxEncodedHeight);
+	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
 
 	const bakeTerrainData = wgslFn(`
 fn bake_terrain_data(
@@ -38,7 +40,8 @@ fn bake_terrain_data(
 	faceNormal: vec3<f32>,
 	faceUp: vec3<f32>,
 	faceRight: vec3<f32>,
-	maxEncodedHeight: f32
+	maxEncodedHeight: f32,
+	terrainSeedOffset: vec3<f32>
 ) -> vec4<f32> {
 	let cubeX = uvInput.x * 2.0 - 1.0;
 	let cubeY = uvInput.y * 2.0 - 1.0;
@@ -49,7 +52,10 @@ fn bake_terrain_data(
 		faceUp * cubeY
 	);
 
-	let terrain = bake_terrain_sample(normal);
+	let terrain = bake_terrain_sample(
+		normal,
+		terrainSeedOffset
+	);
 
 	let encodedHeight =
 		clamp(
@@ -67,9 +73,13 @@ fn bake_terrain_data(
 }
 
 fn bake_terrain_sample(
-	normalInput: vec3<f32>
+	normalInput: vec3<f32>,
+	terrainSeedOffset: vec3<f32>
 ) -> vec4<f32> {
-	let normal = normalize(normalInput);
+	let normal = normalize(
+		normalInput +
+		terrainSeedOffset * 0.215
+	);
 
 	let continentBase =
 		bake_fbm(
@@ -323,6 +333,7 @@ fn bake_ridged_fbm(
 		                                  faceUp,
 		                                  faceRight,
 		                                  maxEncodedHeight: encodedHeightMax,
+		                                  terrainSeedOffset,
 	                                  });
 
 	material.colorNode = bakedData.rgb;
@@ -334,6 +345,38 @@ fn bake_ridged_fbm(
 			faceNormal.value.copy(face.normal);
 			faceUp.value.copy(face.up);
 			faceRight.value.copy(face.right);
+		},
+
+		setTerrainSeed(seed: number): void {
+			let state = Math.floor(seed) >>> 0;
+
+			if (state === 0) {
+				state = 1;
+			}
+
+			const nextRandom = (): number => {
+				state += 0x6d2b79f5;
+
+				let t = state;
+
+				t = Math.imul(
+					t ^ (t >>> 15),
+					t | 1,
+				);
+
+				t ^= t + Math.imul(
+					t ^ (t >>> 7),
+					t | 61,
+				);
+
+				return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+			};
+
+			terrainSeedOffset.value.set(
+				nextRandom() * 2 - 1,
+				nextRandom() * 2 - 1,
+				nextRandom() * 2 - 1,
+			).multiplyScalar(240.0);
 		},
 	};
 }

@@ -16,6 +16,7 @@ import { createTerrainTextureBakeMaterial } from './TerrainTextureBakeMaterial';
 export type TerrainTextureBakeOptions = {
 	resolution: number;
 	maxEncodedHeight: number;
+	terrainSeed?: number;
 };
 
 export class TerrainTextureBakeManager {
@@ -54,6 +55,10 @@ export class TerrainTextureBakeManager {
 		if (this.rendererMode !== 'webgpu') {
 			return null;
 		}
+
+		this.bakeMaterial.setTerrainSeed(
+			options.terrainSeed ?? 1,
+		);
 
 		const atlasColumns = 3;
 		const atlasRows = 2;
