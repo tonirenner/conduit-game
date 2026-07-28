@@ -11,11 +11,15 @@ import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { PlanetDefinition } from './model/PlanetDefinition';
 import type { PlanetRenderProfile } from './rendering/PlanetRenderProfile';
+import {
+	createSurfaceRenderProfile,
+	type SurfaceRenderProfile,
+} from './rendering/SurfaceRenderProfile';
 
 import {
 	mergePlanetRenderFeatures,
 	type PlanetRenderFeatures,
-} from './PlanetRenderFeatures';
+} from './rendering/PlanetRenderFeatures';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
@@ -27,7 +31,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 6b.2:
+ * Phase 6b.3:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
@@ -36,7 +40,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
  * WebGPU:
  * - raymarch visual pass
  * - optional baked TerrainTextureSet for material masks
- * - PlanetRenderProfile drives clouds and atmosphere
+ * - PlanetRenderProfile drives clouds/atmosphere and prepares surface profile
  */
 export class Planet {
 	public readonly group: THREE.Group;
@@ -55,6 +59,7 @@ export class Planet {
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
 	private bakedTerrainEnabled = true;
 	private readonly features: PlanetRenderFeatures;
+	private readonly surfaceProfile: SurfaceRenderProfile | null;
 
 	constructor(
 		private readonly radius: number,
@@ -65,6 +70,13 @@ export class Planet {
 		private readonly renderProfile: PlanetRenderProfile | null = null,
 	) {
 		this.features = mergePlanetRenderFeatures(features);
+		this.surfaceProfile =
+			this.definition && this.renderProfile
+			? createSurfaceRenderProfile(
+				this.definition,
+				this.renderProfile,
+			)
+			: null;
 
 		this.group = new THREE.Group();
 		this.group.name = 'PlanetGroup';
@@ -136,6 +148,19 @@ export class Planet {
 				this.webGPUAtmosphere,
 				this.renderProfile.atmosphereDensity,
 				this.definition?.atmosphere.haze ?? 0,
+			);
+		}
+
+		const surfaceProfileSetter =
+			      (this.surfaceMaterial as any).setSurfaceProfile;
+
+		if (
+			this.surfaceProfile &&
+			typeof surfaceProfileSetter === 'function'
+		) {
+			surfaceProfileSetter.call(
+				this.surfaceMaterial,
+				this.surfaceProfile,
 			);
 		}
 	}
@@ -476,6 +501,20 @@ export class Planet {
 			mountainScale: number;
 			oceanLevel: number;
 		};
+		surfaceProfile: {
+			enabled: boolean;
+			palette: string;
+			hasOcean: boolean;
+			hasIceCaps: boolean;
+			hasVolcanism: boolean;
+			hasTectonics: boolean;
+			waterInfluence: number;
+			iceInfluence: number;
+			lavaInfluence: number;
+			toxicInfluence: number;
+			metalInfluence: number;
+			raymarchOcclusionStrength: number;
+		};
 	} {
 		if (!this.definition) {
 			return {
@@ -511,6 +550,20 @@ export class Planet {
 					mountainScale: 0,
 					oceanLevel: 0,
 				},
+				surfaceProfile: {
+					enabled: false,
+					palette: 'none',
+					hasOcean: false,
+					hasIceCaps: false,
+					hasVolcanism: false,
+					hasTectonics: false,
+					waterInfluence: 0,
+					iceInfluence: 0,
+					lavaInfluence: 0,
+					toxicInfluence: 0,
+					metalInfluence: 0,
+					raymarchOcclusionStrength: 0,
+				},
 			};
 		}
 
@@ -538,6 +591,21 @@ export class Planet {
 				terrainRoughness: this.renderProfile?.terrainRoughness ?? 0,
 				mountainScale: this.renderProfile?.mountainScale ?? 0,
 				oceanLevel: this.renderProfile?.oceanLevel ?? 0,
+			},
+			surfaceProfile: {
+				enabled: this.surfaceProfile?.enabled ?? false,
+				palette: this.surfaceProfile?.palette ?? 'none',
+				hasOcean: this.surfaceProfile?.hasOcean ?? false,
+				hasIceCaps: this.surfaceProfile?.hasIceCaps ?? false,
+				hasVolcanism: this.surfaceProfile?.hasVolcanism ?? false,
+				hasTectonics: this.surfaceProfile?.hasTectonics ?? false,
+				waterInfluence: this.surfaceProfile?.waterInfluence ?? 0,
+				iceInfluence: this.surfaceProfile?.iceInfluence ?? 0,
+				lavaInfluence: this.surfaceProfile?.lavaInfluence ?? 0,
+				toxicInfluence: this.surfaceProfile?.toxicInfluence ?? 0,
+				metalInfluence: this.surfaceProfile?.metalInfluence ?? 0,
+				raymarchOcclusionStrength:
+					this.surfaceProfile?.raymarchOcclusionStrength ?? 0,
 			},
 		};
 	}

@@ -23,11 +23,12 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
+import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
 
 /**
- * Phase 5e.2:
+ * Phase 6b.3:
  *
- * WebGL Surface parity + optional surface raymarch occlusion.
+ * Surface profile ready material + optional raymarch occlusion.
  *
  * Based on Phase 4k.4b.
  *
@@ -67,6 +68,22 @@ export function createPlanetSurfaceNodeMaterial(
 
 	const surfaceRaymarchStrength = uniform(0.0);
 	const surfaceRaymarchSteps = uniform(0.0);
+
+	/**
+	 * Phase 6b.3:
+	 *
+	 * These profile uniforms are intentionally conservative.
+	 * They let PlanetDefinition/SurfaceRenderProfile reach the material
+	 * without forcing a full visual rewrite yet.
+	 */
+	const profileOceanLevel = uniform(0.0);
+	const profileMountainScale = uniform(1.0);
+	const profileTerrainRoughness = uniform(1.0);
+	const profileWaterInfluence = uniform(0.0);
+	const profileIceInfluence = uniform(0.0);
+	const profileLavaInfluence = uniform(0.0);
+	const profileToxicInfluence = uniform(0.0);
+	const profileMetalInfluence = uniform(0.0);
 
 	const nightTint = color(0x061426);
 	const twilightTint = color(0x285f96);
@@ -554,7 +571,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * A = continent
 	 */
 	/**
-	 * Phase 5e.2:
+	 * Phase 6b.3:
 	 *
 	 * WebGL SurfaceMaterial parity.
 	 *
@@ -1222,8 +1239,46 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * 1.0 = baked GPU terrain atlas
 	 * 0.0 = legacy proceduralTerrainSample fallback
 	 */
+	(material as any).setSurfaceProfile = (
+		profile: SurfaceRenderProfile,
+	): void => {
+		profileOceanLevel.value = profile.oceanLevel;
+		profileMountainScale.value = profile.mountainScale;
+		profileTerrainRoughness.value = profile.terrainRoughness;
+		profileWaterInfluence.value = profile.waterInfluence;
+		profileIceInfluence.value = profile.iceInfluence;
+		profileLavaInfluence.value = profile.lavaInfluence;
+		profileToxicInfluence.value = profile.toxicInfluence;
+		profileMetalInfluence.value = profile.metalInfluence;
+
+		/**
+		 * Keep the current look stable:
+		 * profile only adjusts the raymarch occlusion strength gently.
+		 */
+		surfaceRaymarchStrength.value = profile.raymarchOcclusionStrength;
+	};
+
+	(material as any).getSurfaceProfileStats = () => ({
+		oceanLevel: profileOceanLevel.value,
+		mountainScale: profileMountainScale.value,
+		terrainRoughness: profileTerrainRoughness.value,
+		waterInfluence: profileWaterInfluence.value,
+		iceInfluence: profileIceInfluence.value,
+		lavaInfluence: profileLavaInfluence.value,
+		toxicInfluence: profileToxicInfluence.value,
+		metalInfluence: profileMetalInfluence.value,
+		raymarchOcclusionStrength: surfaceRaymarchStrength.value,
+	});
+
 	(material as any).setRaymarchedSurfaceEnabled = (enabled: boolean): void => {
-		surfaceRaymarchStrength.value = enabled ? 0.42 : 0.0;
+		if (!enabled) {
+			surfaceRaymarchStrength.value = 0.0;
+			return;
+		}
+
+		if (surfaceRaymarchStrength.value <= 0.001) {
+			surfaceRaymarchStrength.value = 0.42;
+		}
 	};
 
 	(material as any).setSurfaceRaymarchSteps = (steps: number): void => {

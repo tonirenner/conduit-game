@@ -758,7 +758,12 @@ function updateHud(): void {
 		`profile values: cloud ${(definitionStats.render.cloudCoverage * 100).toFixed(0)}% | ` +
 		`atmo ${definitionStats.render.atmosphereDensity.toFixed(2)} | ` +
 		`ocean ${definitionStats.render.oceanLevel.toFixed(2)} | ` +
-		`mountain ${definitionStats.render.mountainScale.toFixed(2)}\n`
+		`mountain ${definitionStats.render.mountainScale.toFixed(2)}\n` +
+		`surface: ${definitionStats.surfaceProfile.palette} | ` +
+		`ice ${definitionStats.surfaceProfile.hasIceCaps ? 'yes' : 'no'} | ` +
+		`volcano ${definitionStats.surfaceProfile.hasVolcanism ? 'yes' : 'no'} | ` +
+		`tectonics ${definitionStats.surfaceProfile.hasTectonics ? 'yes' : 'no'} | ` +
+		`occ ${definitionStats.surfaceProfile.raymarchOcclusionStrength.toFixed(2)}\n`
 			: ''
 		) +
 		`raymarch: clouds ${featureStats.clouds.raymarched ? featureStats.clouds.steps : 'off'} | ` +
