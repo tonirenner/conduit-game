@@ -651,6 +651,28 @@ export class Planet {
 		};
 	}
 
+	dispose(): void {
+		this.group.traverse((object) => {
+			if (!(object instanceof THREE.Mesh)) {
+				return;
+			}
+
+			object.geometry?.dispose();
+
+			const material = object.material;
+
+			if (Array.isArray(material)) {
+				for (const item of material) {
+					item.dispose();
+				}
+
+				return;
+			}
+
+			material?.dispose();
+		});
+	}
+
 	getTerrainStats(): {
 		totalPatches: number;
 		visibleMeshes: number;

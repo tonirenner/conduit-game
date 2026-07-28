@@ -17,7 +17,35 @@ if (!app) {
 }
 
 const PLANET_RADIUS = 3;
-const PLANET_SEED = 123456;
+const DEFAULT_PLANET_SEED = 123456;
+
+function getInitialPlanetSeed(): number {
+	const params = new URLSearchParams(window.location.search);
+	const seed = Number(params.get('seed'));
+
+	if (Number.isFinite(seed) && seed > 0) {
+		return Math.floor(seed);
+	}
+
+	return DEFAULT_PLANET_SEED;
+}
+
+function writePlanetSeedToUrl(seed: number): void {
+	const url = new URL(window.location.href);
+
+	url.searchParams.set(
+		'seed',
+		String(seed),
+	);
+
+	window.history.replaceState(
+		null,
+		'',
+		url,
+	);
+}
+
+let currentPlanetSeed = getInitialPlanetSeed();
 
 const ORBIT_MIN_CAMERA_DISTANCE = PLANET_RADIUS + 0.42;
 const ORBIT_MAX_CAMERA_DISTANCE = 60;
@@ -526,32 +554,80 @@ if (rendererMode === 'webgpu') {
 	console.log('terrainTextureSet', terrainTextureSet);
 }
 
-const planetDefinition = generatePlanetDefinition(
-	PLANET_SEED,
-	{
-		name: 'Mira Prime',
-		semiMajorAxis: 1.0,
-		starIrradiance: 1.0,
-	},
-);
+function createPlanetForSeed(seed: number): Planet {
+	const planetDefinition = generatePlanetDefinition(
+		seed,
+		{
+			name: `Mira ${seed}`,
+			semiMajorAxis: 1.0,
+			starIrradiance: 1.0,
+		},
+	);
 
-const planetRenderProfile = createPlanetRenderProfile(
-	planetDefinition,
-);
+	const planetRenderProfile = createPlanetRenderProfile(
+		planetDefinition,
+	);
 
-console.log('planetDefinition', planetDefinition);
-console.log('planetRenderProfile', planetRenderProfile);
+	console.log('planetSeed', seed);
+	console.log('planetDefinition', planetDefinition);
+	console.log('planetRenderProfile', planetRenderProfile);
 
-const planet = new Planet(
-	PLANET_RADIUS,
-	rendererMode,
-	terrainTextureSet,
-	{},
-	planetDefinition,
-	planetRenderProfile,
+	return new Planet(
+		PLANET_RADIUS,
+		rendererMode,
+		terrainTextureSet,
+		{},
+		planetDefinition,
+		planetRenderProfile,
+	);
+}
+
+let planet = createPlanetForSeed(
+	currentPlanetSeed,
 );
 
 scene.add(planet.group);
+writePlanetSeedToUrl(currentPlanetSeed);
+
+function setPlanetSeed(seed: number): void {
+	const nextSeed = Math.max(
+		1,
+		Math.floor(seed),
+	);
+
+	scene.remove(planet.group);
+	planet.dispose();
+
+	currentPlanetSeed = nextSeed;
+	planet = createPlanetForSeed(
+		currentPlanetSeed,
+	);
+
+	scene.add(planet.group);
+	writePlanetSeedToUrl(currentPlanetSeed);
+
+	renderQuality.forceMoving();
+}
+
+function nextPlanetSeed(): void {
+	setPlanetSeed(
+		currentPlanetSeed + 1,
+	);
+}
+
+function previousPlanetSeed(): void {
+	setPlanetSeed(
+		Math.max(1, currentPlanetSeed - 1),
+	);
+}
+
+function randomPlanetSeed(): void {
+	setPlanetSeed(
+		Math.floor(
+			Math.random() * 2_147_483_647,
+		) + 1,
+	);
+}
 
 function resizeRenderer(): void {
 	const width  = window.innerWidth;
@@ -590,6 +666,9 @@ window.addEventListener('keydown', (event) => {
 		'KeyV',
 		'KeyH',
 		'KeyT',
+		'KeyN',
+		'KeyB',
+		'KeyR',
 		'ShiftLeft',
 		'ShiftRight',
 	];
@@ -651,6 +730,18 @@ window.addEventListener('keydown', (event) => {
 			renderQuality.forceMoving();
 			break;
 		}
+
+		case 'KeyN':
+			nextPlanetSeed();
+			break;
+
+		case 'KeyB':
+			previousPlanetSeed();
+			break;
+
+		case 'KeyR':
+			randomPlanetSeed();
+			break;
 
 		case 'KeyH':
 			hudVisible        = !hudVisible;
@@ -728,6 +819,7 @@ function updateHud(): void {
 
 	hud.textContent =
 		`mode: ${cameraMode.toUpperCase()} | renderer: ${rendererMode.toUpperCase()} | ${atmosphereHint}\n` +
+		`seed: ${currentPlanetSeed}\n` +
 		`distance: ${distanceFromCenter.toFixed(2)} | ` +
 		`height: ${heightAboveSurface.toFixed(2)} | ` +
 		`fov: ${camera.fov.toFixed(0)}\n` +
@@ -776,7 +868,7 @@ function updateHud(): void {
 		`${terrainTextureStats.atlasWidth}x${terrainTextureStats.atlasHeight}\n`
 			: ''
 		) +
-		`keys: F flight/orbit | G cinematic | T terrain | W/S A/D Q/E | mouse-drag look | H hud`;
+		`keys: F flight/orbit | G cinematic | T terrain | N/B/R seed | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
 // Animation loop
