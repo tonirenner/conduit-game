@@ -669,6 +669,18 @@ export class Planet {
 		rings: boolean;
 		moons: number;
 		terrainSeed: number;
+		climate: {
+			seed: number;
+			biomeSeed: number;
+			weatherSeed: number;
+			temperature01: number;
+			humidity: number;
+			aridity: number;
+			windStrength: number;
+			stormActivity: number;
+			cloudPersistence: number;
+			ashLoad: number;
+		};
 		render: {
 			enableTerrain: boolean;
 			enableOcean: boolean;
@@ -719,6 +731,18 @@ export class Planet {
 				rings: false,
 				moons: 0,
 				terrainSeed: 0,
+				climate: {
+					seed: 0,
+					biomeSeed: 0,
+					weatherSeed: 0,
+					temperature01: 0,
+					humidity: 0,
+					aridity: 0,
+					windStrength: 0,
+					stormActivity: 0,
+					cloudPersistence: 0,
+					ashLoad: 0,
+				},
 				render: {
 					enableTerrain: false,
 					enableOcean: false,
@@ -762,6 +786,27 @@ export class Planet {
 			rings: this.definition.rings?.enabled ?? false,
 			moons: this.definition.moons.length,
 			terrainSeed: this.definition.render.terrainSeed,
+			climate: {
+				seed:
+					this.definition.climate?.seed ??
+					this.definition.render.climateSeed ??
+					0,
+				biomeSeed:
+					this.definition.climate?.biomeSeed ??
+					this.definition.render.biomeSeed ??
+					0,
+				weatherSeed:
+					this.definition.climate?.weatherSeed ??
+					this.definition.render.weatherSeed ??
+					0,
+				temperature01: this.definition.climate?.temperature01 ?? 0,
+				humidity: this.definition.climate?.humidity ?? 0,
+				aridity: this.definition.climate?.aridity ?? 0,
+				windStrength: this.definition.climate?.windStrength ?? 0,
+				stormActivity: this.definition.climate?.stormActivity ?? 0,
+				cloudPersistence: this.definition.climate?.cloudPersistence ?? 0,
+				ashLoad: this.definition.climate?.ashLoad ?? 0,
+			},
 			render: {
 				enableTerrain: this.renderProfile?.enableTerrain ?? false,
 				enableOcean: this.renderProfile?.enableOcean ?? false,

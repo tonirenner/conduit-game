@@ -49,7 +49,7 @@ export class WebGPUAtmosphereLayer {
 		this.sunIntensity = uniform(46.0);
 		this.atmosphereAlpha = uniform(0.86);
 		this.scatteringBoost = uniform(1.0);
-		this.atmosphereStepCount = uniform(12.0);
+		this.atmosphereStepCount = uniform(16.0);
 
 		this.material = this.createMaterial(
 			radius,
@@ -140,7 +140,7 @@ export class WebGPUAtmosphereLayer {
 		this.sunIntensity.value = this.profileSunIntensity;
 		this.atmosphereAlpha.value = this.profileAtmosphereAlpha;
 		this.scatteringBoost.value = this.profileScatteringBoost;
-		this.atmosphereStepCount.value = 12.0;
+		this.atmosphereStepCount.value = 16.0;
 		this.material.opacity = this.profileOpacity;
 	}
 
@@ -148,7 +148,7 @@ export class WebGPUAtmosphereLayer {
 		this.atmosphereStepCount.value = THREE.MathUtils.clamp(
 			steps,
 			1,
-			12,
+			16,
 		);
 	}
 
@@ -259,7 +259,7 @@ fn atmosphere_raymarch(
 		mieStrength *
 		scatteringBoost;
 
-	for (var i = 0; i < 12; i = i + 1) {
+	for (var i = 0; i < 16; i = i + 1) {
 		if (f32(i) >= steps) {
 			break;
 		}

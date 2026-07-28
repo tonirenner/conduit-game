@@ -37,6 +37,14 @@ export type SurfaceRenderProfile = {
 	toxicInfluence: number;
 	metalInfluence: number;
 
+	climateTemperature: number;
+	climateHumidity: number;
+	climateAridity: number;
+	climateWindStrength: number;
+	climateStormActivity: number;
+	climateCloudPersistence: number;
+	climateAshLoad: number;
+
 	raymarchOcclusionStrength: number;
 };
 
@@ -71,6 +79,11 @@ export function createSurfaceRenderProfile(
 		      ? 1.0
 		      : planet.composition.metal;
 
+	const climateShadowBoost =
+		      planet.climate.aridity * 0.05 +
+		      planet.climate.ashLoad * 0.12 +
+		      planet.climate.stormActivity * 0.04;
+
 	return {
 		enabled: hasSolidSurface,
 
@@ -91,13 +104,22 @@ export function createSurfaceRenderProfile(
 		toxicInfluence: Math.min(1, toxicInfluence),
 		metalInfluence: Math.min(1, metalInfluence),
 
+		climateTemperature: planet.climate.temperature01,
+		climateHumidity: planet.climate.humidity,
+		climateAridity: planet.climate.aridity,
+		climateWindStrength: planet.climate.windStrength,
+		climateStormActivity: planet.climate.stormActivity,
+		climateCloudPersistence: planet.climate.cloudPersistence,
+		climateAshLoad: planet.climate.ashLoad,
+
 		raymarchOcclusionStrength: Math.max(
 			0.18,
 			Math.min(
-				0.62,
+				0.78,
 				0.22 +
 				renderProfile.mountainScale * 0.28 +
-				renderProfile.terrainRoughness * 0.14,
+				renderProfile.terrainRoughness * 0.14 +
+				climateShadowBoost,
 			),
 		),
 	};

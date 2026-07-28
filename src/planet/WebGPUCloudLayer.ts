@@ -59,7 +59,7 @@ export class WebGPUCloudLayer {
 		this.cloudDensity = uniform(2.25);
 		this.cloudAlpha = uniform(0.82);
 		this.cloudDetailStrength = uniform(1.0);
-		this.cloudStepCount = uniform(16.0);
+		this.cloudStepCount = uniform(24.0);
 
 		this.material = this.createMaterial(
 			radius,
@@ -146,7 +146,7 @@ export class WebGPUCloudLayer {
 		}
 
 		this.cloudDetailStrength.value = 1.0;
-		this.cloudStepCount.value = 16.0;
+		this.cloudStepCount.value = 24.0;
 		this.material.opacity = 0.74;
 	}
 
@@ -154,7 +154,7 @@ export class WebGPUCloudLayer {
 		this.cloudStepCount.value = THREE.MathUtils.clamp(
 			steps,
 			1,
-			16,
+			24,
 		);
 	}
 
@@ -277,7 +277,7 @@ fn cloud_raymarch(
 	var alpha = 0.0;
 	var cloudColorAccum = vec3<f32>(0.0, 0.0, 0.0);
 
-	for (var i = 0; i < 16; i = i + 1) {
+	for (var i = 0; i < 24; i = i + 1) {
 		if (f32(i) >= cloudStepCount) {
 			break;
 		}

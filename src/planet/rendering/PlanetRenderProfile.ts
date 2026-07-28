@@ -26,6 +26,14 @@ export type PlanetRenderProfile = {
 	oceanLevel: number;
 	cloudCoverage: number;
 	atmosphereDensity: number;
+
+	climateTemperature: number;
+	climateHumidity: number;
+	climateAridity: number;
+	climateWindStrength: number;
+	climateStormActivity: number;
+	climateCloudPersistence: number;
+	climateAshLoad: number;
 };
 
 export function createPlanetRenderProfile(
@@ -51,6 +59,14 @@ export function createPlanetRenderProfile(
 		oceanLevel: planet.surface.oceanLevel,
 		cloudCoverage: planet.atmosphere.cloudCoverage,
 		atmosphereDensity: planet.atmosphere.density,
+
+		climateTemperature: planet.climate.temperature01,
+		climateHumidity: planet.climate.humidity,
+		climateAridity: planet.climate.aridity,
+		climateWindStrength: planet.climate.windStrength,
+		climateStormActivity: planet.climate.stormActivity,
+		climateCloudPersistence: planet.climate.cloudPersistence,
+		climateAshLoad: planet.climate.ashLoad,
 	};
 }
 

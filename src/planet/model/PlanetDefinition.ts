@@ -59,6 +59,21 @@ export type PlanetSurfaceDefinition = {
 	oceanLevel: number;
 };
 
+export type PlanetClimateDefinition = {
+	seed: number;
+	biomeSeed: number;
+	weatherSeed: number;
+
+	temperature01: number;
+	humidity: number;
+	aridity: number;
+	windStrength: number;
+	stormActivity: number;
+	seasonality: number;
+	cloudPersistence: number;
+	ashLoad: number;
+};
+
 export type PlanetRingBandDefinition = {
 	offset: number;
 	width: number;
@@ -98,6 +113,9 @@ export type PlanetRenderSeeds = {
 	cloudSeed: number;
 	atmosphereSeed: number;
 	ringSeed: number;
+	climateSeed: number;
+	biomeSeed: number;
+	weatherSeed: number;
 };
 
 export type PlanetDefinition = {
@@ -112,6 +130,7 @@ export type PlanetDefinition = {
 	orbit: PlanetOrbitDefinition;
 	atmosphere: PlanetAtmosphereDefinition;
 	surface: PlanetSurfaceDefinition;
+	climate: PlanetClimateDefinition;
 
 	rings?: PlanetRingDefinition;
 	moons: PlanetMoonDefinition[];

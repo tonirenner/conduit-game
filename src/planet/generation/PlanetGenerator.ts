@@ -5,6 +5,7 @@ import {
 
 import {
 	type PlanetAtmosphereDefinition,
+	type PlanetClimateDefinition,
 	type PlanetDefinition,
 	type PlanetMoonDefinition,
 	type PlanetOrbitDefinition,
@@ -38,6 +39,23 @@ export function generatePlanetDefinition(
 	const physical = generatePhysical(random, composition, planetClass);
 	const atmosphere = generateAtmosphere(random, composition, planetClass);
 	const surface = generateSurface(random, composition, planetClass);
+
+	const climateSeed = random.childSeed();
+	const biomeSeed = random.childSeed();
+	const weatherSeed = random.childSeed();
+
+	const climate = generateClimate(
+		new SeededRandom(climateSeed),
+		orbit,
+		composition,
+		atmosphere,
+		surface,
+		planetClass,
+		climateSeed,
+		biomeSeed,
+		weatherSeed,
+	);
+
 	const rings = generateRings(random, physical.radius, planetClass, options);
 	const moons = generateMoons(random, physical.radius, planetClass);
 
@@ -53,6 +71,7 @@ export function generatePlanetDefinition(
 		orbit,
 		atmosphere,
 		surface,
+		climate,
 
 		rings,
 		moons,
@@ -63,7 +82,100 @@ export function generatePlanetDefinition(
 			cloudSeed: random.childSeed(),
 			atmosphereSeed: random.childSeed(),
 			ringSeed: random.childSeed(),
+			climateSeed,
+			biomeSeed,
+			weatherSeed,
 		},
+	};
+}
+
+function generateClimate(
+	random: SeededRandom,
+	orbit: PlanetOrbitDefinition,
+	composition: PlanetMaterialComposition,
+	atmosphere: PlanetAtmosphereDefinition,
+	surface: PlanetSurfaceDefinition,
+	planetClass: string,
+	climateSeed: number,
+	biomeSeed: number,
+	weatherSeed: number,
+): PlanetClimateDefinition {
+	const temperature01 = clamp01(
+		(orbit.temperature - 120) / 760,
+	);
+
+	const waterHumidity =
+		      composition.water * 1.35 +
+		      (surface.hasOcean ? 0.25 : 0.0) +
+		      atmosphere.cloudCoverage * 0.30;
+
+	const volcanicDryness =
+		      planetClass === 'lava'
+		      ? 0.48
+		      : 0.0;
+
+	const humidity = clamp01(
+		waterHumidity -
+		volcanicDryness +
+		random.range(-0.08, 0.08),
+	);
+
+	const aridity = clamp01(
+		1.0 -
+		humidity * 0.72 +
+		temperature01 * 0.35 -
+		composition.ice * 0.20 +
+		random.range(-0.08, 0.08),
+	);
+
+	const atmosphereStrength = clamp01(
+		atmosphere.density / 2.5,
+	);
+
+	const windStrength = clamp01(
+		atmosphereStrength * 0.55 +
+		orbit.eccentricity * 1.35 +
+		random.range(0.08, 0.40),
+	);
+
+	const stormActivity = clamp01(
+		atmosphere.cloudCoverage * 0.55 +
+		windStrength * 0.30 +
+		composition.volatiles * 0.45 +
+		random.range(-0.08, 0.18),
+	);
+
+	const seasonality = clamp01(
+		orbit.eccentricity * 2.25 +
+		random.range(0.02, 0.28),
+	);
+
+	const cloudPersistence = clamp01(
+		atmosphere.cloudCoverage * 0.78 +
+		humidity * 0.28 +
+		stormActivity * 0.18,
+	);
+
+	const ashLoad = clamp01(
+		planetClass === 'lava'
+		? 0.58 + random.range(0.08, 0.30)
+		: surface.hasVolcanism
+		  ? 0.18 + random.range(0.05, 0.22)
+		  : random.range(0.00, 0.05),
+	);
+
+	return {
+		seed: climateSeed,
+		biomeSeed,
+		weatherSeed,
+		temperature01,
+		humidity,
+		aridity,
+		windStrength,
+		stormActivity,
+		seasonality,
+		cloudPersistence,
+		ashLoad,
 	};
 }
 
@@ -74,30 +186,30 @@ function generateComposition(
 ): PlanetMaterialComposition {
 	if (options.forceGasGiant) {
 		return normalizeComposition({
-			rock: random.range(0.02, 0.08),
-			metal: random.range(0.01, 0.05),
-			ice: random.range(0.02, 0.12),
-			water: random.range(0.00, 0.04),
-			gas: random.range(0.68, 0.88),
-			organic: random.range(0.00, 0.01),
-			volatiles: random.range(0.04, 0.16),
-		});
+			                            rock: random.range(0.02, 0.08),
+			                            metal: random.range(0.01, 0.05),
+			                            ice: random.range(0.02, 0.12),
+			                            water: random.range(0.00, 0.04),
+			                            gas: random.range(0.68, 0.88),
+			                            organic: random.range(0.00, 0.01),
+			                            volatiles: random.range(0.04, 0.16),
+		                            });
 	}
 
 	const coldBoost = temperature < 220 ? 1.0 : 0.0;
 	const hotBoost = temperature > 520 ? 1.0 : 0.0;
 	const habitableBoost =
-		temperature >= 235 && temperature <= 325 ? 1.0 : 0.0;
+		      temperature >= 235 && temperature <= 325 ? 1.0 : 0.0;
 
 	return normalizeComposition({
-		rock: random.range(0.28, 0.66),
-		metal: random.range(0.06, 0.26),
-		ice: random.range(0.00, 0.22 + coldBoost * 0.38),
-		water: random.range(0.00, 0.28 + habitableBoost * 0.18),
-		gas: random.range(0.00, 0.10),
-		organic: random.range(0.00, 0.10 + habitableBoost * 0.08),
-		volatiles: random.range(0.00, 0.16 + hotBoost * 0.08),
-	});
+		                            rock: random.range(0.28, 0.66),
+		                            metal: random.range(0.06, 0.26),
+		                            ice: random.range(0.00, 0.22 + coldBoost * 0.38),
+		                            water: random.range(0.00, 0.28 + habitableBoost * 0.18),
+		                            gas: random.range(0.00, 0.10),
+		                            organic: random.range(0.00, 0.10 + habitableBoost * 0.08),
+		                            volatiles: random.range(0.00, 0.16 + hotBoost * 0.08),
+	                            });
 }
 
 function generateOrbit(
@@ -108,9 +220,9 @@ function generateOrbit(
 	const starIrradiance = options.starIrradiance ?? 1.0;
 
 	const temperature =
-		278 *
-		Math.pow(starIrradiance, 0.25) /
-		Math.sqrt(semiMajorAxis);
+		      278 *
+		      Math.pow(starIrradiance, 0.25) /
+		      Math.sqrt(semiMajorAxis);
 
 	return {
 		semiMajorAxis,
@@ -127,21 +239,21 @@ function generatePhysical(
 	planetClass: string,
 ): PlanetPhysicalDefinition {
 	const gasGiant =
-		planetClass === 'gas_giant' ||
-		planetClass === 'ice_giant';
+		      planetClass === 'gas_giant' ||
+		      planetClass === 'ice_giant';
 
 	const radius = gasGiant
-		? random.range(8.0, 18.0)
-		: random.range(0.35, 2.4);
+	               ? random.range(8.0, 18.0)
+	               : random.range(0.35, 2.4);
 
 	const density =
-		composition.metal * 7.8 +
-		composition.rock * 3.8 +
-		composition.ice * 1.2 +
-		composition.water * 1.0 +
-		composition.gas * 0.25 +
-		composition.volatiles * 1.6 +
-		composition.organic * 1.1;
+		      composition.metal * 7.8 +
+		      composition.rock * 3.8 +
+		      composition.ice * 1.2 +
+		      composition.water * 1.0 +
+		      composition.gas * 0.25 +
+		      composition.volatiles * 1.6 +
+		      composition.organic * 1.1;
 
 	const mass = Math.max(
 		0.02,
@@ -175,9 +287,9 @@ function generateAtmosphere(
 	}
 
 	const atmospherePotential =
-		composition.gas * 2.2 +
-		composition.volatiles * 1.6 +
-		composition.water * 0.45;
+		      composition.gas * 2.2 +
+		      composition.volatiles * 1.6 +
+		      composition.water * 0.45;
 
 	if (atmospherePotential < 0.12) {
 		return {
@@ -192,9 +304,9 @@ function generateAtmosphere(
 
 	const toxic = composition.volatiles > 0.18;
 	const breathable =
-		composition.water > 0.12 &&
-		composition.organic > 0.05 &&
-		!toxic;
+		      composition.water > 0.12 &&
+		      composition.organic > 0.05 &&
+		      !toxic;
 
 	return {
 		type: toxic ? 'toxic' : breathable ? 'breathable' : 'thin',
@@ -212,8 +324,8 @@ function generateSurface(
 	planetClass: string,
 ): PlanetSurfaceDefinition {
 	const hasSolidSurface =
-		planetClass !== 'gas_giant' &&
-		planetClass !== 'ice_giant';
+		      planetClass !== 'gas_giant' &&
+		      planetClass !== 'ice_giant';
 
 	if (!hasSolidSurface) {
 		return {
@@ -235,15 +347,15 @@ function generateSurface(
 		hasVolcanism:
 			planetClass === 'lava' ||
 			(composition.rock + composition.metal > 0.70 &&
-				random.chance(0.35)),
+			 random.chance(0.35)),
 		hasTectonics:
 			planetClass === 'terrestrial' ||
 			(composition.water > 0.08 && random.chance(0.45)),
 		terrainRoughness: random.range(0.25, 1.0),
 		mountainScale: random.range(0.18, 1.25),
 		oceanLevel: composition.water > 0.12
-			? random.range(0.35, 0.68)
-			: random.range(0.02, 0.18),
+		            ? random.range(0.35, 0.68)
+		            : random.range(0.02, 0.18),
 	};
 }
 
@@ -254,11 +366,11 @@ function generateRings(
 	options: PlanetGenerationOptions,
 ): PlanetRingDefinition | undefined {
 	const ringChance =
-		options.forceRings ||
-		planetClass === 'gas_giant' ||
-		planetClass === 'ice_giant'
-			? 0.65
-			: 0.08;
+		      options.forceRings ||
+		      planetClass === 'gas_giant' ||
+		      planetClass === 'ice_giant'
+		      ? 0.65
+		      : 0.08;
 
 	if (!options.forceRings && !random.chance(ringChance)) {
 		return undefined;
@@ -280,17 +392,17 @@ function generateRings(
 			dust: random.range(0.05, 0.42),
 		},
 		bands: Array.from({
-			length: random.int(4, 11),
-		}).map(() => ({
+			                  length: random.int(4, 11),
+		                  }).map(() => ({
 			offset: random.range(0, 1),
 			width: random.range(0.015, 0.12),
 			density: random.range(0.18, 1.0),
 			color: random.pick([
-				'#d9d1bd',
-				'#b8aa91',
-				'#e8e4d8',
-				'#8c8172',
-			]),
+				                   '#d9d1bd',
+				                   '#b8aa91',
+				                   '#e8e4d8',
+				                   '#8c8172',
+			                   ]),
 		})),
 	};
 }
@@ -301,14 +413,14 @@ function generateMoons(
 	planetClass: string,
 ): PlanetMoonDefinition[] {
 	const maxMoons =
-		planetClass === 'gas_giant' ||
-		planetClass === 'ice_giant'
-			? random.int(4, 14)
-			: random.int(0, 3);
+		      planetClass === 'gas_giant' ||
+		      planetClass === 'ice_giant'
+		      ? random.int(4, 14)
+		      : random.int(0, 3);
 
 	return Array.from({
-		length: maxMoons,
-	}).map((_, index) => {
+		                  length: maxMoons,
+	                  }).map((_, index) => {
 		const seed = random.childSeed();
 
 		return {
@@ -316,51 +428,58 @@ function generateMoons(
 			name: `Moon ${index + 1}`,
 			seed,
 			class: random.pick([
-				'barren',
-				'rocky',
-				'ice',
-			]),
+				                   'barren',
+				                   'rocky',
+				                   'ice',
+			                   ]),
 			radius: random.range(0.04, 0.38) * planetRadius,
 			orbitRadius: planetRadius * random.range(3.0, 24.0),
 			orbitPeriod: random.range(0.8, 90.0),
 			composition: normalizeComposition({
-				rock: random.range(0.28, 0.74),
-				metal: random.range(0.04, 0.20),
-				ice: random.range(0.00, 0.55),
-				water: random.range(0.00, 0.10),
-				gas: 0,
-				organic: 0,
-				volatiles: random.range(0.00, 0.12),
-			}),
+				                                  rock: random.range(0.28, 0.74),
+				                                  metal: random.range(0.04, 0.20),
+				                                  ice: random.range(0.00, 0.55),
+				                                  water: random.range(0.00, 0.10),
+				                                  gas: 0,
+				                                  organic: 0,
+				                                  volatiles: random.range(0.00, 0.12),
+			                                  }),
 		};
 	});
 }
 
 function createPlanetName(random: SeededRandom): string {
 	const prefix = random.pick([
-		'Astra',
-		'Noma',
-		'Vel',
-		'Oris',
-		'Kyra',
-		'Eos',
-		'Mira',
-		'Thal',
-		'Rhea',
-		'Khar',
-	]);
+		                           'Astra',
+		                           'Noma',
+		                           'Vel',
+		                           'Oris',
+		                           'Kyra',
+		                           'Eos',
+		                           'Mira',
+		                           'Thal',
+		                           'Rhea',
+		                           'Khar',
+	                           ]);
 
 	const suffix = random.pick([
-		'Prime',
-		'VII',
-		'Minor',
-		'Major',
-		'B',
-		'C',
-		'Nova',
-		'Reach',
-		'Drift',
-	]);
+		                           'Prime',
+		                           'VII',
+		                           'Minor',
+		                           'Major',
+		                           'B',
+		                           'C',
+		                           'Nova',
+		                           'Reach',
+		                           'Drift',
+	                           ]);
 
 	return `${prefix} ${suffix}`;
+}
+
+function clamp01(value: number): number {
+	return Math.min(
+		1,
+		Math.max(0, value),
+	);
 }

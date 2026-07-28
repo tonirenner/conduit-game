@@ -631,6 +631,16 @@ function createPlanetDefinitionForSeed(
 			mountainScale: Math.max(planetDefinition.surface.mountainScale, 1.35),
 			oceanLevel: -1.0,
 		},
+		climate: {
+			...planetDefinition.climate,
+			temperature01: Math.max(planetDefinition.climate.temperature01, 0.86),
+			humidity: Math.min(planetDefinition.climate.humidity, 0.16),
+			aridity: Math.max(planetDefinition.climate.aridity, 0.82),
+			windStrength: Math.max(planetDefinition.climate.windStrength, 0.46),
+			stormActivity: Math.max(planetDefinition.climate.stormActivity, 0.36),
+			cloudPersistence: Math.max(planetDefinition.climate.cloudPersistence, 0.28),
+			ashLoad: Math.max(planetDefinition.climate.ashLoad, 0.72),
+		},
 	};
 }
 
@@ -994,6 +1004,15 @@ function updateHud(): void {
 		`ocean ${definitionStats.render.oceanLevel.toFixed(2)} | ` +
 		`mountain ${definitionStats.render.mountainScale.toFixed(2)}\n` +
 		`terrain seed: ${definitionStats.terrainSeed}\n` +
+		`climate seeds: climate ${definitionStats.climate.seed} | ` +
+		`biome ${definitionStats.climate.biomeSeed} | ` +
+		`weather ${definitionStats.climate.weatherSeed}\n` +
+		`climate: temp ${(definitionStats.climate.temperature01 * 100).toFixed(0)}% | ` +
+		`humid ${(definitionStats.climate.humidity * 100).toFixed(0)}% | ` +
+		`arid ${(definitionStats.climate.aridity * 100).toFixed(0)}% | ` +
+		`wind ${(definitionStats.climate.windStrength * 100).toFixed(0)}% | ` +
+		`storm ${(definitionStats.climate.stormActivity * 100).toFixed(0)}% | ` +
+		`ash ${(definitionStats.climate.ashLoad * 100).toFixed(0)}%\n` +
 		`surface: ${definitionStats.surfaceProfile.palette} | ` +
 		`ice ${definitionStats.surfaceProfile.hasIceCaps ? 'yes' : 'no'} | ` +
 		`volcano ${definitionStats.surfaceProfile.hasVolcanism ? 'yes' : 'no'} | ` +

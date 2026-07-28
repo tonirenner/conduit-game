@@ -6,30 +6,8 @@ export type PlanetRaymarchStepProfile = {
 };
 
 export type PlanetRenderFeatures = {
-	/**
-	 * Clouds are the best place for raymarching.
-	 *
-	 * Default:
-	 * - moving: 8 steps
-	 * - idle: 16 steps
-	 */
 	raymarchedClouds: boolean;
-
-	/**
-	 * Atmosphere raymarching is expensive and currently experimental in the
-	 * WebGPU/TSL path. Keep the feature flag so we can switch between:
-	 *
-	 * - safe TSL atmosphere
-	 * - experimental raymarched atmosphere
-	 */
 	raymarchedAtmosphere: boolean;
-
-	/**
-	 * Surface raymarching is a light terrain-occlusion pass.
-	 *
-	 * This is not full path tracing. It raymarches the procedural height field
-	 * along the sun tangent and adds terrain self-shadowing.
-	 */
 	raymarchedSurface: boolean;
 
 	cloudSteps: PlanetRaymarchStepProfile;
@@ -42,19 +20,25 @@ export const DEFAULT_PLANET_RENDER_FEATURES: PlanetRenderFeatures = {
 	raymarchedAtmosphere: true,
 	raymarchedSurface: true,
 
+	/**
+	 * Phase 8b:
+	 * More raymarching budget in idle mode.
+	 *
+	 * Moving stays conservative, because camera motion hides detail anyway.
+	 */
 	cloudSteps: {
+		moving: 10,
+		idle: 24,
+	},
+
+	atmosphereSteps: {
 		moving: 8,
 		idle: 16,
 	},
 
-	atmosphereSteps: {
-		moving: 6,
-		idle: 12,
-	},
-
 	surfaceSteps: {
-		moving: 2,
-		idle: 6,
+		moving: 3,
+		idle: 10,
 	},
 };
 
