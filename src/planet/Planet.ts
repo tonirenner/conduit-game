@@ -9,6 +9,7 @@ import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 import { GasGiantLayer } from './GasGiantLayer';
 import { RingSystemLayer } from './RingSystemLayer';
+import { MoonSystemLayer } from './MoonSystemLayer';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { PlanetDefinition } from './model/PlanetDefinition';
@@ -62,6 +63,7 @@ export class Planet {
 	private readonly depthOccluder?: THREE.Mesh;
 	private readonly gasGiantLayer?: GasGiantLayer;
 	private ringSystemLayer?: RingSystemLayer;
+	private moonSystemLayer?: MoonSystemLayer;
 
 	private readonly rendererKind: string;
 
@@ -136,6 +138,7 @@ export class Planet {
 			}
 
 			this.createRingSystem();
+			this.createMoonSystem();
 
 			this.applyRenderProfile();
 			return;
@@ -156,6 +159,7 @@ export class Planet {
 		this.group.add(this.webGPUAtmosphere.mesh);
 
 		this.createRingSystem();
+		this.createMoonSystem();
 
 		this.applyRenderProfile();
 	}
@@ -225,6 +229,7 @@ export class Planet {
 
 		this.gasGiantLayer?.update(deltaSeconds);
 		this.ringSystemLayer?.update(deltaSeconds);
+		this.moonSystemLayer?.update(deltaSeconds);
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
@@ -346,6 +351,29 @@ export class Planet {
 		                                           });
 
 		this.group.add(this.ringSystemLayer.group);
+	}
+
+	private createMoonSystem(): void {
+		const moonCount =
+			      this.definition?.moons?.length ?? 0;
+
+		if (moonCount <= 0) {
+			return;
+		}
+
+		const moonSeed =
+			      (this.definition.render as any).moonSeed ??
+			      this.definition.seed ^
+			      0x4411aa;
+
+		this.moonSystemLayer = new MoonSystemLayer({
+			                                           radius: this.radius,
+			                                           seed: moonSeed,
+			                                           moonCount,
+			                                           parentKind: this.rendererKind,
+		                                           });
+
+		this.group.add(this.moonSystemLayer.group);
 	}
 
 	private createSurfaceMaterial(
@@ -743,6 +771,8 @@ export class Planet {
 	}
 
 	dispose(): void {
+		this.moonSystemLayer?.dispose();
+
 		this.group.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) {
 				return;
