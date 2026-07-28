@@ -10,6 +10,7 @@ import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 import { GasGiantLayer } from './GasGiantLayer';
 import { RingSystemLayer } from './RingSystemLayer';
 import { MoonSystemLayer } from './MoonSystemLayer';
+import { LavaPlanetLayer } from './LavaPlanetLayer';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { PlanetDefinition } from './model/PlanetDefinition';
@@ -64,6 +65,7 @@ export class Planet {
 	private readonly gasGiantLayer?: GasGiantLayer;
 	private ringSystemLayer?: RingSystemLayer;
 	private moonSystemLayer?: MoonSystemLayer;
+	private lavaPlanetLayer?: LavaPlanetLayer;
 
 	private readonly rendererKind: string;
 
@@ -106,6 +108,34 @@ export class Planet {
 		this.atmosphereRadius = radius * 1.045;
 
 		if (this.isSolidSurfaceRenderer()) {
+			if (this.isLavaSurfaceRenderer()) {
+				this.lavaPlanetLayer = new LavaPlanetLayer({
+					                                           radius,
+					                                           seed:
+						                                           this.definition?.render.terrainSeed ??
+						                                           this.definition?.seed ??
+						                                           1,
+				                                           });
+
+				this.group.add(this.lavaPlanetLayer.group);
+
+				if (this.rendererMode === 'webgl') {
+					this.atmosphere = new AtmosphereLayer(radius);
+					this.group.add(this.atmosphere.mesh);
+				}
+
+				if (this.rendererMode === 'webgpu') {
+					this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
+					this.group.add(this.webGPUAtmosphere.mesh);
+				}
+
+				this.createRingSystem();
+				this.createMoonSystem();
+
+				this.applyRenderProfile();
+				return;
+			}
+
 			this.surfaceMaterial = this.createSurfaceMaterial(
 				radius,
 				this.atmosphereRadius,
@@ -168,6 +198,25 @@ export class Planet {
 		return this.rendererKind === 'solid_surface';
 	}
 
+	private isLavaSurfaceRenderer(): boolean {
+		if (this.rendererKind !== 'solid_surface') {
+			return false;
+		}
+
+		if (this.definition?.class === 'lava') {
+			return true;
+		}
+
+		if (this.surfaceProfile?.palette === 'lava') {
+			return true;
+		}
+
+		return (
+			new URLSearchParams(window.location.search)
+				.get('surface') === 'lava'
+		);
+	}
+
 	private applyRenderProfile(): void {
 		if (!this.renderProfile) {
 			return;
@@ -220,6 +269,20 @@ export class Planet {
 				this.surfaceProfile,
 			);
 		}
+
+		const forcedSurface =
+			      new URLSearchParams(window.location.search)
+				      .get('surface');
+
+		const forcedLavaSetter =
+			      (this.surfaceMaterial as any)?.setForcedLavaSurface;
+
+		if (typeof forcedLavaSetter === 'function') {
+			forcedLavaSetter.call(
+				this.surfaceMaterial,
+				forcedSurface === 'lava',
+			);
+		}
 	}
 
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
@@ -230,6 +293,7 @@ export class Planet {
 		this.gasGiantLayer?.update(deltaSeconds);
 		this.ringSystemLayer?.update(deltaSeconds);
 		this.moonSystemLayer?.update(deltaSeconds);
+		this.lavaPlanetLayer?.update(deltaSeconds);
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
@@ -333,12 +397,12 @@ export class Planet {
 	}
 
 	private createRingSystem(): void {
-		if (!this.definition?.rings.enabled) {
+		if (!this.definition?.rings?.enabled) {
 			return;
 		}
 
 		const ringSeed =
-			      this.definition.render.ringSeed ??
+			      (this.definition.render as any)?.ringSeed ??
 			      this.definition.seed;
 
 		this.ringSystemLayer = new RingSystemLayer({
@@ -362,9 +426,8 @@ export class Planet {
 		}
 
 		const moonSeed =
-			      (this.definition.render as any).moonSeed ??
-			      this.definition.seed ^
-			      0x4411aa;
+			      (this.definition.render as any)?.moonSeed ??
+			      (this.definition.seed ^ 0x4411aa);
 
 		this.moonSystemLayer = new MoonSystemLayer({
 			                                           radius: this.radius,
@@ -772,6 +835,7 @@ export class Planet {
 
 	dispose(): void {
 		this.moonSystemLayer?.dispose();
+		this.lavaPlanetLayer?.dispose();
 
 		this.group.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) {

@@ -54,6 +54,14 @@ let forcedPlanetKind: ForcedPlanetKind =
 	    ? 'gas_giant'
 	    : 'auto';
 
+type ForcedSurfaceKind = 'auto' | 'lava';
+
+function getForcedSurfaceKind(): ForcedSurfaceKind {
+	return new URLSearchParams(window.location.search).get('surface') === 'lava'
+	       ? 'lava'
+	       : 'auto';
+}
+
 function writeForcedKindToUrl(): void {
 	const url = new URL(window.location.href);
 
@@ -571,7 +579,7 @@ type PlanetRuntimeProfile = ReturnType<typeof createPlanetRenderProfile>;
 function createPlanetDefinitionForSeed(
 	seed: number,
 ): PlanetRuntimeDefinition {
-	return generatePlanetDefinition(
+	const planetDefinition = generatePlanetDefinition(
 		seed,
 		{
 			name: `Mira ${seed}`,
@@ -580,6 +588,50 @@ function createPlanetDefinitionForSeed(
 			forceGasGiant: forcedPlanetKind === 'gas_giant',
 		},
 	);
+
+	if (getForcedSurfaceKind() !== 'lava') {
+		return planetDefinition;
+	}
+
+	/*
+	 * Phase 7c clean lava:
+	 *
+	 * Force lava at the definition source, not inside the material.
+	 * This makes PlanetRenderProfile + SurfaceRenderProfile + HUD agree.
+	 */
+	return {
+		...planetDefinition,
+		class: 'lava',
+		composition: {
+			...planetDefinition.composition,
+			rock: Math.max(planetDefinition.composition.rock, 0.62),
+			metal: Math.max(planetDefinition.composition.metal, 0.18),
+			water: 0.0,
+			ice: 0.0,
+			gas: Math.min(planetDefinition.composition.gas, 0.08),
+			volatiles: Math.max(planetDefinition.composition.volatiles, 0.10),
+		},
+		atmosphere: {
+			...planetDefinition.atmosphere,
+			type: 'thin',
+			density: Math.max(planetDefinition.atmosphere.density, 0.34),
+			pressure: Math.max(planetDefinition.atmosphere.pressure, 0.18),
+			cloudCoverage: Math.max(planetDefinition.atmosphere.cloudCoverage, 0.18),
+			haze: Math.max(planetDefinition.atmosphere.haze, 0.42),
+			color: 'ash_clouds',
+		},
+		surface: {
+			...planetDefinition.surface,
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: true,
+			hasTectonics: true,
+			terrainRoughness: Math.max(planetDefinition.surface.terrainRoughness, 0.78),
+			mountainScale: Math.max(planetDefinition.surface.mountainScale, 1.35),
+			oceanLevel: -1.0,
+		},
+	};
 }
 
 async function bakeTerrainTextureSetForDefinition(

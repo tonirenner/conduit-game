@@ -94,6 +94,14 @@ export function createPlanetSurfaceNodeMaterial(
 	const paletteCarbon = uniform(0.0);
 	const paletteEarthlike = uniform(0.0);
 	const paletteRocky = uniform(1.0);
+
+	const initialForcedLavaSurface =
+		      typeof window !== 'undefined' &&
+		      new URLSearchParams(window.location.search).get('surface') === 'lava'
+		      ? 1.0
+		      : 0.0;
+
+	const forcedLavaSurface = uniform(initialForcedLavaSurface);
 	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
 
 	const nightTint = color(0x061426);
@@ -999,35 +1007,72 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
+	const lavaSurfaceStrength = max(
+		forcedLavaSurface,
+		max(
+			paletteLava,
+			profileLavaInfluence,
+		),
+	);
+
+	const lavaLandMask = mix(
+		landOnly,
+		float(1.0),
+		forcedLavaSurface,
+	);
+
+	/*
+	 * Clean lava stand:
+	 *
+	 * This is intentionally simple and visible:
+	 * - surface=lava forces the entire surface into basalt/lava mode
+	 * - no Planet.ts dependency required
+	 * - no overlay required
+	 */
 	const lavaCracks = smoothstep(
-		0.62,
-		0.92,
-		mountainMask.add(
-			profileLavaInfluence.mul(0.18),
-		),
-	).mul(landOnly);
+		0.50,
+		0.88,
+		mountainMask
+			.add(terrainHeight.mul(2.0))
+			.add(profileLavaInfluence.mul(0.25))
+			.add(forcedLavaSurface.mul(0.45)),
+	).mul(lavaLandMask);
 
-	const lavaLand = mix(
-		color(0x17120f),
-		color(0x5b3322),
+	const lavaHotspots = smoothstep(
+		0.70,
+		0.96,
+		mountainMask
+			.add(terrainHeight.mul(3.0))
+			.add(forcedLavaSurface.mul(0.30)),
+	).mul(lavaLandMask);
+
+	const basaltColor = mix(
+		color(0x050403),
+		color(0x241812),
 		smoothstep(
-			0.02,
+			0.00,
+			0.24,
+			terrainHeight.add(mountainMask.mul(0.06)),
+		),
+	);
+
+	const lavaGlowColor = mix(
+		color(0xff3308),
+		color(0xffd66a),
+		smoothstep(
 			0.18,
-			terrainHeight,
+			0.95,
+			lavaCracks.add(lavaHotspots.mul(0.75)),
 		),
-	).add(
-		color(0xff5d19).mul(lavaCracks).mul(0.34),
 	);
 
-	const lavaColor = mix(
-		color(0x080f14),
-		lavaLand,
-		smoothstep(
-			0.48,
-			0.70,
-			landMask,
+	const lavaGlow = lavaGlowColor.mul(
+		lavaCracks.mul(0.70).add(
+			lavaHotspots.mul(1.10),
 		),
 	);
+
+	const lavaColor = basaltColor.add(lavaGlow);
 
 	const toxicLand = mix(
 		color(0x445033),
@@ -1126,7 +1171,10 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	paletteColor = mix(
 		paletteColor,
 		lavaColor,
-		paletteLava.mul(0.86).add(profileLavaInfluence.mul(0.20)),
+		max(
+			forcedLavaSurface,
+			paletteLava.mul(0.92).add(profileLavaInfluence.mul(0.24)),
+		),
 	);
 
 	paletteColor = mix(
@@ -1195,7 +1243,9 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	                                             });
 
 	baseColor = baseColor.add(
-		detailResult.rgb.mul(detailResult.a),
+		detailResult.rgb.mul(detailResult.a).mul(
+			oneMinus(forcedLavaSurface.mul(0.75)),
+		),
 	);
 
 	const ndl = dot(worldNormal, sunDirection);
@@ -1515,6 +1565,12 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 				.mul(day)
 				.mul(0.10),
 		)
+		.add(
+			lavaGlowColor
+				.mul(lavaCracks.mul(1.35).add(lavaHotspots.mul(1.75)))
+				.mul(lavaSurfaceStrength)
+				.mul(oneMinus(day).mul(1.05).add(day.mul(0.42))),
+		)
 		.mul(exposure);
 
 	material.colorNode = surfaceColor;
@@ -1556,6 +1612,10 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			nextRandom() * 2 - 1,
 			nextRandom() * 2 - 1,
 		).multiplyScalar(240.0);
+	};
+
+	(material as any).setForcedLavaSurface = (enabled: boolean): void => {
+		forcedLavaSurface.value = enabled ? 1.0 : 0.0;
 	};
 
 	(material as any).setSurfaceProfile = (
@@ -1601,6 +1661,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		paletteCarbon: paletteCarbon.value,
 		paletteEarthlike: paletteEarthlike.value,
 		paletteRocky: paletteRocky.value,
+		forcedLavaSurface: forcedLavaSurface.value,
 		terrainSeedOffset: terrainSeedOffset.value.clone(),
 		raymarchOcclusionStrength: surfaceRaymarchStrength.value,
 	});
