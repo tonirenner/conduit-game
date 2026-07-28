@@ -9,13 +9,14 @@ export type GasGiantLayerOptions = {
 };
 
 /**
- * Phase 7a.2:
+ * Phase 7a.2b:
  *
- * Seeded procedural gas/ice giant renderer.
+ * Seeded procedural gas/ice giant renderer with turbulence.
  *
- * No terrain.
- * No bake.
- * Texture-based bands for WebGPU/WebGL compatibility.
+ * Still texture-based on purpose:
+ * - low WebGPU parser risk
+ * - fast iteration
+ * - seeded and deterministic
  */
 export class GasGiantLayer {
 	public readonly group: THREE.Group;
@@ -167,8 +168,9 @@ export class GasGiantLayer {
 	}
 
 	private createBandTexture(): THREE.CanvasTexture {
-		const width = 1536;
-		const height = 768;
+		const width = 2048;
+		const height = 1024;
+
 		const canvas = document.createElement('canvas');
 
 		canvas.width = width;
@@ -180,13 +182,22 @@ export class GasGiantLayer {
 			throw new Error('Could not create gas giant texture context.');
 		}
 
-		this.paintBaseBands(context, width, height);
-		this.paintFineStripes(context, width, height);
+		const field = createTurbulenceField(
+			width,
+			height,
+			this.options.seed,
+			this.options.kind,
+		);
+
+		this.paintTurbulentBands(context, width, height, field);
+		this.paintFineStripes(context, width, height, field);
 
 		if (this.options.kind === 'gas_giant') {
-			this.paintStorms(context, width, height);
+			this.paintStorms(context, width, height, field);
+			this.paintShearWisps(context, width, height, field);
 		} else {
-			this.paintIceHaze(context, width, height);
+			this.paintIceHaze(context, width, height, field);
+			this.paintSoftIceWisps(context, width, height, field);
 		}
 
 		const texture = new THREE.CanvasTexture(canvas);
@@ -197,50 +208,116 @@ export class GasGiantLayer {
 		texture.offset.set(0, 0);
 		texture.needsUpdate = true;
 
-		texture.colorSpace = THREE.SRGBColorSpace;
+		if ('colorSpace' in texture) {
+			texture.colorSpace = THREE.SRGBColorSpace;
+		}
 
 		return texture;
 	}
 
-	private paintBaseBands(
+	private paintTurbulentBands(
 		context: CanvasRenderingContext2D,
 		width: number,
 		height: number,
+		field: TurbulenceField,
 	): void {
-		let y = 0;
+		const image = context.createImageData(width, height);
+		const data = image.data;
 
-		while (y < height) {
-			const normalizedY = y / height;
-			const latitude = Math.abs(normalizedY - 0.5) * 2;
-			const bandHeight = 18 + this.rng() * 54 + latitude * 30;
-			const palette =
+		const palette =
+			      this.options.kind === 'ice_giant'
+			      ? getIcePalette()
+			      : getGasPalette();
+
+		for (let y = 0; y < height; y++) {
+			const v = y / height;
+			const latitude = (v - 0.5) * 2;
+
+			const bandFrequency =
 				      this.options.kind === 'ice_giant'
-				      ? getIcePalette()
-				      : getGasPalette();
+				      ? 16.0
+				      : 23.0;
 
-			const colorA = palette[Math.floor(this.rng() * palette.length)];
-			const colorB = palette[Math.floor(this.rng() * palette.length)];
-			const gradient = context.createLinearGradient(0, y, 0, y + bandHeight);
+			const largeWave =
+				      Math.sin((v * bandFrequency + field.bandPhase) * Math.PI * 2);
 
-			gradient.addColorStop(0, colorA);
-			gradient.addColorStop(0.5, mixHex(colorA, colorB, 0.42));
-			gradient.addColorStop(1, colorB);
+			for (let x = 0; x < width; x++) {
+				const u = x / width;
+				const turbulence = field.sample(u, v);
 
-			context.fillStyle = gradient;
-			context.fillRect(0, y, width, Math.ceil(bandHeight) + 1);
+				const shear =
+					      Math.sin(
+						      (u * Math.PI * 2 * (1.0 + Math.abs(latitude) * 2.5)) +
+						      turbulence.swirl * 7.5 +
+						      largeWave * 0.45,
+					      );
 
-			y += bandHeight;
+				const bandValue =
+					      0.5 +
+					      0.28 * largeWave +
+					      0.16 * turbulence.medium +
+					      0.08 * turbulence.fine +
+					      0.08 * shear;
+
+				const paletteIndex = THREE.MathUtils.clamp(
+					Math.floor(
+						bandValue * (palette.length - 1),
+					),
+					0,
+					palette.length - 1,
+				);
+
+				const nextIndex = Math.min(
+					palette.length - 1,
+					paletteIndex + 1,
+				);
+
+				const mixAmount =
+					      THREE.MathUtils.clamp(
+						      (bandValue * (palette.length - 1)) % 1,
+						      0,
+						      1,
+					      );
+
+				const color = palette[paletteIndex].clone().lerp(
+					palette[nextIndex],
+					mixAmount,
+				);
+
+				const shade =
+					      1.0 +
+					      0.11 * turbulence.medium +
+					      0.055 * turbulence.fine;
+
+				color.multiplyScalar(shade);
+
+				const offset = (y * width + x) * 4;
+
+				data[offset + 0] = THREE.MathUtils.clamp(color.r * 255, 0, 255);
+				data[offset + 1] = THREE.MathUtils.clamp(color.g * 255, 0, 255);
+				data[offset + 2] = THREE.MathUtils.clamp(color.b * 255, 0, 255);
+				data[offset + 3] = 255;
+			}
 		}
+
+		context.putImageData(image, 0, 0);
 	}
 
 	private paintFineStripes(
 		context: CanvasRenderingContext2D,
 		width: number,
 		height: number,
+		field: TurbulenceField,
 	): void {
-		const stripeCount = this.options.kind === 'ice_giant' ? 72 : 128;
+		const stripeCount =
+			      this.options.kind === 'ice_giant'
+			      ? 86
+			      : 154;
 
-		context.globalAlpha = this.options.kind === 'ice_giant' ? 0.12 : 0.18;
+		context.globalAlpha =
+			this.options.kind === 'ice_giant'
+			? 0.13
+			: 0.17;
 
 		for (let index = 0; index < stripeCount; index++) {
 			const y = Math.floor(this.rng() * height);
@@ -248,11 +325,54 @@ export class GasGiantLayer {
 				      1 +
 				      Math.floor(
 					      this.rng() *
-					      (this.options.kind === 'ice_giant' ? 7 : 11),
+					      (
+						      this.options.kind === 'ice_giant'
+						      ? 6
+						      : 10
+					      ),
 				      );
 
-			context.fillStyle = this.rng() > 0.5 ? '#ffffff' : '#000000';
-			context.fillRect(0, y, width, stripeHeight);
+			const phase = this.rng() * Math.PI * 2;
+			const amplitude =
+				      width *
+				      (
+					      this.options.kind === 'ice_giant'
+					      ? 0.008
+					      : 0.015
+				      );
+
+			context.beginPath();
+
+			for (let x = 0; x <= width; x += 8) {
+				const u = x / width;
+				const v = y / height;
+				const turbulence = field.sample(u, v);
+				const dy =
+					      Math.sin(u * Math.PI * 8 + phase) *
+					      stripeHeight *
+					      0.9;
+
+				const px =
+					      x +
+					      Math.sin(u * Math.PI * 5 + turbulence.swirl * 3) *
+					      amplitude;
+
+				const py = y + dy;
+
+				if (x === 0) {
+					context.moveTo(px, py);
+				} else {
+					context.lineTo(px, py);
+				}
+			}
+
+			context.strokeStyle =
+				this.rng() > 0.5
+				? '#ffffff'
+				: '#000000';
+
+			context.lineWidth = stripeHeight;
+			context.stroke();
 		}
 
 		context.globalAlpha = 1;
@@ -262,38 +382,175 @@ export class GasGiantLayer {
 		context: CanvasRenderingContext2D,
 		width: number,
 		height: number,
+		field: TurbulenceField,
 	): void {
-		const stormCount = 2 + Math.floor(this.rng() * 4);
+		const stormCount =
+			      2 +
+			      Math.floor(this.rng() * 4);
 
 		for (let index = 0; index < stormCount; index++) {
 			const x = width * (0.12 + this.rng() * 0.76);
-			const y = height * (0.25 + this.rng() * 0.5);
-			const rx = width * (0.035 + this.rng() * 0.07);
-			const ry = height * (0.018 + this.rng() * 0.045);
+			const y = height * (0.28 + this.rng() * 0.44);
+			const rx = width * (0.045 + this.rng() * 0.075);
+			const ry = height * (0.018 + this.rng() * 0.042);
 
-			context.save();
-			context.translate(x, y);
-			context.rotate((this.rng() - 0.5) * 0.5);
-
-			const gradient = context.createRadialGradient(0, 0, 1, 0, 0, rx);
-
-			gradient.addColorStop(0, 'rgba(255,238,205,0.88)');
-			gradient.addColorStop(0.42, 'rgba(194,99,52,0.72)');
-			gradient.addColorStop(0.82, 'rgba(73,39,31,0.28)');
-			gradient.addColorStop(1, 'rgba(73,39,31,0.0)');
-
-			context.fillStyle = gradient;
-			context.beginPath();
-			context.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-			context.fill();
-			context.restore();
+			this.paintSwirledStorm(
+				context,
+				field,
+				x,
+				y,
+				rx,
+				ry,
+			);
 		}
+	}
+
+	private paintSwirledStorm(
+		context: CanvasRenderingContext2D,
+		field: TurbulenceField,
+		centerX: number,
+		centerY: number,
+		radiusX: number,
+		radiusY: number,
+	): void {
+		const rings = 18;
+
+		context.save();
+		context.translate(centerX, centerY);
+		context.rotate((this.rng() - 0.5) * 0.5);
+
+		for (let ring = rings; ring >= 1; ring--) {
+			const t = ring / rings;
+			const rx = radiusX * t;
+			const ry = radiusY * t;
+			const alpha = 0.045 + (1 - t) * 0.11;
+			const hue =
+				      ring % 3 === 0
+				      ? '255,238,205'
+				      : ring % 3 === 1
+				        ? '194,99,52'
+				        : '88,48,36';
+
+			context.beginPath();
+
+			const segments = 96;
+
+			for (let i = 0; i <= segments; i++) {
+				const a = (i / segments) * Math.PI * 2;
+				const swirl =
+					      a +
+					      (1 - t) * 2.7 +
+					      Math.sin(a * 3 + field.bandPhase) * 0.18;
+
+				const wobble =
+					      1 +
+					      0.12 * Math.sin(a * 5 + ring * 0.7) +
+					      0.08 * Math.sin(a * 9 + this.rng() * 0.2);
+
+				const x = Math.cos(swirl) * rx * wobble;
+				const y = Math.sin(swirl) * ry * wobble;
+
+				if (i === 0) {
+					context.moveTo(x, y);
+				} else {
+					context.lineTo(x, y);
+				}
+			}
+
+			context.fillStyle = `rgba(${hue},${alpha})`;
+			context.fill();
+		}
+
+		const coreGradient = context.createRadialGradient(
+			0,
+			0,
+			1,
+			0,
+			0,
+			radiusX * 0.38,
+		);
+
+		coreGradient.addColorStop(0, 'rgba(255,236,204,0.72)');
+		coreGradient.addColorStop(0.55, 'rgba(190,88,45,0.38)');
+		coreGradient.addColorStop(1, 'rgba(80,40,28,0.0)');
+
+		context.fillStyle = coreGradient;
+		context.beginPath();
+		context.ellipse(
+			0,
+			0,
+			radiusX * 0.48,
+			radiusY * 0.58,
+			0,
+			0,
+			Math.PI * 2,
+		);
+		context.fill();
+
+		context.restore();
+	}
+
+	private paintShearWisps(
+		context: CanvasRenderingContext2D,
+		width: number,
+		height: number,
+		field: TurbulenceField,
+	): void {
+		const wispCount = 42;
+
+		context.globalAlpha = 0.18;
+
+		for (let index = 0; index < wispCount; index++) {
+			const y = height * (0.15 + this.rng() * 0.7);
+			const length = width * (0.08 + this.rng() * 0.18);
+			const x = width * this.rng();
+			const phase = this.rng() * Math.PI * 2;
+
+			const gradient = context.createLinearGradient(
+				x,
+				y,
+				x + length,
+				y,
+			);
+
+			gradient.addColorStop(0, 'rgba(255,255,255,0)');
+			gradient.addColorStop(0.5, 'rgba(255,255,255,0.42)');
+			gradient.addColorStop(1, 'rgba(255,255,255,0)');
+
+			context.strokeStyle = gradient;
+			context.lineWidth = 1 + this.rng() * 4;
+			context.beginPath();
+
+			for (let i = 0; i <= 32; i++) {
+				const t = i / 32;
+				const u = (x + length * t) / width;
+				const v = y / height;
+				const turbulence = field.sample(u, v);
+
+				const px = x + length * t;
+				const py =
+					      y +
+					      Math.sin(t * Math.PI * 2 + phase) * 7 +
+					      turbulence.swirl * 16;
+
+				if (i === 0) {
+					context.moveTo(px, py);
+				} else {
+					context.lineTo(px, py);
+				}
+			}
+
+			context.stroke();
+		}
+
+		context.globalAlpha = 1;
 	}
 
 	private paintIceHaze(
 		context: CanvasRenderingContext2D,
 		width: number,
 		height: number,
+		field: TurbulenceField,
 	): void {
 		const haze = context.createRadialGradient(
 			width * 0.5,
@@ -311,51 +568,198 @@ export class GasGiantLayer {
 		context.fillStyle = haze;
 		context.fillRect(0, 0, width, height);
 	}
+
+	private paintSoftIceWisps(
+		context: CanvasRenderingContext2D,
+		width: number,
+		height: number,
+		field: TurbulenceField,
+	): void {
+		context.globalAlpha = 0.16;
+		context.strokeStyle = 'rgba(255,255,255,0.55)';
+
+		for (let index = 0; index < 36; index++) {
+			const y = height * (0.12 + this.rng() * 0.76);
+			const length = width * (0.1 + this.rng() * 0.28);
+			const x = width * this.rng();
+
+			context.lineWidth = 1 + this.rng() * 5;
+			context.beginPath();
+
+			for (let i = 0; i <= 36; i++) {
+				const t = i / 36;
+				const u = (x + length * t) / width;
+				const v = y / height;
+				const turbulence = field.sample(u, v);
+
+				const px = x + length * t;
+				const py =
+					      y +
+					      turbulence.swirl * 20 +
+					      Math.sin(t * Math.PI * 3) * 6;
+
+				if (i === 0) {
+					context.moveTo(px, py);
+				} else {
+					context.lineTo(px, py);
+				}
+			}
+
+			context.stroke();
+		}
+
+		context.globalAlpha = 1;
+	}
 }
 
-function getGasPalette(): string[] {
-	return [
-		'#3a2115',
-		'#6d4228',
-		'#9a6a42',
-		'#c8985f',
-		'#e6c894',
-		'#f1d9aa',
-		'#9b5133',
-		'#4f2d22',
-	];
-}
+type TurbulenceSample = {
+	medium: number;
+	fine: number;
+	swirl: number;
+};
 
-function getIcePalette(): string[] {
-	return [
-		'#102b3a',
-		'#1f5d7a',
-		'#3c8cb0',
-		'#70b9d9',
-		'#a9def2',
-		'#d8f4ff',
-		'#5a93bf',
-	];
-}
+type TurbulenceField = {
+	bandPhase: number;
+	sample(u: number, v: number): TurbulenceSample;
+};
 
-function mixHex(a: string, b: string, t: number): string {
-	const ca = parseHex(a);
-	const cb = parseHex(b);
-	const r = Math.round(THREE.MathUtils.lerp(ca.r, cb.r, t));
-	const g = Math.round(THREE.MathUtils.lerp(ca.g, cb.g, t));
-	const bl = Math.round(THREE.MathUtils.lerp(ca.b, cb.b, t));
+function createTurbulenceField(
+	width: number,
+	height: number,
+	seed: number,
+	kind: GasGiantLayerKind,
+): TurbulenceField {
+	const rng = createSeededRandom(
+		(seed ^ 0x7f4a7c15) >>> 0,
+	);
 
-	return `rgb(${r}, ${g}, ${bl})`;
-}
-
-function parseHex(value: string): { r: number; g: number; b: number } {
-	const hex = value.replace('#', '');
+	const bandPhase = rng() * 10;
+	const offsetA = rng() * 1000;
+	const offsetB = rng() * 1000;
+	const offsetC = rng() * 1000;
 
 	return {
-		r: Number.parseInt(hex.slice(0, 2), 16),
-		g: Number.parseInt(hex.slice(2, 4), 16),
-		b: Number.parseInt(hex.slice(4, 6), 16),
+		bandPhase,
+		sample(u: number, v: number): TurbulenceSample {
+			const latitude = (v - 0.5) * 2;
+			const shearStrength =
+				      kind === 'ice_giant'
+				      ? 0.10
+				      : 0.19;
+
+			const shearedU =
+				      u +
+				      Math.sin(v * Math.PI * 8 + bandPhase) *
+				      shearStrength +
+				      latitude *
+				      0.06;
+
+			const medium =
+				      fbm2(
+					      shearedU * 7.0 + offsetA,
+					      v * 24.0 + offsetB,
+					      4,
+				      ) * 2 - 1;
+
+			const fine =
+				      fbm2(
+					      shearedU * 22.0 + offsetB,
+					      v * 74.0 + offsetC,
+					      3,
+				      ) * 2 - 1;
+
+			const swirl =
+				      fbm2(
+					      shearedU * 5.2 + medium * 0.35 + offsetC,
+					      v * 18.0 + fine * 0.22 + offsetA,
+					      4,
+				      ) * 2 - 1;
+
+			return {
+				medium,
+				fine,
+				swirl,
+			};
+		},
 	};
+}
+
+function getGasPalette(): THREE.Color[] {
+	return [
+		new THREE.Color(0x2d170f),
+		new THREE.Color(0x5f3722),
+		new THREE.Color(0x8e5d38),
+		new THREE.Color(0xbd8450),
+		new THREE.Color(0xe1b16f),
+		new THREE.Color(0xf5d9a4),
+		new THREE.Color(0xb65d37),
+		new THREE.Color(0x4d2b20),
+	];
+}
+
+function getIcePalette(): THREE.Color[] {
+	return [
+		new THREE.Color(0x092132),
+		new THREE.Color(0x184c67),
+		new THREE.Color(0x327fa3),
+		new THREE.Color(0x62b0d2),
+		new THREE.Color(0xa4dced),
+		new THREE.Color(0xd8f6ff),
+		new THREE.Color(0x5d96bd),
+	];
+}
+
+function fbm2(x: number, y: number, octaves: number): number {
+	let value = 0;
+	let amplitude = 0.5;
+	let frequency = 1;
+	let normalizer = 0;
+
+	for (let i = 0; i < octaves; i++) {
+		value += valueNoise2(
+		         x * frequency,
+		         y * frequency,
+		) * amplitude;
+
+		normalizer += amplitude;
+		amplitude *= 0.5;
+		frequency *= 2.03;
+	}
+
+	return value / normalizer;
+}
+
+function valueNoise2(x: number, y: number): number {
+	const ix = Math.floor(x);
+	const iy = Math.floor(y);
+
+	const fx = smoothstep(x - ix);
+	const fy = smoothstep(y - iy);
+
+	const a = hash2(ix, iy);
+	const b = hash2(ix + 1, iy);
+	const c = hash2(ix, iy + 1);
+	const d = hash2(ix + 1, iy + 1);
+
+	const ab = THREE.MathUtils.lerp(a, b, fx);
+	const cd = THREE.MathUtils.lerp(c, d, fx);
+
+	return THREE.MathUtils.lerp(ab, cd, fy);
+}
+
+function hash2(x: number, y: number): number {
+	let n =
+		    Math.imul(x, 374761393) ^
+		    Math.imul(y, 668265263);
+
+	n = (n ^ (n >>> 13)) >>> 0;
+	n = Math.imul(n, 1274126177) >>> 0;
+
+	return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+function smoothstep(t: number): number {
+	return t * t * (3 - 2 * t);
 }
 
 function createSeededRandom(seed: number): () => number {
@@ -363,11 +767,22 @@ function createSeededRandom(seed: number): () => number {
 
 	return () => {
 		value += 0x6d2b79f5;
+
 		let mixed = value;
 
-		mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
-		mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+		mixed = Math.imul(
+			mixed ^ (mixed >>> 15),
+			mixed | 1,
+		);
 
-		return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+		mixed ^= mixed + Math.imul(
+			mixed ^ (mixed >>> 7),
+			mixed | 61,
+		);
+
+		return (
+			((mixed ^ (mixed >>> 14)) >>> 0) /
+			4294967296
+		);
 	};
 }

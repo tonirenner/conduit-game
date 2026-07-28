@@ -8,6 +8,7 @@ import { WebGPUCloudLayer } from './WebGPUCloudLayer';
 import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
 import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
 import { GasGiantLayer } from './GasGiantLayer';
+import { RingSystemLayer } from './RingSystemLayer';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { PlanetDefinition } from './model/PlanetDefinition';
@@ -60,6 +61,7 @@ export class Planet {
 	private readonly webGPUClouds?: WebGPUCloudLayer;
 	private readonly depthOccluder?: THREE.Mesh;
 	private readonly gasGiantLayer?: GasGiantLayer;
+	private ringSystemLayer?: RingSystemLayer;
 
 	private readonly rendererKind: string;
 
@@ -133,6 +135,8 @@ export class Planet {
 				this.group.add(this.webGPUAtmosphere.mesh);
 			}
 
+			this.createRingSystem();
+
 			this.applyRenderProfile();
 			return;
 		}
@@ -150,6 +154,8 @@ export class Planet {
 
 		this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
 		this.group.add(this.webGPUAtmosphere.mesh);
+
+		this.createRingSystem();
 
 		this.applyRenderProfile();
 	}
@@ -218,6 +224,7 @@ export class Planet {
 		}
 
 		this.gasGiantLayer?.update(deltaSeconds);
+		this.ringSystemLayer?.update(deltaSeconds);
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
@@ -318,6 +325,27 @@ export class Planet {
 			? steps
 			: 0,
 		);
+	}
+
+	private createRingSystem(): void {
+		if (!this.definition?.rings.enabled) {
+			return;
+		}
+
+		const ringSeed =
+			      this.definition.render.ringSeed ??
+			      this.definition.seed;
+
+		this.ringSystemLayer = new RingSystemLayer({
+			                                           radius: this.radius,
+			                                           seed: ringSeed,
+			                                           opacity:
+				                                           this.rendererKind === 'solid_surface'
+				                                           ? 0.46
+				                                           : 0.74,
+		                                           });
+
+		this.group.add(this.ringSystemLayer.group);
 	}
 
 	private createSurfaceMaterial(
