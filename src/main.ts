@@ -750,7 +750,15 @@ function updateHud(): void {
 		`atmo: ${definitionStats.atmosphere.type} | ` +
 		`clouds ${(definitionStats.atmosphere.cloudCoverage * 100).toFixed(0)}% | ` +
 		`rings: ${definitionStats.rings ? 'yes' : 'no'} | ` +
-		`moons: ${definitionStats.moons}\n`
+		`moons: ${definitionStats.moons}\n` +
+		`profile: terrain ${definitionStats.render.enableTerrain ? 'on' : 'off'} | ` +
+		`ocean ${definitionStats.render.enableOcean ? 'on' : 'off'} | ` +
+		`clouds ${definitionStats.render.enableClouds ? 'on' : 'off'} | ` +
+		`atmo ${definitionStats.render.enableAtmosphere ? 'on' : 'off'}\n` +
+		`profile values: cloud ${(definitionStats.render.cloudCoverage * 100).toFixed(0)}% | ` +
+		`atmo ${definitionStats.render.atmosphereDensity.toFixed(2)} | ` +
+		`ocean ${definitionStats.render.oceanLevel.toFixed(2)} | ` +
+		`mountain ${definitionStats.render.mountainScale.toFixed(2)}\n`
 			: ''
 		) +
 		`raymarch: clouds ${featureStats.clouds.raymarched ? featureStats.clouds.steps : 'off'} | ` +

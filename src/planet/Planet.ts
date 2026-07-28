@@ -27,7 +27,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 };
 
 /**
- * Phase 6b.1:
+ * Phase 6b.2:
  *
  * WebGL:
  * - existing GLSL ShaderMaterial
@@ -36,7 +36,7 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
  * WebGPU:
  * - raymarch visual pass
  * - optional baked TerrainTextureSet for material masks
- * - optional PlanetDefinition / PlanetRenderProfile debug integration
+ * - PlanetRenderProfile drives clouds and atmosphere
  */
 export class Planet {
 	public readonly group: THREE.Group;
@@ -107,6 +107,36 @@ export class Planet {
 
 			this.group.add(this.webGPUClouds.mesh);
 			this.group.add(this.webGPUAtmosphere.mesh);
+		}
+
+		this.applyRenderProfile();
+	}
+
+	private applyRenderProfile(): void {
+		if (!this.renderProfile) {
+			return;
+		}
+
+		const cloudProfileSetter =
+			      (this.webGPUClouds as any)?.setCloudProfile;
+
+		if (typeof cloudProfileSetter === 'function') {
+			cloudProfileSetter.call(
+				this.webGPUClouds,
+				this.renderProfile.cloudCoverage,
+				this.renderProfile.atmosphereDensity,
+			);
+		}
+
+		const atmosphereProfileSetter =
+			      (this.webGPUAtmosphere as any)?.setAtmosphereProfile;
+
+		if (typeof atmosphereProfileSetter === 'function') {
+			atmosphereProfileSetter.call(
+				this.webGPUAtmosphere,
+				this.renderProfile.atmosphereDensity,
+				this.definition?.atmosphere.haze ?? 0,
+			);
 		}
 	}
 
@@ -434,6 +464,18 @@ export class Planet {
 		};
 		rings: boolean;
 		moons: number;
+		render: {
+			enableTerrain: boolean;
+			enableOcean: boolean;
+			enableClouds: boolean;
+			enableAtmosphere: boolean;
+			enableRings: boolean;
+			cloudCoverage: number;
+			atmosphereDensity: number;
+			terrainRoughness: number;
+			mountainScale: number;
+			oceanLevel: number;
+		};
 	} {
 		if (!this.definition) {
 			return {
@@ -457,6 +499,18 @@ export class Planet {
 				},
 				rings: false,
 				moons: 0,
+				render: {
+					enableTerrain: false,
+					enableOcean: false,
+					enableClouds: false,
+					enableAtmosphere: false,
+					enableRings: false,
+					cloudCoverage: 0,
+					atmosphereDensity: 0,
+					terrainRoughness: 0,
+					mountainScale: 0,
+					oceanLevel: 0,
+				},
 			};
 		}
 
@@ -473,6 +527,18 @@ export class Planet {
 			},
 			rings: this.definition.rings?.enabled ?? false,
 			moons: this.definition.moons.length,
+			render: {
+				enableTerrain: this.renderProfile?.enableTerrain ?? false,
+				enableOcean: this.renderProfile?.enableOcean ?? false,
+				enableClouds: this.renderProfile?.enableClouds ?? false,
+				enableAtmosphere: this.renderProfile?.enableAtmosphere ?? false,
+				enableRings: this.renderProfile?.enableRings ?? false,
+				cloudCoverage: this.renderProfile?.cloudCoverage ?? 0,
+				atmosphereDensity: this.renderProfile?.atmosphereDensity ?? 0,
+				terrainRoughness: this.renderProfile?.terrainRoughness ?? 0,
+				mountainScale: this.renderProfile?.mountainScale ?? 0,
+				oceanLevel: this.renderProfile?.oceanLevel ?? 0,
+			},
 		};
 	}
 

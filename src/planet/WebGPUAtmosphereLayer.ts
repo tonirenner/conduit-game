@@ -12,9 +12,9 @@ import { SUN_DIRECTION } from './Sun';
 export type WebGPUAtmosphereQuality = 'moving' | 'idle';
 
 /**
- * Phase 5e.2:
+ * Phase 6b.2:
  *
- * Raymarched WebGPU atmosphere.
+ * Raymarched WebGPU atmosphere driven by PlanetRenderProfile.
  *
  * Important TSL parser rule:
  * The entry function must be the first WGSL function in the wgslFn string.
@@ -29,6 +29,11 @@ export class WebGPUAtmosphereLayer {
 	private readonly atmosphereAlpha: any;
 	private readonly scatteringBoost: any;
 	private readonly atmosphereStepCount: any;
+
+	private profileSunIntensity = 46.0;
+	private profileAtmosphereAlpha = 0.86;
+	private profileScatteringBoost = 1.0;
+	private profileOpacity = 0.58;
 
 	private currentRenderQuality: WebGPUAtmosphereQuality = 'idle';
 
@@ -65,6 +70,57 @@ export class WebGPUAtmosphereLayer {
 		// Static for now.
 	}
 
+	setAtmosphereProfile(
+		density: number,
+		haze: number,
+	): void {
+		const normalizedDensity = THREE.MathUtils.clamp(
+			density / 2.5,
+			0,
+			1,
+		);
+
+		const normalizedHaze = THREE.MathUtils.clamp(
+			haze,
+			0,
+			1,
+		);
+
+		const atmosphereStrength = Math.max(
+			normalizedDensity,
+			normalizedHaze,
+		);
+
+		this.profileSunIntensity = THREE.MathUtils.lerp(
+			30.0,
+			54.0,
+			atmosphereStrength,
+		);
+
+		this.profileAtmosphereAlpha = THREE.MathUtils.lerp(
+			0.22,
+			0.92,
+			atmosphereStrength,
+		);
+
+		this.profileScatteringBoost = THREE.MathUtils.lerp(
+			0.35,
+			1.18,
+			atmosphereStrength,
+		);
+
+		this.profileOpacity = THREE.MathUtils.lerp(
+			0.24,
+			0.64,
+			atmosphereStrength,
+		);
+
+		this.sunIntensity.value = this.profileSunIntensity;
+		this.atmosphereAlpha.value = this.profileAtmosphereAlpha;
+		this.scatteringBoost.value = this.profileScatteringBoost;
+		this.material.opacity = this.profileOpacity;
+	}
+
 	setRenderQuality(quality: WebGPUAtmosphereQuality): void {
 		if (quality === this.currentRenderQuality) {
 			return;
@@ -73,19 +129,19 @@ export class WebGPUAtmosphereLayer {
 		this.currentRenderQuality = quality;
 
 		if (quality === 'moving') {
-			this.sunIntensity.value = 34.0;
-			this.atmosphereAlpha.value = 0.62;
-			this.scatteringBoost.value = 0.78;
+			this.sunIntensity.value = this.profileSunIntensity * 0.74;
+			this.atmosphereAlpha.value = this.profileAtmosphereAlpha * 0.72;
+			this.scatteringBoost.value = this.profileScatteringBoost * 0.78;
 			this.atmosphereStepCount.value = 6.0;
-			this.material.opacity = 0.42;
+			this.material.opacity = this.profileOpacity * 0.72;
 			return;
 		}
 
-		this.sunIntensity.value = 46.0;
-		this.atmosphereAlpha.value = 0.86;
-		this.scatteringBoost.value = 1.0;
+		this.sunIntensity.value = this.profileSunIntensity;
+		this.atmosphereAlpha.value = this.profileAtmosphereAlpha;
+		this.scatteringBoost.value = this.profileScatteringBoost;
 		this.atmosphereStepCount.value = 12.0;
-		this.material.opacity = 0.58;
+		this.material.opacity = this.profileOpacity;
 	}
 
 	setRaymarchSteps(steps: number): void {

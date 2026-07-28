@@ -12,9 +12,9 @@ import { SUN_DIRECTION } from './Sun';
 export type WebGPUCloudQuality = 'moving' | 'idle';
 
 /**
- * Phase 5e.1:
+ * Phase 6b.2:
  *
- * Raymarched clouds with quality-controlled steps.
+ * Raymarched clouds driven by PlanetRenderProfile.
  *
  * Keeps the already working WebGPU cloud raymarch structure, but ports the
  * visible WebGL CloudLayer values:
@@ -35,6 +35,10 @@ export class WebGPUCloudLayer {
 	private readonly cloudAlpha: any;
 	private readonly cloudDetailStrength: any;
 	private readonly cloudStepCount: any;
+
+	private profileCloudCoverage = 0.505;
+	private profileCloudDensity = 2.25;
+	private profileCloudAlpha = 0.82;
 
 	private currentRenderQuality: WebGPUCloudQuality = 'idle';
 
@@ -84,6 +88,49 @@ export class WebGPUCloudLayer {
 		this.mesh.rotation.x += deltaSeconds * 0.00025 * 0.14;
 	}
 
+	setCloudProfile(
+		cloudCoverage: number,
+		atmosphereDensity: number,
+	): void {
+		const normalizedCoverage = THREE.MathUtils.clamp(
+			cloudCoverage,
+			0,
+			1,
+		);
+
+		const normalizedDensity = THREE.MathUtils.clamp(
+			atmosphereDensity / 2.5,
+			0,
+			1,
+		);
+
+		/**
+		 * Shader cloudCoverage is a threshold:
+		 * lower value = more clouds.
+		 */
+		this.profileCloudCoverage = THREE.MathUtils.lerp(
+			0.66,
+			0.43,
+			normalizedCoverage,
+		);
+
+		this.profileCloudDensity = THREE.MathUtils.lerp(
+			1.20,
+			2.85,
+			Math.max(normalizedCoverage, normalizedDensity),
+		);
+
+		this.profileCloudAlpha = THREE.MathUtils.lerp(
+			0.28,
+			0.92,
+			normalizedCoverage,
+		);
+
+		this.cloudCoverage.value = this.profileCloudCoverage;
+		this.cloudDensity.value = this.profileCloudDensity;
+		this.cloudAlpha.value = this.profileCloudAlpha;
+	}
+
 	setRenderQuality(quality: WebGPUCloudQuality): void {
 		if (quality === this.currentRenderQuality) {
 			return;
@@ -119,22 +166,34 @@ export class WebGPUCloudLayer {
 		const heightAboveSurface = cameraDistance - planetRadius;
 
 		if (heightAboveSurface > 8) {
-			this.cloudDensity.value = 1.95;
-			this.cloudCoverage.value = 0.535;
-			this.cloudAlpha.value = 0.74;
+			this.cloudDensity.value = this.profileCloudDensity * 0.86;
+			this.cloudCoverage.value = THREE.MathUtils.clamp(
+				this.profileCloudCoverage + 0.030,
+				0.35,
+				0.78,
+			);
+			this.cloudAlpha.value = this.profileCloudAlpha * 0.90;
 			return;
 		}
 
 		if (heightAboveSurface > 3) {
-			this.cloudDensity.value = 2.25;
-			this.cloudCoverage.value = 0.505;
-			this.cloudAlpha.value = 0.84;
+			this.cloudDensity.value = this.profileCloudDensity;
+			this.cloudCoverage.value = this.profileCloudCoverage;
+			this.cloudAlpha.value = this.profileCloudAlpha;
 			return;
 		}
 
-		this.cloudDensity.value = 2.58;
-		this.cloudCoverage.value = 0.475;
-		this.cloudAlpha.value = 0.92;
+		this.cloudDensity.value = this.profileCloudDensity * 1.15;
+		this.cloudCoverage.value = THREE.MathUtils.clamp(
+			this.profileCloudCoverage - 0.030,
+			0.35,
+			0.78,
+		);
+		this.cloudAlpha.value = THREE.MathUtils.clamp(
+			this.profileCloudAlpha * 1.08,
+			0.0,
+			1.0,
+		);
 	}
 
 	private createMaterial(
