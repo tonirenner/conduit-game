@@ -6,9 +6,9 @@ export type LavaPlanetLayerOptions = {
 };
 
 /**
- * Phase 7c.2 clean:
+ * Phase 7c.2b clean:
  *
- * Dedicated lava planet renderer.
+ * Dedicated lava planet renderer — local crack field hotfix.
  *
  * This intentionally bypasses the normal biome/CubeSphere material path.
  * Reason: lava is not an earthlike biome tint. It is a different surface
@@ -28,7 +28,7 @@ export class LavaPlanetLayer {
 	constructor(
 		private readonly options: LavaPlanetLayerOptions,
 	) {
-		this.group      = new THREE.Group();
+		this.group = new THREE.Group();
 		this.group.name = 'LavaPlanetLayer';
 
 		const textureSet = createLavaTextureSet(
@@ -37,11 +37,11 @@ export class LavaPlanetLayer {
 			1024,
 		);
 
-		this.texture         = textureSet.colorTexture;
+		this.texture = textureSet.colorTexture;
 		this.emissiveTexture = textureSet.emissiveTexture;
 
 		this.surfaceMesh = this.createSurfaceMesh();
-		this.glowShell   = this.createGlowShell();
+		this.glowShell = this.createGlowShell();
 
 		this.group.add(this.surfaceMesh);
 		this.group.add(this.glowShell);
@@ -74,7 +74,7 @@ export class LavaPlanetLayer {
 			                                                map: this.texture,
 			                                                emissiveMap: this.emissiveTexture,
 			                                                emissive: new THREE.Color(0xff5a12),
-			                                                emissiveIntensity: 1.85,
+			                                                emissiveIntensity: 1.35,
 			                                                roughness: 0.92,
 			                                                metalness: 0.02,
 		                                                });
@@ -84,7 +84,7 @@ export class LavaPlanetLayer {
 			material,
 		);
 
-		mesh.name        = 'LavaPlanetSurface';
+		mesh.name = 'LavaPlanetSurface';
 		mesh.renderOrder = 1;
 
 		return mesh;
@@ -100,7 +100,7 @@ export class LavaPlanetLayer {
 		const material = new THREE.MeshBasicMaterial({
 			                                             color: 0xff4a14,
 			                                             transparent: true,
-			                                             opacity: 0.085,
+			                                             opacity: 0.040,
 			                                             side: THREE.BackSide,
 			                                             depthWrite: false,
 			                                             depthTest: true,
@@ -112,7 +112,7 @@ export class LavaPlanetLayer {
 			material,
 		);
 
-		mesh.name        = 'LavaPlanetGlowShell';
+		mesh.name = 'LavaPlanetGlowShell';
 		mesh.renderOrder = 3;
 
 		return mesh;
@@ -142,16 +142,16 @@ function createLavaTextureSet(
 	width: number,
 	height: number,
 ): LavaTextureSet {
-	const colorCanvas    = document.createElement('canvas');
+	const colorCanvas = document.createElement('canvas');
 	const emissiveCanvas = document.createElement('canvas');
 
-	colorCanvas.width  = width;
+	colorCanvas.width = width;
 	colorCanvas.height = height;
 
-	emissiveCanvas.width  = width;
+	emissiveCanvas.width = width;
 	emissiveCanvas.height = height;
 
-	const colorCtx    = colorCanvas.getContext('2d');
+	const colorCtx = colorCanvas.getContext('2d');
 	const emissiveCtx = emissiveCanvas.getContext('2d');
 
 	if (!colorCtx || !emissiveCtx) {
@@ -204,22 +204,22 @@ function createLavaTextureSet(
 		height,
 	);
 
-	const colorTexture    = new THREE.CanvasTexture(colorCanvas);
+	const colorTexture = new THREE.CanvasTexture(colorCanvas);
 	const emissiveTexture = new THREE.CanvasTexture(emissiveCanvas);
 
-	colorTexture.name    = 'GeneratedLavaColorTexture';
+	colorTexture.name = 'GeneratedLavaColorTexture';
 	emissiveTexture.name = 'GeneratedLavaEmissiveTexture';
 
-	colorTexture.colorSpace    = THREE.SRGBColorSpace;
+	colorTexture.colorSpace = THREE.SRGBColorSpace;
 	emissiveTexture.colorSpace = THREE.SRGBColorSpace;
 
-	colorTexture.wrapS = THREE.RepeatWrapping;
+	colorTexture.wrapS = THREE.ClampToEdgeWrapping;
 	colorTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-	emissiveTexture.wrapS = THREE.RepeatWrapping;
+	emissiveTexture.wrapS = THREE.ClampToEdgeWrapping;
 	emissiveTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-	colorTexture.needsUpdate    = true;
+	colorTexture.needsUpdate = true;
 	emissiveTexture.needsUpdate = true;
 
 	return {
@@ -280,7 +280,7 @@ function drawBasaltBase(
 	ctx.globalAlpha = 0.18;
 
 	for (let i = 0; i < 1300; i++) {
-		const x = rng() * width;
+		const x = width * (0.06 + rng() * 0.88);
 		const y = rng() * height;
 		const r = 1 + rng() * 9;
 
@@ -302,15 +302,20 @@ function createHotspots(
 	width: number,
 	height: number,
 ): Hotspot[] {
-	const count               = 8 + Math.floor(rng() * 7);
+	const count = 8 + Math.floor(rng() * 7);
 	const hotspots: Hotspot[] = [];
 
 	for (let i = 0; i < count; i++) {
+		/*
+		 * Keep major hotspots away from the texture poles.
+		 * Equirectangular UVs collapse at the top/bottom of the sphere,
+		 * so large circular marks near the poles become visible rings.
+		 */
 		hotspots.push({
-			              x: rng() * width,
-			              y: height * (0.16 + rng() * 0.68),
-			              radius: width * (0.018 + rng() * 0.034),
-			              power: 0.65 + rng() * 0.55,
+			              x: width * (0.08 + rng() * 0.84),
+			              y: height * (0.22 + rng() * 0.56),
+			              radius: width * (0.009 + rng() * 0.017),
+			              power: 0.55 + rng() * 0.38,
 		              });
 	}
 
@@ -325,51 +330,93 @@ function createCrackNetwork(
 ): CrackPath[] {
 	const cracks: CrackPath[] = [];
 
-	for (const hotspot of hotspots) {
-		const arms = 3 + Math.floor(rng() * 5);
+	/*
+	 * Phase 7c.2b:
+	 *
+	 * Only local cracks. No world-spanning paths, no texture-edge wrapping,
+	 * no pole/seam crossing. This avoids longitude/latitude artifacts.
+	 */
+	const allOrigins = [
+		...hotspots.map((hotspot) => ({
+			x: hotspot.x,
+			y: hotspot.y,
+			boost: 1.0,
+		})),
+	];
+
+	for (let i = 0; i < 95; i++) {
+		allOrigins.push({
+			                x: width * (0.08 + rng() * 0.84),
+			                y: height * (0.16 + rng() * 0.68),
+			                boost: 0.25 + rng() * 0.45,
+		                });
+	}
+
+	for (const origin of allOrigins) {
+		const arms =
+			      origin.boost > 0.9
+			      ? 3 + Math.floor(rng() * 4)
+			      : 1 + Math.floor(rng() * 2);
 
 		for (let arm = 0; arm < arms; arm++) {
 			const points: Array<{ x: number; y: number }> = [];
 
-			let x = hotspot.x;
-			let y = hotspot.y;
+			let x = origin.x;
+			let y = origin.y;
 
-			let angle    = rng() * Math.PI * 2;
-			const length =
+			let angle = rng() * Math.PI * 2;
+			const steps = 4 + Math.floor(rng() * 8);
+			const stepLength =
 				      width *
-				      (0.08 + rng() * 0.19);
-
-			const steps = 9 + Math.floor(rng() * 15);
+				      (0.0038 + rng() * 0.0068) *
+				      (0.72 + origin.boost * 0.55);
 
 			for (let step = 0; step < steps; step++) {
-				const t = step / Math.max(1, steps - 1);
-
 				points.push({
-					            x: wrapX(x, width),
-					            y: clamp(y, 0, height),
+					            x: clamp(x, width * 0.035, width * 0.965),
+					            y: clamp(y, height * 0.105, height * 0.895),
 				            });
 
-				angle += (rng() - 0.5) * 0.85;
+				angle += (rng() - 0.5) * 1.05;
 
-				x += Math.cos(angle) * length / steps;
-				y += Math.sin(angle) * length / steps * 0.72;
+				x += Math.cos(angle) * stepLength;
+				y += Math.sin(angle) * stepLength * 0.64;
 
-				y += Math.sin(t * Math.PI * 2 + rng() * 2) * height * 0.006;
+				/*
+				 * Stop before touching UV edges. Touching an edge on an
+				 * equirectangular map tends to show as a hard seam.
+				 */
+				if (
+					x < width * 0.035 ||
+					x > width * 0.965 ||
+					y < height * 0.105 ||
+					y > height * 0.895
+				) {
+					break;
+				}
+			}
+
+			if (points.length < 2) {
+				continue;
 			}
 
 			cracks.push({
 				            points,
-				            width: 1.0 + rng() * 2.8,
-				            hotness: 0.65 + rng() * 0.55,
+				            width:
+					            origin.boost > 0.9
+					            ? 0.62 + rng() * 1.35
+					            : 0.34 + rng() * 0.82,
+				            hotness:
+					            origin.boost > 0.9
+					            ? 0.50 + rng() * 0.38
+					            : 0.18 + rng() * 0.32,
 			            });
 
-			const branchCount = rng() > 0.45 ? 1 + Math.floor(rng() * 3) : 0;
-
-			for (let branch = 0; branch < branchCount; branch++) {
+			if (origin.boost > 0.65 && rng() > 0.45) {
 				const branchStart =
 					      points[
 						      Math.floor(
-							      points.length * (0.25 + rng() * 0.55),
+							      points.length * (0.35 + rng() * 0.35),
 						      )
 						      ];
 
@@ -378,59 +425,42 @@ function createCrackNetwork(
 				}
 
 				const branchPoints: Array<{ x: number; y: number }> = [];
-				let bx                                              = branchStart.x;
-				let by                                              = branchStart.y;
-				let bAngle                                          = angle + (rng() - 0.5) * Math.PI;
+				let bx = branchStart.x;
+				let by = branchStart.y;
+				let bAngle = angle + (rng() - 0.5) * Math.PI;
 
-				const branchSteps  = 4 + Math.floor(rng() * 7);
-				const branchLength = length * (0.20 + rng() * 0.42);
+				const branchSteps = 3 + Math.floor(rng() * 5);
+				const branchStepLength = stepLength * (0.55 + rng() * 0.45);
 
 				for (let step = 0; step < branchSteps; step++) {
 					branchPoints.push({
-						                  x: wrapX(bx, width),
-						                  y: clamp(by, 0, height),
+						                  x: clamp(bx, width * 0.035, width * 0.965),
+						                  y: clamp(by, height * 0.105, height * 0.895),
 					                  });
 
-					bAngle += (rng() - 0.5) * 0.95;
-					bx += Math.cos(bAngle) * branchLength / branchSteps;
-					by += Math.sin(bAngle) * branchLength / branchSteps * 0.72;
+					bAngle += (rng() - 0.5) * 1.15;
+					bx += Math.cos(bAngle) * branchStepLength;
+					by += Math.sin(bAngle) * branchStepLength * 0.64;
+
+					if (
+						bx < width * 0.035 ||
+						bx > width * 0.965 ||
+						by < height * 0.105 ||
+						by > height * 0.895
+					) {
+						break;
+					}
 				}
 
-				cracks.push({
-					            points: branchPoints,
-					            width: 0.65 + rng() * 1.55,
-					            hotness: 0.45 + rng() * 0.40,
-				            });
+				if (branchPoints.length >= 2) {
+					cracks.push({
+						            points: branchPoints,
+						            width: 0.28 + rng() * 0.62,
+						            hotness: 0.16 + rng() * 0.28,
+					            });
+				}
 			}
 		}
-	}
-
-	for (let i = 0; i < 90; i++) {
-		const points: Array<{ x: number; y: number }> = [];
-
-		let x     = rng() * width;
-		let y     = height * (0.12 + rng() * 0.76);
-		let angle = rng() * Math.PI * 2;
-
-		const steps  = 3 + Math.floor(rng() * 7);
-		const length = width * (0.018 + rng() * 0.065);
-
-		for (let step = 0; step < steps; step++) {
-			points.push({
-				            x: wrapX(x, width),
-				            y: clamp(y, 0, height),
-			            });
-
-			angle += (rng() - 0.5) * 0.8;
-			x += Math.cos(angle) * length / steps;
-			y += Math.sin(angle) * length / steps * 0.75;
-		}
-
-		cracks.push({
-			            points,
-			            width: 0.45 + rng() * 1.05,
-			            hotness: 0.25 + rng() * 0.35,
-		            });
 	}
 
 	return cracks;
@@ -447,8 +477,8 @@ function drawCrackGlow(
 			colorCtx,
 			crack.points,
 			width,
-			crack.width * 8.0,
-			`rgba(255, 68, 10, ${0.10 * crack.hotness})`,
+			crack.width * 4.2,
+			`rgba(255, 68, 10, ${0.07 * crack.hotness})`,
 			'round',
 		);
 
@@ -456,8 +486,8 @@ function drawCrackGlow(
 			colorCtx,
 			crack.points,
 			width,
-			crack.width * 3.2,
-			`rgba(255, 105, 20, ${0.22 * crack.hotness})`,
+			crack.width * 1.7,
+			`rgba(255, 105, 20, ${0.16 * crack.hotness})`,
 			'round',
 		);
 
@@ -466,7 +496,7 @@ function drawCrackGlow(
 			crack.points,
 			width,
 			crack.width,
-			`rgba(255, 218, 110, ${0.78 * crack.hotness})`,
+			`rgba(255, 200, 95, ${0.62 * crack.hotness})`,
 			'round',
 		);
 
@@ -474,7 +504,7 @@ function drawCrackGlow(
 			emissiveCtx,
 			crack.points,
 			width,
-			crack.width * 7.0,
+			crack.width * 3.5,
 			`rgba(255, 58, 8, ${0.22 * crack.hotness})`,
 			'round',
 		);
@@ -483,7 +513,7 @@ function drawCrackGlow(
 			emissiveCtx,
 			crack.points,
 			width,
-			crack.width * 2.4,
+			crack.width * 1.35,
 			`rgba(255, 135, 35, ${0.72 * crack.hotness})`,
 			'round',
 		);
@@ -492,7 +522,7 @@ function drawCrackGlow(
 			emissiveCtx,
 			crack.points,
 			width,
-			Math.max(0.75, crack.width * 0.78),
+			Math.max(0.45, crack.width * 0.48),
 			`rgba(255, 230, 140, ${0.92 * crack.hotness})`,
 			'round',
 		);
@@ -557,26 +587,26 @@ function drawFineLavaFilaments(
 	width: number,
 	height: number,
 ): void {
-	for (let i = 0; i < 650; i++) {
-		const x      = rng() * width;
-		const y      = rng() * height;
-		const length = 4 + rng() * 26;
-		const angle  = rng() * Math.PI * 2;
+	for (let i = 0; i < 380; i++) {
+		const x = rng() * width;
+		const y = height * (0.12 + rng() * 0.76);
+		const length = 2 + rng() * 12;
+		const angle = rng() * Math.PI * 2;
 
-		const x2 = wrapX(x + Math.cos(angle) * length, width);
-		const y2 = clamp(y + Math.sin(angle) * length * 0.65, 0, height);
+		const x2 = clamp(x + Math.cos(angle) * length, width * 0.04, width * 0.96);
+		const y2 = clamp(y + Math.sin(angle) * length * 0.65, height * 0.10, height * 0.90);
 
 		const alpha = 0.04 + rng() * 0.10;
 
 		colorCtx.strokeStyle = `rgba(255, 92, 18, ${alpha})`;
-		colorCtx.lineWidth   = 0.45 + rng() * 0.75;
+		colorCtx.lineWidth = 0.45 + rng() * 0.75;
 		colorCtx.beginPath();
 		colorCtx.moveTo(x, y);
 		colorCtx.lineTo(x2, y2);
 		colorCtx.stroke();
 
 		emissiveCtx.strokeStyle = `rgba(255, 72, 12, ${alpha * 1.8})`;
-		emissiveCtx.lineWidth   = 0.35 + rng() * 0.55;
+		emissiveCtx.lineWidth = 0.35 + rng() * 0.55;
 		emissiveCtx.beginPath();
 		emissiveCtx.moveTo(x, y);
 		emissiveCtx.lineTo(x2, y2);
@@ -587,11 +617,15 @@ function drawFineLavaFilaments(
 function drawWrappedPath(
 	ctx: CanvasRenderingContext2D,
 	points: Array<{ x: number; y: number }>,
-	width: number,
+	_width: number,
 	lineWidth: number,
 	strokeStyle: string,
 	lineCap: CanvasLineCap,
 ): void {
+	/*
+	 * 7c.2b:
+	 * No wrapping at all. Seam safety beats theoretical perfect texture wrap.
+	 */
 	drawPath(
 		ctx,
 		points,
@@ -599,35 +633,6 @@ function drawWrappedPath(
 		strokeStyle,
 		lineCap,
 	);
-
-	const crossesLeft  = points.some((point) => point.x < width * 0.08);
-	const crossesRight = points.some((point) => point.x > width * 0.92);
-
-	if (crossesLeft) {
-		drawPath(
-			ctx,
-			points.map((point) => ({
-				x: point.x + width,
-				y: point.y,
-			})),
-			lineWidth,
-			strokeStyle,
-			lineCap,
-		);
-	}
-
-	if (crossesRight) {
-		drawPath(
-			ctx,
-			points.map((point) => ({
-				x: point.x - width,
-				y: point.y,
-			})),
-			lineWidth,
-			strokeStyle,
-			lineCap,
-		);
-	}
 }
 
 function drawPath(
@@ -642,9 +647,9 @@ function drawPath(
 	}
 
 	ctx.strokeStyle = strokeStyle;
-	ctx.lineWidth   = lineWidth;
-	ctx.lineCap     = lineCap;
-	ctx.lineJoin    = 'round';
+	ctx.lineWidth = lineWidth;
+	ctx.lineCap = lineCap;
+	ctx.lineJoin = 'round';
 
 	ctx.beginPath();
 	ctx.moveTo(points[0].x, points[0].y);
