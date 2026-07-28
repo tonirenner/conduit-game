@@ -26,9 +26,9 @@ import type { TerrainTextureSet } from './TerrainTextureSet';
 import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
 
 /**
- * Phase 6b.3:
+ * Phase 6b.4:
  *
- * Surface profile ready material + optional raymarch occlusion.
+ * Surface palette mapping driven by SurfaceRenderProfile.
  *
  * Based on Phase 4k.4b.
  *
@@ -70,7 +70,7 @@ export function createPlanetSurfaceNodeMaterial(
 	const surfaceRaymarchSteps = uniform(0.0);
 
 	/**
-	 * Phase 6b.3:
+	 * Phase 6b.4:
 	 *
 	 * These profile uniforms are intentionally conservative.
 	 * They let PlanetDefinition/SurfaceRenderProfile reach the material
@@ -84,6 +84,16 @@ export function createPlanetSurfaceNodeMaterial(
 	const profileLavaInfluence = uniform(0.0);
 	const profileToxicInfluence = uniform(0.0);
 	const profileMetalInfluence = uniform(0.0);
+
+	const paletteOceanic = uniform(0.0);
+	const paletteIce = uniform(0.0);
+	const paletteDesert = uniform(0.0);
+	const paletteLava = uniform(0.0);
+	const paletteToxic = uniform(0.0);
+	const paletteMetallic = uniform(0.0);
+	const paletteCarbon = uniform(0.0);
+	const paletteEarthlike = uniform(0.0);
+	const paletteRocky = uniform(1.0);
 
 	const nightTint = color(0x061426);
 	const twilightTint = color(0x285f96);
@@ -571,7 +581,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * A = continent
 	 */
 	/**
-	 * Phase 6b.3:
+	 * Phase 6b.4:
 	 *
 	 * WebGL SurfaceMaterial parity.
 	 *
@@ -868,6 +878,276 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			landMask,
 		),
 	);
+
+	let paletteColor = proceduralColor;
+
+	const desertLand = mix(
+		color(0x7c6030),
+		color(0xcaa45f),
+		smoothstep(
+			0.02,
+			0.18,
+			terrainHeight,
+		),
+	);
+
+	const desertWater = mix(
+		color(0x071f2f),
+		color(0x18414d),
+		waterHint,
+	);
+
+	const desertColor = mix(
+		desertWater,
+		desertLand,
+		smoothstep(
+			0.50,
+			0.70,
+			landMask,
+		),
+	);
+
+	const iceLand = mix(
+		color(0x8798a0),
+		color(0xe5f1f4),
+		smoothstep(
+			0.01,
+			0.22,
+			terrainHeight.add(polar.mul(0.12)),
+		),
+	);
+
+	const iceWater = mix(
+		color(0x092235),
+		color(0x2f6678),
+		smoothstep(
+			0.15,
+			0.62,
+			landMask,
+		),
+	);
+
+	const iceColor = mix(
+		iceWater,
+		iceLand,
+		smoothstep(
+			0.46,
+			0.68,
+			landMask,
+		),
+	);
+
+	const oceanicLand = mix(
+		color(0x274f34),
+		color(0x6d8050),
+		smoothstep(
+			0.02,
+			0.18,
+			terrainHeight,
+		),
+	);
+
+	const oceanicWater = mix(
+		color(0x041a2f),
+		color(0x0f6b86),
+		smoothstep(
+			0.18,
+			0.62,
+			landMask,
+		),
+	);
+
+	const oceanicColor = mix(
+		oceanicWater,
+		oceanicLand,
+		smoothstep(
+			0.72,
+			0.88,
+			landMask,
+		),
+	);
+
+	const rockyLand = mix(
+		color(0x34362f),
+		color(0x77705e),
+		smoothstep(
+			0.00,
+			0.22,
+			terrainHeight,
+		),
+	);
+
+	const rockyWater = mix(
+		color(0x071722),
+		color(0x0b3844),
+		waterHint,
+	);
+
+	const rockyColor = mix(
+		rockyWater,
+		rockyLand,
+		smoothstep(
+			0.50,
+			0.74,
+			landMask,
+		),
+	);
+
+	const lavaCracks = smoothstep(
+		0.62,
+		0.92,
+		mountainMask.add(
+			profileLavaInfluence.mul(0.18),
+		),
+	).mul(landOnly);
+
+	const lavaLand = mix(
+		color(0x17120f),
+		color(0x5b3322),
+		smoothstep(
+			0.02,
+			0.18,
+			terrainHeight,
+		),
+	).add(
+		color(0xff5d19).mul(lavaCracks).mul(0.34),
+	);
+
+	const lavaColor = mix(
+		color(0x080f14),
+		lavaLand,
+		smoothstep(
+			0.48,
+			0.70,
+			landMask,
+		),
+	);
+
+	const toxicLand = mix(
+		color(0x445033),
+		color(0x9aa85a),
+		smoothstep(
+			0.00,
+			0.18,
+			terrainHeight,
+		),
+	);
+
+	const toxicWater = mix(
+		color(0x101c16),
+		color(0x566b2f),
+		smoothstep(
+			0.10,
+			0.70,
+			landMask,
+		),
+	);
+
+	const toxicColor = mix(
+		toxicWater,
+		toxicLand,
+		smoothstep(
+			0.48,
+			0.72,
+			landMask,
+		),
+	);
+
+	const metallicLand = mix(
+		color(0x34393d),
+		color(0x8a8d87),
+		smoothstep(
+			0.00,
+			0.24,
+			terrainHeight,
+		),
+	);
+
+	const metallicColor = mix(
+		color(0x07131a),
+		metallicLand,
+		smoothstep(
+			0.46,
+			0.72,
+			landMask,
+		),
+	);
+
+	const carbonLand = mix(
+		color(0x15120f),
+		color(0x41342a),
+		smoothstep(
+			0.00,
+			0.22,
+			terrainHeight,
+		),
+	);
+
+	const carbonColor = mix(
+		color(0x05080b),
+		carbonLand,
+		smoothstep(
+			0.48,
+			0.72,
+			landMask,
+		),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		rockyColor,
+		paletteRocky.mul(0.55),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		oceanicColor,
+		paletteOceanic.mul(0.75),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		iceColor,
+		paletteIce.mul(0.86).add(profileIceInfluence.mul(0.18)),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		desertColor,
+		paletteDesert.mul(0.82),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		lavaColor,
+		paletteLava.mul(0.86).add(profileLavaInfluence.mul(0.20)),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		toxicColor,
+		paletteToxic.mul(0.78).add(profileToxicInfluence.mul(0.16)),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		metallicColor,
+		paletteMetallic.mul(0.82).add(profileMetalInfluence.mul(0.18)),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		carbonColor,
+		paletteCarbon.mul(0.84),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		proceduralColor,
+		paletteEarthlike.mul(0.30),
+	);
+
+	proceduralColor = paletteColor;
 
 	let baseColor = mix(
 		baseColorRaw,
@@ -1251,10 +1531,16 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		profileToxicInfluence.value = profile.toxicInfluence;
 		profileMetalInfluence.value = profile.metalInfluence;
 
-		/**
-		 * Keep the current look stable:
-		 * profile only adjusts the raymarch occlusion strength gently.
-		 */
+		paletteOceanic.value = profile.palette === 'oceanic' ? 1.0 : 0.0;
+		paletteIce.value = profile.palette === 'ice' ? 1.0 : 0.0;
+		paletteDesert.value = profile.palette === 'desert' ? 1.0 : 0.0;
+		paletteLava.value = profile.palette === 'lava' ? 1.0 : 0.0;
+		paletteToxic.value = profile.palette === 'toxic' ? 1.0 : 0.0;
+		paletteMetallic.value = profile.palette === 'metallic' ? 1.0 : 0.0;
+		paletteCarbon.value = profile.palette === 'carbon' ? 1.0 : 0.0;
+		paletteEarthlike.value = profile.palette === 'earthlike' ? 1.0 : 0.0;
+		paletteRocky.value = profile.palette === 'rocky' ? 1.0 : 0.0;
+
 		surfaceRaymarchStrength.value = profile.raymarchOcclusionStrength;
 	};
 
@@ -1267,6 +1553,15 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		lavaInfluence: profileLavaInfluence.value,
 		toxicInfluence: profileToxicInfluence.value,
 		metalInfluence: profileMetalInfluence.value,
+		paletteOceanic: paletteOceanic.value,
+		paletteIce: paletteIce.value,
+		paletteDesert: paletteDesert.value,
+		paletteLava: paletteLava.value,
+		paletteToxic: paletteToxic.value,
+		paletteMetallic: paletteMetallic.value,
+		paletteCarbon: paletteCarbon.value,
+		paletteEarthlike: paletteEarthlike.value,
+		paletteRocky: paletteRocky.value,
 		raymarchOcclusionStrength: surfaceRaymarchStrength.value,
 	});
 
