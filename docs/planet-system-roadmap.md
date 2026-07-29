@@ -493,6 +493,8 @@ Fortschritt:
 - [x] Systemplaneten nutzen die lokale Systemsonne als Shader-Sonnenrichtung statt der globalen Viewer-Sonnenrichtung
 - [x] Systemansicht nutzt eigene sichtbare Planetenskala: feste Planeten groesser, Gas-/Eisriesen deutlich groesser, Orbits weiter auseinander
 - [x] Systemansicht rendert feste Planeten mit visueller Mindestgroesse `3.0`, damit kleine Klassen taktisch lesbar bleiben
+- [x] Systemansicht hellt Planeten gezielt per System-Render-Tuning auf und spreizt visuelle Planetengroessen staerker
+- [x] Systemsonne rendert mit additiven transparenten Glow-Schalen als WebGPU-kompatibler volumetrischer Halo
 - [x] `StarSystemGenerator` verteilt Planetentypen zoniert und vermeidet direkte Wiederholungen gleichartiger Klassen
 - [x] Systemscale nachjustiert: Planeten/Stern/Orbits groesser, Schiffe und Stationen in taktischer Ansicht kleiner
 - [x] Planetentypen an plausible Orbit-Zonen relativ zur Stern-Luminositaet gebunden und Klassenfamilien pro System limitiert

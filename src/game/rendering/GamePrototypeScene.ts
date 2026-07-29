@@ -1461,12 +1461,17 @@ export class GamePrototypeScene {
 		);
 
 		star.name = `${node.system.star.name} Star`;
+		star.renderOrder = 8;
+		this.systemGroup.add(this.createSystemStarGlow(
+			new THREE.Color(node.system.star.color),
+			starRadius,
+		));
 		this.systemGroup.add(star);
 
 		const light = new THREE.PointLight(
 			new THREE.Color(node.system.star.color),
-			16,
-			180,
+			32,
+			320,
 			1.35,
 		);
 		light.name = 'System Star Light';
@@ -1474,8 +1479,8 @@ export class GamePrototypeScene {
 		this.systemGroup.add(light);
 
 		const ambientLight = new THREE.AmbientLight(
-			0x8ba6bd,
-			0.34,
+			0xa8c0d2,
+			0.64,
 		);
 		ambientLight.name = 'System Ambient Fill';
 		this.systemGroup.add(ambientLight);
@@ -1822,6 +1827,102 @@ export class GamePrototypeScene {
 		return group;
 	}
 
+	private createSystemStarGlow(
+		color: THREE.Color,
+		starRadius: number,
+	): THREE.Group {
+		const group = new THREE.Group();
+		group.name = 'System Star Volumetric Glow';
+		group.renderOrder = 6;
+		const texture = this.createSystemStarGlowTexture(color);
+
+		const glowLayers = [
+			{
+				scale: 3.20,
+				opacity: 0.42,
+			},
+			{
+				scale: 5.30,
+				opacity: 0.22,
+			},
+			{
+				scale: 8.20,
+				opacity: 0.095,
+			},
+			{
+				scale: 12.40,
+				opacity: 0.040,
+			},
+		];
+
+		for (const layer of glowLayers) {
+			const size = starRadius * layer.scale;
+			const glow = new THREE.Sprite(
+				new THREE.SpriteMaterial({
+					map: texture,
+					color,
+					transparent: true,
+					opacity: layer.opacity,
+					blending: THREE.AdditiveBlending,
+					depthWrite: false,
+					depthTest: false,
+				}),
+			);
+
+			glow.name = 'System Star Glow Layer';
+			glow.renderOrder = group.renderOrder;
+			glow.scale.set(size, size, 1);
+			group.add(glow);
+		}
+
+		return group;
+	}
+
+	private createSystemStarGlowTexture(
+		color: THREE.Color,
+	): THREE.CanvasTexture {
+		const canvas = document.createElement('canvas');
+		canvas.width = 256;
+		canvas.height = 256;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			return new THREE.CanvasTexture(canvas);
+		}
+
+		const center = canvas.width * 0.5;
+		const gradient = context.createRadialGradient(
+			center,
+			center,
+			0,
+			center,
+			center,
+			center,
+		);
+		const glowColor = `#${color.getHexString()}`;
+		const glowRed = Math.round(color.r * 255);
+		const glowGreen = Math.round(color.g * 255);
+		const glowBlue = Math.round(color.b * 255);
+
+		gradient.addColorStop(0.00, glowColor);
+		gradient.addColorStop(0.18, glowColor);
+		gradient.addColorStop(
+			0.46,
+			`rgba(${glowRed}, ${glowGreen}, ${glowBlue}, 0.42)`,
+		);
+		gradient.addColorStop(1.00, 'rgba(0, 0, 0, 0)');
+
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		const texture = new THREE.CanvasTexture(canvas);
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.needsUpdate = true;
+
+		return texture;
+	}
+
 	private createOrbitLine(
 		radius: number,
 		color = 0x47657c,
@@ -1852,23 +1953,40 @@ export class GamePrototypeScene {
 	}
 
 	private disposeObject(object: THREE.Object3D): void {
+		const disposedTextures = new Set<THREE.Texture>();
+
 		object.traverse((item) => {
-			if (!(item instanceof THREE.Mesh || item instanceof THREE.Line)) {
+			if (item instanceof THREE.Mesh || item instanceof THREE.Line) {
+				item.geometry.dispose();
+			}
+
+			if (
+				!(
+					item instanceof THREE.Mesh ||
+					item instanceof THREE.Line ||
+					item instanceof THREE.Sprite
+				)
+			) {
 				return;
 			}
 
-			item.geometry.dispose();
+			const material = item.material as THREE.Material | THREE.Material[];
 
-			const material = item.material;
+			for (const entry of Array.isArray(material) ? material : [material]) {
+				const mappedMaterial = entry as THREE.Material & {
+					map?: THREE.Texture;
+				};
 
-			if (Array.isArray(material)) {
-				for (const entry of material) {
-					entry.dispose();
+				if (
+					mappedMaterial.map &&
+					!disposedTextures.has(mappedMaterial.map)
+				) {
+					mappedMaterial.map.dispose();
+					disposedTextures.add(mappedMaterial.map);
 				}
-				return;
-			}
 
-			material.dispose();
+				entry.dispose();
+			}
 		});
 	}
 
@@ -2015,8 +2133,8 @@ export class GamePrototypeScene {
 		switch (planet.class) {
 			case 'ocean':
 				return {
-					ambient: 0.72,
-					exposureScale: 1.34,
+					ambient: 0.84,
+					exposureScale: 1.52,
 					horizonGlowScale: 1.14,
 					proceduralColorStrength: 1.04,
 					surfaceTextureStrength: 1.08,
@@ -2024,8 +2142,8 @@ export class GamePrototypeScene {
 
 			case 'terrestrial':
 				return {
-					ambient: 0.66,
-					exposureScale: 1.28,
+					ambient: 0.78,
+					exposureScale: 1.46,
 					horizonGlowScale: 1.08,
 					proceduralColorStrength: 1.02,
 					surfaceTextureStrength: 1.04,
@@ -2034,24 +2152,24 @@ export class GamePrototypeScene {
 			case 'ice':
 			case 'ice_giant':
 				return {
-					ambient: 0.80,
-					exposureScale: 1.38,
+					ambient: 0.88,
+					exposureScale: 1.52,
 					horizonGlowScale: 1.28,
 					proceduralColorStrength: 1.04,
 				};
 
 			case 'lava':
 				return {
-					ambient: 0.58,
-					exposureScale: 1.56,
+					ambient: 0.70,
+					exposureScale: 1.72,
 					horizonGlowScale: 1.52,
 					proceduralColorStrength: 1.12,
 				};
 
 			case 'toxic':
 				return {
-					ambient: 0.72,
-					exposureScale: 1.34,
+					ambient: 0.84,
+					exposureScale: 1.52,
 					horizonGlowScale: 1.34,
 					proceduralColorStrength: 1.12,
 					surfaceTextureStrength: 1.08,
@@ -2059,8 +2177,8 @@ export class GamePrototypeScene {
 
 			case 'desert':
 				return {
-					ambient: 0.66,
-					exposureScale: 1.32,
+					ambient: 0.78,
+					exposureScale: 1.50,
 					horizonGlowScale: 0.76,
 					proceduralColorStrength: 1.08,
 					surfaceTextureStrength: 1.12,
@@ -2068,8 +2186,8 @@ export class GamePrototypeScene {
 
 			case 'metal_rich':
 				return {
-					ambient: 0.66,
-					exposureScale: 1.32,
+					ambient: 0.78,
+					exposureScale: 1.50,
 					horizonGlowScale: 0.34,
 					proceduralColorStrength: 1.08,
 					surfaceTextureStrength: 1.14,
@@ -2077,8 +2195,8 @@ export class GamePrototypeScene {
 
 			case 'carbon':
 				return {
-					ambient: 0.62,
-					exposureScale: 1.36,
+					ambient: 0.80,
+					exposureScale: 1.64,
 					horizonGlowScale: 0.58,
 					proceduralColorStrength: 1.10,
 					surfaceTextureStrength: 1.12,
@@ -2086,8 +2204,8 @@ export class GamePrototypeScene {
 
 			case 'barren':
 				return {
-					ambient: 0.60,
-					exposureScale: 1.24,
+					ambient: 0.74,
+					exposureScale: 1.46,
 					horizonGlowScale: 0.50,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,
@@ -2095,8 +2213,8 @@ export class GamePrototypeScene {
 
 			case 'rocky':
 				return {
-					ambient: 0.60,
-					exposureScale: 1.24,
+					ambient: 0.74,
+					exposureScale: 1.46,
 					horizonGlowScale: 0.62,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,
@@ -2104,8 +2222,8 @@ export class GamePrototypeScene {
 
 			case 'gas_giant':
 				return {
-					ambient: 0.70,
-					exposureScale: 1.24,
+					ambient: 0.82,
+					exposureScale: 1.44,
 				};
 		}
 	}
