@@ -1784,6 +1784,7 @@ export class GamePrototypeScene {
 
 		planet.group.name = planetDefinition.name;
 		planet.setRenderTuning(this.getSystemPlanetRenderTuning(planetDefinition));
+		planet.setHorizonCullingEnabled(false);
 		planet.setRenderQuality('moving');
 
 		return planet;

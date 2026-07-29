@@ -601,6 +601,10 @@ export class Planet {
 		);
 	}
 
+	setHorizonCullingEnabled(enabled: boolean): void {
+		this.planet?.setHorizonCullingEnabled(enabled);
+	}
+
 	private configureSurfaceRaymarching(): void {
 		if (!this.surfaceMaterial) {
 			return;

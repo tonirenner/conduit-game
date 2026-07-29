@@ -495,6 +495,8 @@ Fortschritt:
 - [x] Systemansicht rendert feste Planeten mit visueller Mindestgroesse `3.0`, damit kleine Klassen taktisch lesbar bleiben
 - [x] Systemansicht hellt Planeten gezielt per System-Render-Tuning auf und spreizt visuelle Planetengroessen staerker
 - [x] Systemsonne rendert mit additiven transparenten Glow-Schalen als WebGPU-kompatibler volumetrischer Halo
+- [x] Systemsonnen-Glow von Kugelschalen auf Sprite-Halos umgestellt, um harte Glow-Schnittflaechen zu vermeiden
+- [x] Horizon-Culling fuer echte Systemplaneten deaktiviert, damit keine ganzen Terrainpatches aus sichtbaren Planeten ausbrechen
 - [x] `StarSystemGenerator` verteilt Planetentypen zoniert und vermeidet direkte Wiederholungen gleichartiger Klassen
 - [x] Systemscale nachjustiert: Planeten/Stern/Orbits groesser, Schiffe und Stationen in taktischer Ansicht kleiner
 - [x] Planetentypen an plausible Orbit-Zonen relativ zur Stern-Luminositaet gebunden und Klassenfamilien pro System limitiert
@@ -507,6 +509,7 @@ Fortschritt:
 - [x] erstes Schiff-Asset (`capital_ship.obj/.mtl`) per OBJ/MTL-Loader mit Dummy-Fallback in die Flottenansicht einbauen
 - [x] WebGPU-Postprocessing auf Node-/TSL-Pipeline umgestellt, damit keine legacy `ShaderMaterial`-Passes im WebGPU-Pfad laufen
 - [ ] Ressourcen, Shipyard-Queue und einfache Gegnerlogik einfuehren
+- [ ] verbleibende Systemansicht-Grafikbugs pruefen: Orbitline-/Glow-Sortierung, transparente Halo-Ueberdeckung und dunkle Sonderfaelle
 
 Akzeptanz:
 
