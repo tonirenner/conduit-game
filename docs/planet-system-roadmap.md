@@ -131,6 +131,7 @@ Fortschritt:
 - [x] Toxic Standardwolken deaktiviert und durch `ToxicHazeLayer` ersetzt
 - [x] Toxic-Oberflaeche auf desert-artiges Hoehen-/Reliefprofil umgestellt: keine Kontinent-/Wasser-Maske mehr fuer Toxic-Farben
 - [x] WebGPU-Helligkeit nach WebGL-Vergleich angehoben: Ambient, Exposure, Terminator und Nachtanteil im NodeMaterial angepasst
+- [x] WebGPU-Planetentypen nach Screenshot-Abnahme finalisiert: Ice, Barren, Rocky, Desert, Carbon, Metal-rich, Toxic, Lava, Ocean, Terrestrial, Gas Giant und Ice Giant
 - [ ] Helligkeit getrennt pro Renderer final abstimmen: dafuer jeweils konkrete `renderer=gpu` und `renderer=gl` Screenshots vergleichen
 - [ ] nach Screenshot-Vergleich pro Typ gezielt nachjustieren
 - [ ] WebGL-Palette an WebGPU-Type-Paletten angleichen
@@ -194,6 +195,8 @@ Fortschritt:
 - [x] Quadtree-Audit begonnen: `TerrainPatchLeaf` traegt stabile Patch-Adressen und Edge-IDs fuer LOD-/Randdiagnose
 - [x] `CubeSphere` 2:1-Balance beruecksichtigt auch Cube-Face-Grenzen statt nur Face-lokale Nachbarn
 - [x] `TerrainPatch`-Normalen an Patchraendern auf terrainSource-basierte Tangential-Samples umgestellt
+- [x] Lava als eigenes Terrainprofil verdrahtet, damit Lava nicht mehr auf Earthlike-Terrain/Masken zurueckfaellt
+- [x] Oceanic CPU-/Bake-Farbpfad aufgehellt und getrennt vom allgemeinen Earthlike-Wasser behandelt
 - [ ] CPU-Terrain und WebGPU-Bake noch weiter angleichen: randomisierte Skalen/Bias-Werte auch im Bake pflegen
 - [ ] Terrainprofile fuer Desert, Barren/Rocky, Toxic, Metal, Carbon gezielt visuell tunen
 
@@ -500,7 +503,7 @@ Fortschritt:
 - [x] einfache Fleet-vs-Fleet-Angriffe mit Huelle und Schaden
 - [x] Systemausgaenge in der taktischen Ansicht als Sprungmarker anzeigen und Rechtsklick-Lane-Move anschliessen
 - [x] erstes Schiff-Asset (`capital_ship.obj/.mtl`) per OBJ/MTL-Loader mit Dummy-Fallback in die Flottenansicht einbauen
-- [x] WebGPU-Postprocessing vorerst auf direkten Render-Fallback setzen, damit keine `ShaderMaterial`-NodeBuilder-Fehler geloopt werden
+- [x] WebGPU-Postprocessing auf Node-/TSL-Pipeline umgestellt, damit keine legacy `ShaderMaterial`-Passes im WebGPU-Pfad laufen
 - [ ] Ressourcen, Shipyard-Queue und einfache Gegnerlogik einfuehren
 
 Akzeptanz:

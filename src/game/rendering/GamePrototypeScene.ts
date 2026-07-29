@@ -1465,13 +1465,20 @@ export class GamePrototypeScene {
 
 		const light = new THREE.PointLight(
 			new THREE.Color(node.system.star.color),
-			12,
-			120,
+			16,
+			180,
 			1.35,
 		);
 		light.name = 'System Star Light';
 		light.position.set(0, 0, 0);
 		this.systemGroup.add(light);
+
+		const ambientLight = new THREE.AmbientLight(
+			0x8ba6bd,
+			0.34,
+		);
+		ambientLight.name = 'System Ambient Fill';
+		this.systemGroup.add(ambientLight);
 
 		this.activeSystemNodeId = node.id;
 		this.addSystemPlanets(node);
@@ -1946,47 +1953,58 @@ export class GamePrototypeScene {
 	private getSystemPlanetRenderRadius(
 		planet: StrategicNode['system']['planets'][number],
 	): number {
+		const solidRadius01 = THREE.MathUtils.clamp(
+			planet.physical.radius / 2.4,
+			0,
+			1,
+		);
+		const giantRadius01 = THREE.MathUtils.clamp(
+			(planet.physical.radius - 8.0) / 10.0,
+			0,
+			1,
+		);
+
 		switch (planet.class) {
 			case 'gas_giant':
-				return THREE.MathUtils.clamp(
-					planet.physical.radius * 0.52,
-					5.80,
-					9.50,
+				return THREE.MathUtils.lerp(
+					6.20,
+					11.80,
+					giantRadius01,
 				);
 
 			case 'ice_giant':
-				return THREE.MathUtils.clamp(
-					planet.physical.radius * 0.48,
-					5.00,
-					8.10,
+				return THREE.MathUtils.lerp(
+					5.20,
+					9.40,
+					giantRadius01,
 				);
 
 			case 'terrestrial':
 			case 'ocean':
-				return THREE.MathUtils.clamp(
-					planet.physical.radius * 1.45,
-					3.00,
-					4.10,
+				return THREE.MathUtils.lerp(
+					3.10,
+					5.30,
+					solidRadius01,
 				);
 
 			case 'lava':
 			case 'toxic':
 			case 'desert':
 			case 'ice':
-				return THREE.MathUtils.clamp(
-					planet.physical.radius * 1.35,
+				return THREE.MathUtils.lerp(
 					3.00,
-					3.70,
+					4.80,
+					solidRadius01,
 				);
 
 			case 'metal_rich':
 			case 'carbon':
 			case 'rocky':
 			case 'barren':
-				return THREE.MathUtils.clamp(
-					planet.physical.radius * 1.15,
+				return THREE.MathUtils.lerp(
 					3.00,
-					3.25,
+					4.15,
+					solidRadius01,
 				);
 		}
 	}
@@ -1997,8 +2015,8 @@ export class GamePrototypeScene {
 		switch (planet.class) {
 			case 'ocean':
 				return {
-					ambient: 0.64,
-					exposureScale: 1.22,
+					ambient: 0.72,
+					exposureScale: 1.34,
 					horizonGlowScale: 1.14,
 					proceduralColorStrength: 1.04,
 					surfaceTextureStrength: 1.08,
@@ -2006,8 +2024,8 @@ export class GamePrototypeScene {
 
 			case 'terrestrial':
 				return {
-					ambient: 0.58,
-					exposureScale: 1.16,
+					ambient: 0.66,
+					exposureScale: 1.28,
 					horizonGlowScale: 1.08,
 					proceduralColorStrength: 1.02,
 					surfaceTextureStrength: 1.04,
@@ -2016,24 +2034,24 @@ export class GamePrototypeScene {
 			case 'ice':
 			case 'ice_giant':
 				return {
-					ambient: 0.72,
-					exposureScale: 1.30,
+					ambient: 0.80,
+					exposureScale: 1.38,
 					horizonGlowScale: 1.28,
 					proceduralColorStrength: 1.04,
 				};
 
 			case 'lava':
 				return {
-					ambient: 0.50,
-					exposureScale: 1.48,
+					ambient: 0.58,
+					exposureScale: 1.56,
 					horizonGlowScale: 1.52,
 					proceduralColorStrength: 1.12,
 				};
 
 			case 'toxic':
 				return {
-					ambient: 0.64,
-					exposureScale: 1.24,
+					ambient: 0.72,
+					exposureScale: 1.34,
 					horizonGlowScale: 1.34,
 					proceduralColorStrength: 1.12,
 					surfaceTextureStrength: 1.08,
@@ -2041,8 +2059,8 @@ export class GamePrototypeScene {
 
 			case 'desert':
 				return {
-					ambient: 0.58,
-					exposureScale: 1.22,
+					ambient: 0.66,
+					exposureScale: 1.32,
 					horizonGlowScale: 0.76,
 					proceduralColorStrength: 1.08,
 					surfaceTextureStrength: 1.12,
@@ -2050,8 +2068,8 @@ export class GamePrototypeScene {
 
 			case 'metal_rich':
 				return {
-					ambient: 0.58,
-					exposureScale: 1.22,
+					ambient: 0.66,
+					exposureScale: 1.32,
 					horizonGlowScale: 0.34,
 					proceduralColorStrength: 1.08,
 					surfaceTextureStrength: 1.14,
@@ -2059,8 +2077,8 @@ export class GamePrototypeScene {
 
 			case 'carbon':
 				return {
-					ambient: 0.54,
-					exposureScale: 1.24,
+					ambient: 0.62,
+					exposureScale: 1.36,
 					horizonGlowScale: 0.58,
 					proceduralColorStrength: 1.10,
 					surfaceTextureStrength: 1.12,
@@ -2068,8 +2086,8 @@ export class GamePrototypeScene {
 
 			case 'barren':
 				return {
-					ambient: 0.52,
-					exposureScale: 1.12,
+					ambient: 0.60,
+					exposureScale: 1.24,
 					horizonGlowScale: 0.50,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,
@@ -2077,8 +2095,8 @@ export class GamePrototypeScene {
 
 			case 'rocky':
 				return {
-					ambient: 0.52,
-					exposureScale: 1.12,
+					ambient: 0.60,
+					exposureScale: 1.24,
 					horizonGlowScale: 0.62,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,
@@ -2086,8 +2104,8 @@ export class GamePrototypeScene {
 
 			case 'gas_giant':
 				return {
-					ambient: 0.62,
-					exposureScale: 1.12,
+					ambient: 0.70,
+					exposureScale: 1.24,
 				};
 		}
 	}
