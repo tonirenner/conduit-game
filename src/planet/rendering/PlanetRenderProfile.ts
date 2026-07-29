@@ -46,7 +46,9 @@ export function createPlanetRenderProfile(
 
 		enableTerrain: planet.surface.hasSolidSurface,
 		enableOcean: planet.surface.hasOcean,
-		enableClouds: planet.atmosphere.cloudCoverage > 0.02,
+		enableClouds:
+			planet.class !== 'toxic' &&
+			planet.atmosphere.cloudCoverage > 0.02,
 		enableAtmosphere: planet.atmosphere.type !== 'none',
 		enableRings: planet.rings?.enabled ?? false,
 
@@ -103,8 +105,9 @@ function getSurfacePalette(planetClass: PlanetClass): string {
 			return 'carbon';
 		case 'terrestrial':
 			return 'earthlike';
-		case 'rocky':
 		case 'barren':
+			return 'barren';
+		case 'rocky':
 		default:
 			return 'rocky';
 	}

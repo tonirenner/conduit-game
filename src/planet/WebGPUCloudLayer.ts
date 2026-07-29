@@ -35,6 +35,7 @@ export class WebGPUCloudLayer {
 	private readonly cloudAlpha: any;
 	private readonly cloudDetailStrength: any;
 	private readonly cloudStepCount: any;
+	private readonly sunDirection: any;
 
 	private profileCloudCoverage = 0.505;
 	private profileCloudDensity = 2.25;
@@ -60,6 +61,9 @@ export class WebGPUCloudLayer {
 		this.cloudAlpha = uniform(0.82);
 		this.cloudDetailStrength = uniform(1.0);
 		this.cloudStepCount = uniform(24.0);
+		this.sunDirection = uniform(
+			SUN_DIRECTION.clone().normalize(),
+		);
 
 		this.material = this.createMaterial(
 			radius,
@@ -86,6 +90,10 @@ export class WebGPUCloudLayer {
 		 */
 		this.mesh.rotation.y += deltaSeconds * 0.0032 * 0.14;
 		this.mesh.rotation.x += deltaSeconds * 0.00025 * 0.14;
+	}
+
+	setSunDirection(direction: THREE.Vector3): void {
+		this.sunDirection.value.copy(direction).normalize();
 	}
 
 	setCloudProfile(
@@ -212,10 +220,6 @@ export class WebGPUCloudLayer {
 		material.name = 'WebGPUCloudRaymarchNodeMaterial';
 		material.opacity = 0.74;
 		material.toneMapped = false;
-
-		const sunDirection = uniform(
-			SUN_DIRECTION.clone().normalize(),
-		);
 
 		const planetRadius = uniform(planetRadiusValue);
 		const innerRadius = uniform(innerRadiusValue);
@@ -543,7 +547,7 @@ fn cloud_density(
 		const cloudResult = cloudRaymarch({
 			                                  surfacePosition: positionWorld,
 			                                  camPos: cameraPosition,
-			                                  sunDir: sunDirection,
+			                                  sunDir: this.sunDirection,
 			                                  planetRadius,
 			                                  innerRadius,
 			                                  outerRadius,

@@ -7,8 +7,27 @@ export type TerrainSample = {
 	mountainMask: number;
 };
 
+export type TerrainProfileKind =
+	| 'barren'
+	| 'rocky'
+	| 'earthlike'
+	| 'oceanic'
+	| 'desert'
+	| 'toxic'
+	| 'carbon'
+	| 'metallic';
+
+export type TerrainProfileSettings = {
+	continentScale: number;
+	coastScale: number;
+	mountainScale: number;
+	heightScale: number;
+	oceanBias: number;
+};
+
 export type TerrainSeedConfig = {
 	seed: number;
+	profile: TerrainProfileKind;
 	continentOffset: THREE.Vector3;
 	ridgeOffset: THREE.Vector3;
 	detailOffset: THREE.Vector3;
@@ -22,8 +41,12 @@ export type TerrainSeedConfig = {
 export const DEFAULT_TERRAIN_SEED_CONFIG: TerrainSeedConfig =
 	             createTerrainSeedConfig(1);
 
-export function createTerrainSeedConfig(seed: number): TerrainSeedConfig {
+export function createTerrainSeedConfig(
+	seed: number,
+	profile: TerrainProfileKind = 'earthlike',
+): TerrainSeedConfig {
 	const random = mulberry32(seed >>> 0 || 1);
+	const profileSettings = getTerrainProfileSettings(profile);
 
 	const offset = (scale: number) => new THREE.Vector3(
 		(random() * 2 - 1) * scale,
@@ -33,21 +56,111 @@ export function createTerrainSeedConfig(seed: number): TerrainSeedConfig {
 
 	return {
 		seed: seed >>> 0 || 1,
+		profile,
 		continentOffset: offset(240.0),
 		ridgeOffset: offset(320.0),
 		detailOffset: offset(420.0),
 
-		continentScale: lerp(0.88, 1.28, random()),
-		coastScale: lerp(0.75, 1.35, random()),
-		mountainScale: lerp(0.74, 1.42, random()),
-		heightScale: lerp(0.82, 1.24, random()),
+		continentScale:
+			lerp(0.88, 1.28, random()) *
+			profileSettings.continentScale,
+		coastScale:
+			lerp(0.75, 1.35, random()) *
+			profileSettings.coastScale,
+		mountainScale:
+			lerp(0.74, 1.42, random()) *
+			profileSettings.mountainScale,
+		heightScale:
+			lerp(0.82, 1.24, random()) *
+			profileSettings.heightScale,
 
 		/**
 		 * Positive value -> more ocean.
 		 * Negative value -> more land.
 		 */
-		oceanBias: lerp(-0.055, 0.065, random()),
+		oceanBias:
+			lerp(-0.055, 0.065, random()) +
+			profileSettings.oceanBias,
 	};
+}
+
+export function getTerrainProfileSettings(
+	profile: TerrainProfileKind,
+): TerrainProfileSettings {
+	switch (profile) {
+		case 'oceanic':
+			return {
+				continentScale: 1.34,
+				coastScale: 1.46,
+				mountainScale: 0.46,
+				heightScale: 0.48,
+				oceanBias: 0.205,
+			};
+
+		case 'desert':
+			return {
+				continentScale: 0.82,
+				coastScale: 0.54,
+				mountainScale: 0.66,
+				heightScale: 0.58,
+				oceanBias: -0.175,
+			};
+
+		case 'barren':
+			return {
+				continentScale: 0.92,
+				coastScale: 0.42,
+				mountainScale: 1.34,
+				heightScale: 1.22,
+				oceanBias: -0.155,
+			};
+
+		case 'rocky':
+			return {
+				continentScale: 1.02,
+				coastScale: 0.58,
+				mountainScale: 1.26,
+				heightScale: 1.14,
+				oceanBias: -0.105,
+			};
+
+		case 'toxic':
+			return {
+				continentScale: 0.86,
+				coastScale: 0.50,
+				mountainScale: 0.58,
+				heightScale: 0.56,
+				oceanBias: -0.165,
+			};
+
+		case 'carbon':
+			return {
+				continentScale: 0.92,
+				coastScale: 0.42,
+				mountainScale: 1.02,
+				heightScale: 0.86,
+				oceanBias: -0.155,
+			};
+
+		case 'metallic':
+			return {
+				continentScale: 1.00,
+				coastScale: 0.46,
+				mountainScale: 1.48,
+				heightScale: 1.04,
+				oceanBias: -0.135,
+			};
+
+		case 'earthlike':
+		default:
+			return {
+				continentScale: 1.0,
+				coastScale: 1.0,
+				mountainScale: 1.0,
+				heightScale: 1.0,
+				oceanBias: 0.0,
+			};
+	}
 }
 
 export function getTerrainSample(

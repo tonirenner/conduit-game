@@ -1,0 +1,36 @@
+# Materials for capital_ship.obj
+newmtl Hull
+Kd 0.48 0.50 0.47
+Ka 0.08 0.08 0.08
+Ks 0.18 0.18 0.18
+Ns 28
+
+newmtl HullLight
+Kd 0.64 0.66 0.61
+Ka 0.09 0.09 0.09
+Ks 0.22 0.22 0.22
+Ns 32
+
+newmtl HullDark
+Kd 0.25 0.27 0.27
+Ka 0.04 0.04 0.04
+Ks 0.12 0.12 0.12
+Ns 18
+
+newmtl Trench
+Kd 0.08 0.09 0.10
+Ka 0.02 0.02 0.02
+Ks 0.04 0.04 0.04
+Ns 8
+
+newmtl MarkingYellow
+Kd 0.70 0.72 0.03
+Ka 0.12 0.12 0.01
+Ks 0.18 0.18 0.04
+Ns 20
+
+newmtl Engine
+Kd 0.09 0.16 0.18
+Ka 0.02 0.03 0.04
+Ks 0.35 0.55 0.60
+Ns 60

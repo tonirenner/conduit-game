@@ -12,11 +12,13 @@ import {
 } from './TerrainTextureSet';
 
 import { createTerrainTextureBakeMaterial } from './TerrainTextureBakeMaterial';
+import type {TerrainProfileKind} from '../utils/noise';
 
 export type TerrainTextureBakeOptions = {
 	resolution: number;
 	maxEncodedHeight: number;
 	terrainSeed?: number;
+	terrainProfile?: TerrainProfileKind;
 };
 
 export class TerrainTextureBakeManager {
@@ -58,6 +60,10 @@ export class TerrainTextureBakeManager {
 
 		this.bakeMaterial.setTerrainSeed(
 			options.terrainSeed ?? 1,
+		);
+
+		this.bakeMaterial.setTerrainProfile(
+			options.terrainProfile ?? 'earthlike',
 		);
 
 		const atlasColumns = 3;

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import {SUN_DIRECTION} from './Sun';
+import type {SurfaceRenderProfile} from './rendering/SurfaceRenderProfile';
 
 export function createPlanetSurfaceMaterial(
 	radius           = 3,
 	atmosphereRadius = radius * 1.045,
 ): THREE.ShaderMaterial {
-	return new THREE.ShaderMaterial({
+	const material = new THREE.ShaderMaterial({
 		                                vertexColors: true,
 		                                transparent: false,
 		                                depthWrite: true,
@@ -27,7 +28,7 @@ export function createPlanetSurfaceMaterial(
 				                                value: 0.40,
 			                                },
 			                                uExposure: {
-				                                value: 1.34,
+				                                value: 1.16,
 			                                },
 			                                uSaturation: {
 				                                value: 0.82,
@@ -36,7 +37,7 @@ export function createPlanetSurfaceMaterial(
 				                                value: 0.92,
 			                                },
 			                                uNightTint: {
-				                                value: new THREE.Color(0x061426),
+				                                value: new THREE.Color(0x0a1b32),
 			                                },
 			                                uOceanFresnelColor: {
 				                                value: new THREE.Color(0x2b8eb6),
@@ -76,10 +77,19 @@ export function createPlanetSurfaceMaterial(
 				                                value: 0.76,
 			                                },
 			                                uHorizonGlowStrength: {
-				                                value: 1.32,
+				                                value: 1.05,
 			                                },
 			                                uMaxAerialDistance: {
 				                                value: 18.0,
+			                                },
+			                                uPaletteToxic: {
+				                                value: 0.0,
+			                                },
+			                                uPaletteCarbon: {
+				                                value: 0.0,
+			                                },
+			                                uPaletteOceanic: {
+				                                value: 0.0,
 			                                },
 		                                },
 		                                vertexShader: `
@@ -131,6 +141,9 @@ export function createPlanetSurfaceMaterial(
 			uniform vec3 uOceanFresnelColor;
 			uniform vec3 uOceanDeepTint;
 			uniform vec3 uOceanLightTint;
+			uniform float uPaletteToxic;
+			uniform float uPaletteCarbon;
+			uniform float uPaletteOceanic;
 
 			uniform float uSurfaceDetailStrength;
 			uniform float uProceduralColorStrength;
@@ -854,6 +867,198 @@ export function createPlanetSurfaceMaterial(
 					waterHint
 				);
 
+				if (uPaletteOceanic > 0.001) {
+					float islandMask =
+						smoothstep(
+							0.84,
+							0.98,
+							landMask +
+							surfaceSample.height * 0.72
+						);
+
+					float shelfMask =
+						smoothstep(0.34, 0.74, landMask) *
+						(1.0 - smoothstep(0.78, 0.94, landMask));
+
+					float waveLarge =
+						fbm(localGeometricNormal * 42.0 + vec3(6.1, 2.4, 9.7));
+
+					float waveFine =
+						fbm(localGeometricNormal * 118.0 + vec3(17.3, 5.9, 1.4));
+
+					float wavePattern =
+						(waveLarge * 0.62 + waveFine * 0.38 - 0.5);
+
+					vec3 deepOcean = vec3(0.012, 0.060, 0.150);
+					vec3 midOcean = vec3(0.020, 0.235, 0.355);
+					vec3 shelfOcean = vec3(0.080, 0.560, 0.650);
+					vec3 islandLand = mix(
+						vec3(0.145, 0.300, 0.185),
+						vec3(0.590, 0.560, 0.350),
+						smoothstep(0.02, 0.18, surfaceSample.height)
+					);
+
+					vec3 oceanBase = mix(
+						deepOcean,
+						midOcean,
+						smoothstep(0.10, 0.68, landMask)
+					);
+
+					oceanBase = mix(
+						oceanBase,
+						shelfOcean,
+						shelfMask * 0.68
+					);
+
+					oceanBase +=
+						vec3(0.020, 0.060, 0.075) *
+						wavePattern *
+						(1.0 - islandMask) *
+						0.42;
+
+					baseColor = mix(
+						baseColor,
+						mix(oceanBase, islandLand, islandMask),
+						uPaletteOceanic
+					);
+				}
+
+				if (uPaletteToxic > 0.001) {
+					float polar =
+						smoothstep(0.74, 0.98, abs(localGeometricNormal.y));
+
+					float toxicHighlandMask =
+						smoothstep(
+							0.055,
+							0.18,
+							surfaceSample.height +
+							surfaceSample.mountainMask * 0.10
+						);
+
+					float chemicalStain =
+						(
+							1.0 -
+							smoothstep(0.06, 0.20, surfaceSample.height)
+						) *
+						(1.0 - surfaceSample.mountainMask * 0.62);
+
+					vec3 toxicLowland = mix(
+						vec3(0.190, 0.250, 0.230),
+						vec3(0.540, 0.625, 0.590),
+						smoothstep(0.00, 0.10, surfaceSample.height)
+					);
+
+					vec3 toxicHighland = mix(
+						vec3(0.290, 0.175, 0.115),
+						vec3(0.625, 0.370, 0.220),
+						smoothstep(
+							0.04,
+							0.22,
+							surfaceSample.height +
+							surfaceSample.mountainMask * 0.08
+						)
+					);
+
+					vec3 toxicBase = mix(
+						toxicLowland,
+						toxicHighland,
+						toxicHighlandMask
+					);
+
+					toxicBase = mix(
+						toxicBase,
+						vec3(0.760, 0.760, 0.620),
+						polar * 0.10 + chemicalStain * 0.30
+					);
+
+					baseColor = mix(
+						baseColor,
+						toxicBase,
+						uPaletteToxic
+					);
+				}
+
+				if (uPaletteCarbon > 0.001) {
+					float carbonLargeDetail =
+						fbm(localGeometricNormal * 9.0 + vec3(11.2, 4.7, 8.1));
+
+					float carbonMediumDetail =
+						fbm(localGeometricNormal * 22.0 + vec3(3.4, 19.1, 7.6));
+
+					float carbonFineDetail =
+						fbm(localGeometricNormal * 54.0 + vec3(41.0, 5.3, 13.7));
+
+					float carbonHighlandMask =
+						smoothstep(
+							0.045,
+							0.19,
+							surfaceSample.height +
+							surfaceSample.mountainMask * 0.08
+						);
+
+					float carbonRidges =
+						smoothstep(
+							0.53,
+							0.88,
+							carbonMediumDetail * 0.64 + carbonFineDetail * 0.36
+						) *
+						smoothstep(
+							0.025,
+							0.17,
+							surfaceSample.height +
+							surfaceSample.mountainMask * 0.06
+						);
+
+					float carbonDust =
+						smoothstep(
+							0.28,
+							0.68,
+							carbonLargeDetail * 0.72 + carbonFineDetail * 0.28
+						) *
+						(1.0 - surfaceSample.mountainMask * 0.55);
+
+					vec3 carbonLowland = mix(
+						vec3(0.082, 0.078, 0.074),
+						vec3(0.165, 0.153, 0.137),
+						smoothstep(0.00, 0.10, surfaceSample.height)
+					);
+
+					vec3 carbonHighland = mix(
+						vec3(0.239, 0.216, 0.192),
+						vec3(0.443, 0.408, 0.369),
+						smoothstep(
+							0.04,
+							0.23,
+							surfaceSample.height +
+							surfaceSample.mountainMask * 0.08
+						)
+					);
+
+					vec3 carbonBase = mix(
+						carbonLowland,
+						carbonHighland,
+						carbonHighlandMask
+					);
+
+					carbonBase = mix(
+						carbonBase,
+						vec3(0.561, 0.522, 0.471),
+						carbonRidges * 0.42
+					);
+
+					carbonBase = mix(
+						carbonBase,
+						vec3(0.310, 0.235, 0.192),
+						carbonDust * 0.24
+					);
+
+					baseColor = mix(
+						baseColor,
+						carbonBase,
+						uPaletteCarbon
+					);
+				}
+
 				vec3 normal = meshNormal;
 
 				if (uSurfaceDetailStrength > 0.001) {
@@ -898,13 +1103,41 @@ export function createPlanetSurfaceMaterial(
 
 				vec3 dayColor =
 					baseColor *
-					(localAmbient + directLight * 1.12);
+					(localAmbient + directLight * 1.02);
 
 				vec3 nightColor =
 					uNightTint +
-					baseColor * 0.20;
+					baseColor * 0.16;
 
 				vec3 color = mix(nightColor, dayColor, day);
+
+				if (uPaletteToxic > 0.001) {
+					float toxicRim =
+						pow(
+							1.0 - saturate(dot(normal, viewDirection)),
+							2.1
+						);
+
+					color +=
+						vec3(0.760, 0.780, 0.610) *
+						toxicRim *
+						(0.16 + day * 0.22) *
+						uPaletteToxic;
+				}
+
+				if (uPaletteCarbon > 0.001) {
+					float carbonRim =
+						pow(
+							1.0 - saturate(dot(normal, viewDirection)),
+							2.4
+						);
+
+					color +=
+						vec3(0.620, 0.570, 0.510) *
+						carbonRim *
+						(0.045 + day * 0.075) *
+						uPaletteCarbon;
+				}
 
 				float fresnel =
 					pow(
@@ -917,7 +1150,7 @@ export function createPlanetSurfaceMaterial(
 					fresnel *
 					waterHint *
 					day *
-					0.16;
+					mix(0.16, 0.34, uPaletteOceanic);
 
 				vec3 halfDirection = normalize(sunDirection + viewDirection);
 
@@ -956,10 +1189,48 @@ export function createPlanetSurfaceMaterial(
 				);
 
 				color *= uExposure;
-				color = pow(color, vec3(0.91));
+				color = pow(color, vec3(1.0));
 
 				gl_FragColor = vec4(color, 1.0);
 			}
 		`,
 	                                });
+
+	(material as any).setSurfaceProfile = (
+		profile: SurfaceRenderProfile,
+	): void => {
+		material.uniforms.uPaletteToxic.value =
+			profile.palette === 'toxic' ? 1.0 : 0.0;
+		material.uniforms.uPaletteCarbon.value =
+			profile.palette === 'carbon' ? 1.0 : 0.0;
+		material.uniforms.uPaletteOceanic.value =
+			profile.palette === 'oceanic' ? 1.0 : 0.0;
+	};
+
+	(material as any).setRenderTuning = (tuning: {
+		ambient?: number;
+		exposure?: number;
+	}): void => {
+		if (typeof tuning.ambient === 'number') {
+			material.uniforms.uAmbient.value = THREE.MathUtils.clamp(
+				tuning.ambient,
+				0.12,
+				0.90,
+			);
+		}
+
+		if (typeof tuning.exposure === 'number') {
+			material.uniforms.uExposure.value = THREE.MathUtils.clamp(
+				tuning.exposure,
+				0.55,
+				2.20,
+			);
+		}
+	};
+
+	(material as any).setSunDirection = (direction: THREE.Vector3): void => {
+		material.uniforms.uSunDirection.value.copy(direction).normalize();
+	};
+
+	return material;
 }

@@ -29,6 +29,7 @@ export class WebGPUAtmosphereLayer {
 	private readonly atmosphereAlpha: any;
 	private readonly scatteringBoost: any;
 	private readonly atmosphereStepCount: any;
+	private readonly sunDirection: any;
 
 	private profileSunIntensity = 46.0;
 	private profileAtmosphereAlpha = 0.86;
@@ -50,6 +51,9 @@ export class WebGPUAtmosphereLayer {
 		this.atmosphereAlpha = uniform(0.86);
 		this.scatteringBoost = uniform(1.0);
 		this.atmosphereStepCount = uniform(16.0);
+		this.sunDirection = uniform(
+			SUN_DIRECTION.clone().normalize(),
+		);
 
 		this.material = this.createMaterial(
 			radius,
@@ -68,6 +72,10 @@ export class WebGPUAtmosphereLayer {
 
 	update(): void {
 		// Static for now.
+	}
+
+	setSunDirection(direction: THREE.Vector3): void {
+		this.sunDirection.value.copy(direction).normalize();
 	}
 
 	setAtmosphereProfile(
@@ -171,10 +179,6 @@ export class WebGPUAtmosphereLayer {
 		material.name = 'WebGPUAtmosphereRaymarchNodeMaterial';
 		material.opacity = 0.58;
 		material.toneMapped = false;
-
-		const sunDirection = uniform(
-			SUN_DIRECTION.clone().normalize(),
-		);
 
 		const planetRadius = uniform(planetRadiusValue);
 		const atmosphereRadius = uniform(atmosphereRadiusValue);
@@ -591,7 +595,7 @@ fn atmosphere_optical_depth(
 		const atmosphereResult = atmosphereRaymarch({
 			                                            surfacePosition: positionWorld,
 			                                            camPos: cameraPosition,
-			                                            sunDirInput: sunDirection,
+			                                            sunDirInput: this.sunDirection,
 			                                            planetRadius,
 			                                            atmosphereRadius,
 			                                            sunIntensity: this.sunIntensity,

@@ -1,39 +1,42 @@
 import * as THREE from 'three';
 
-import {getClimateSample} from './Climate';
-import {createTerrainSeedConfig, getTerrainSample, type TerrainSeedConfig} from '../utils/noise';
+import {createTerrainSeedConfig, type TerrainSeedConfig} from '../utils/noise';
 
 import {CubeSphere} from './CubeSphere';
 import {CloudLayer} from './CloudLayer';
 import {AtmosphereLayer} from './AtmosphereLayer';
 import {WebGPUAtmosphereLayer} from './WebGPUAtmosphereLayer';
 import {WebGPUCloudLayer} from './WebGPUCloudLayer';
-import {createPlanetSurfaceMaterial} from './PlanetSurfaceMaterial';
-import {createPlanetSurfaceNodeMaterial} from './PlanetSurfaceNodeMaterial';
+import {
+	createPlanetSurfaceRuntimeMaterial,
+	type PlanetSurfaceRenderTuning,
+	type PlanetSurfaceRuntimeMaterial,
+} from './materials/PlanetSurfaceMaterialFactory';
 import {GasGiantLayer} from './GasGiantLayer';
 import {RingSystemLayer} from './RingSystemLayer';
 import {MoonSystemLayer} from './MoonSystemLayer';
-import {LavaPlanetLayer} from './LavaPlanetLayer';
-import {
-	type NearSurfaceBiome,
-	NearSurfaceDetailLayer,
-	type NearSurfacePlacementSample,
-} from './NearSurfaceDetailLayer';
+import {ToxicHazeLayer} from './ToxicHazeLayer';
+import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
 import type {PlanetDefinition} from './model/PlanetDefinition';
 import type {PlanetRenderProfile} from './rendering/PlanetRenderProfile';
 import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from './rendering/SurfaceRenderProfile';
+import {resolveTerrainProfileKind} from './rendering/TerrainRenderProfile';
 
 import {mergePlanetRenderFeatures, type PlanetRenderFeatures,} from './rendering/PlanetRenderFeatures';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
 
-type PlanetSurfaceRuntimeMaterial = THREE.Material & {
-	uniforms?: Record<string, {
-		value: unknown;
-	}>;
+export type PlanetRenderTuning = {
+	ambient: number;
+	exposureScale: number;
+	horizonGlowScale: number;
+	surfaceDetailStrength: number;
+	proceduralColorStrength: number;
+	surfaceTextureStrength: number;
+	bakedTerrainBlend: number;
 };
 
 /**
@@ -51,19 +54,19 @@ type PlanetSurfaceRuntimeMaterial = THREE.Material & {
 export class Planet {
 	public readonly group: THREE.Group;
 
-	private readonly surfaceMaterial?: PlanetSurfaceRuntimeMaterial;
-	private readonly planetBody?: THREE.Mesh;
-	private readonly planet?: CubeSphere;
-	private readonly atmosphere?: AtmosphereLayer;
-	private readonly webGPUAtmosphere?: WebGPUAtmosphereLayer;
-	private readonly clouds?: CloudLayer;
-	private readonly webGPUClouds?: WebGPUCloudLayer;
-	private readonly depthOccluder?: THREE.Mesh;
-	private readonly gasGiantLayer?: GasGiantLayer;
+	private surfaceMaterial?: PlanetSurfaceRuntimeMaterial;
+	private planetBody?: THREE.Mesh;
+	private planet?: CubeSphere;
+	private atmosphere?: AtmosphereLayer;
+	private webGPUAtmosphere?: WebGPUAtmosphereLayer;
+	private clouds?: CloudLayer;
+	private webGPUClouds?: WebGPUCloudLayer;
+	private depthOccluder?: THREE.Mesh;
+	private gasGiantLayer?: GasGiantLayer;
 	private ringSystemLayer?: RingSystemLayer;
 	private moonSystemLayer?: MoonSystemLayer;
-	private lavaPlanetLayer?: LavaPlanetLayer;
-	private nearSurfaceDetailLayer?: NearSurfaceDetailLayer;
+	private toxicHazeLayer?: ToxicHazeLayer;
+	private nearSurfaceTerrainLayer?: NearSurfaceTerrainLayer;
 
 	private readonly rendererKind: string;
 
@@ -74,6 +77,7 @@ export class Planet {
 	private readonly features: PlanetRenderFeatures;
 	private readonly surfaceProfile: SurfaceRenderProfile | null;
 	private readonly terrainSeedConfig: TerrainSeedConfig;
+	private readonly renderTuning: PlanetRenderTuning;
 
 	constructor(
 		private readonly radius: number,
@@ -84,6 +88,7 @@ export class Planet {
 		private readonly renderProfile: PlanetRenderProfile | null   = null,
 	) {
 		this.features       = mergePlanetRenderFeatures(features);
+		this.renderTuning  = this.createDefaultRenderTuning(rendererMode);
 		this.surfaceProfile =
 			this.definition && this.renderProfile
 			? createSurfaceRenderProfile(
@@ -94,6 +99,7 @@ export class Planet {
 
 		this.terrainSeedConfig = createTerrainSeedConfig(
 			this.definition?.render.terrainSeed ?? 1,
+			resolveTerrainProfileKind(this.definition?.class),
 		);
 
 		this.rendererKind =
@@ -106,34 +112,6 @@ export class Planet {
 		this.atmosphereRadius = radius * 1.045;
 
 		if (this.isSolidSurfaceRenderer()) {
-			if (this.isLavaSurfaceRenderer()) {
-				this.lavaPlanetLayer = new LavaPlanetLayer({
-					                                           radius,
-					                                           seed:
-						                                           this.definition?.render.terrainSeed ??
-						                                           this.definition?.seed ??
-						                                           1,
-				                                           });
-
-				this.group.add(this.lavaPlanetLayer.group);
-
-				if (this.rendererMode === 'webgl') {
-					this.atmosphere = new AtmosphereLayer(radius);
-					this.group.add(this.atmosphere.mesh);
-				}
-
-				if (this.rendererMode === 'webgpu') {
-					this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
-					this.group.add(this.webGPUAtmosphere.mesh);
-				}
-
-				this.createRingSystem();
-				this.createMoonSystem();
-
-				this.applyRenderProfile();
-				return;
-			}
-
 			this.surfaceMaterial = this.createSurfaceMaterial(
 				radius,
 				this.atmosphereRadius,
@@ -149,27 +127,16 @@ export class Planet {
 			this.group.add(this.planetBody);
 			this.group.add(this.planet);
 
-			if (this.rendererMode === 'webgl') {
-				this.clouds     = new CloudLayer(radius);
-				this.atmosphere = new AtmosphereLayer(radius);
-
-				this.group.add(this.clouds.group);
-				this.group.add(this.atmosphere.mesh);
-			}
-
-			if (this.rendererMode === 'webgpu') {
-				this.webGPUClouds     = new WebGPUCloudLayer(radius);
-				this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
-
-				this.group.add(this.webGPUClouds.mesh);
-				this.group.add(this.webGPUAtmosphere.mesh);
-			}
+			this.createCloudLayer();
+			this.createAtmosphereLayer();
+			this.createToxicHazeLayer();
 
 			this.createRingSystem();
 			this.createMoonSystem();
 
 			this.applyRenderProfile();
-			this.createNearSurfaceDetailLayer();
+			this.applyRenderTuning();
+			this.createNearSurfaceTerrainLayer();
 			return;
 		}
 
@@ -180,21 +147,37 @@ export class Planet {
 				                                       : 'gas_giant',
 			                                       radius,
 			                                       seed: this.definition?.seed ?? 1,
+			                                       enableCloudParticles:
+				                                       this.features.gasCloudParticles,
 		                                       });
 
 		this.group.add(this.gasGiantLayer.group);
 
-		this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
-		this.group.add(this.webGPUAtmosphere.mesh);
+		this.createAtmosphereLayer();
 
 		this.createRingSystem();
 		this.createMoonSystem();
 
 		this.applyRenderProfile();
+		this.applyRenderTuning();
 	}
 
 	private isSolidSurfaceRenderer(): boolean {
 		return this.rendererKind === 'solid_surface';
+	}
+
+	private createDefaultRenderTuning(
+		rendererMode: PlanetRendererMode,
+	): PlanetRenderTuning {
+		return {
+			ambient: rendererMode === 'webgpu' ? 0.68 : 0.40,
+			exposureScale: rendererMode === 'webgpu' ? 1.16 : 1.0,
+			horizonGlowScale: 1.0,
+			surfaceDetailStrength: 1.0,
+			proceduralColorStrength: 0.65,
+			surfaceTextureStrength: 1.0,
+			bakedTerrainBlend: 1.0,
+		};
 	}
 
 	private isLavaSurfaceRenderer(): boolean {
@@ -216,28 +199,221 @@ export class Planet {
 		);
 	}
 
+	setRenderTuning(
+		tuning: Partial<PlanetRenderTuning>,
+	): void {
+		if (typeof tuning.ambient === 'number') {
+			this.renderTuning.ambient = THREE.MathUtils.clamp(
+				tuning.ambient,
+				0.12,
+				0.90,
+			);
+		}
+
+		if (typeof tuning.exposureScale === 'number') {
+			this.renderTuning.exposureScale = THREE.MathUtils.clamp(
+				tuning.exposureScale,
+				0.45,
+				1.85,
+			);
+		}
+
+		if (typeof tuning.horizonGlowScale === 'number') {
+			this.renderTuning.horizonGlowScale = THREE.MathUtils.clamp(
+				tuning.horizonGlowScale,
+				0.20,
+				1.80,
+			);
+		}
+
+		if (typeof tuning.surfaceDetailStrength === 'number') {
+			this.renderTuning.surfaceDetailStrength = THREE.MathUtils.clamp(
+				tuning.surfaceDetailStrength,
+				0,
+				1.4,
+			);
+		}
+
+		if (typeof tuning.proceduralColorStrength === 'number') {
+			this.renderTuning.proceduralColorStrength = THREE.MathUtils.clamp(
+				tuning.proceduralColorStrength,
+				0,
+				1.2,
+			);
+		}
+
+		if (typeof tuning.surfaceTextureStrength === 'number') {
+			this.renderTuning.surfaceTextureStrength = THREE.MathUtils.clamp(
+				tuning.surfaceTextureStrength,
+				0,
+				1.4,
+			);
+		}
+
+		if (typeof tuning.bakedTerrainBlend === 'number') {
+			this.renderTuning.bakedTerrainBlend = THREE.MathUtils.clamp(
+				tuning.bakedTerrainBlend,
+				0,
+				1,
+			);
+		}
+
+		this.applyRenderTuning();
+	}
+
+	getRenderTuning(): PlanetRenderTuning {
+		return {
+			...this.renderTuning,
+		};
+	}
+
+	private applyRenderTuning(): void {
+		const materialTuning: PlanetSurfaceRenderTuning = {
+			ambient: this.renderTuning.ambient,
+		};
+
+		if (this.rendererMode === 'webgpu') {
+			materialTuning.exposure = 1.36 * this.renderTuning.exposureScale;
+		}
+
+		this.surfaceMaterial?.setRenderTuning?.(materialTuning);
+
+		this.setUniform(
+			'uAmbient',
+			this.renderTuning.ambient,
+		);
+		this.setUniform(
+			'uSurfaceDetailStrength',
+			this.currentRenderQuality === 'moving'
+			? this.renderTuning.surfaceDetailStrength * 0.25
+			: this.renderTuning.surfaceDetailStrength,
+		);
+		this.setUniform(
+			'uProceduralColorStrength',
+			this.currentRenderQuality === 'moving'
+			? this.renderTuning.proceduralColorStrength * 0.38
+			: this.renderTuning.proceduralColorStrength,
+		);
+		this.setUniform(
+			'uSurfaceTextureStrength',
+			this.currentRenderQuality === 'moving'
+			? this.renderTuning.surfaceTextureStrength * 0.35
+			: this.renderTuning.surfaceTextureStrength,
+		);
+
+		this.setBakedTerrainEnabled(this.bakedTerrainEnabled);
+		const bakedTerrainSetter =
+			      (this.surfaceMaterial as any)?.setBakedTerrainBlend;
+
+		if (typeof bakedTerrainSetter === 'function') {
+			bakedTerrainSetter.call(
+				this.surfaceMaterial,
+				this.bakedTerrainEnabled
+				? this.renderTuning.bakedTerrainBlend
+				: 0,
+			);
+		}
+	}
+
+	private isIceSurfaceRenderer(): boolean {
+		if (this.rendererKind !== 'solid_surface') {
+			return false;
+		}
+
+		if (this.definition?.class === 'ice') {
+			return true;
+		}
+
+		return this.surfaceProfile?.palette === 'ice';
+	}
+
+	private createCloudLayer(): void {
+		if (this.renderProfile?.enableClouds === false) {
+			return;
+		}
+
+		if (this.rendererMode === 'webgpu') {
+			this.webGPUClouds = new WebGPUCloudLayer(this.radius);
+			this.group.add(this.webGPUClouds.mesh);
+			return;
+		}
+
+		this.clouds = new CloudLayer(this.radius);
+		this.group.add(this.clouds.group);
+	}
+
+	private createAtmosphereLayer(): void {
+		if (this.renderProfile?.enableAtmosphere === false) {
+			return;
+		}
+
+		if (this.rendererMode === 'webgpu') {
+			this.webGPUAtmosphere = new WebGPUAtmosphereLayer(this.radius);
+			this.group.add(this.webGPUAtmosphere.mesh);
+			return;
+		}
+
+		this.atmosphere = new AtmosphereLayer(this.radius);
+		this.group.add(this.atmosphere.mesh);
+	}
+
+	private createToxicHazeLayer(): void {
+		if (!this.isToxicSurfaceRenderer()) {
+			return;
+		}
+
+		this.toxicHazeLayer = new ToxicHazeLayer({
+			radius: this.radius,
+		});
+
+		this.group.add(this.toxicHazeLayer.mesh);
+	}
+
+	private isToxicSurfaceRenderer(): boolean {
+		if (this.rendererKind !== 'solid_surface') {
+			return false;
+		}
+
+		return this.definition?.class === 'toxic' ||
+		       this.surfaceProfile?.palette === 'toxic';
+	}
+
 	private applyRenderProfile(): void {
 		if (!this.renderProfile) {
 			return;
 		}
 
-		const cloudProfileSetter =
-			      (this.webGPUClouds as any)?.setCloudProfile;
+		for (const cloudLayer of [
+			this.clouds,
+			this.webGPUClouds,
+		]) {
+			const cloudProfileSetter =
+				      (cloudLayer as any)?.setCloudProfile;
 
-		if (typeof cloudProfileSetter === 'function') {
+			if (typeof cloudProfileSetter !== 'function') {
+				continue;
+			}
+
 			cloudProfileSetter.call(
-				this.webGPUClouds,
+				cloudLayer,
 				this.renderProfile.cloudCoverage,
 				this.renderProfile.atmosphereDensity,
 			);
 		}
 
-		const atmosphereProfileSetter =
-			      (this.webGPUAtmosphere as any)?.setAtmosphereProfile;
+		for (const atmosphereLayer of [
+			this.atmosphere,
+			this.webGPUAtmosphere,
+		]) {
+			const atmosphereProfileSetter =
+				      (atmosphereLayer as any)?.setAtmosphereProfile;
 
-		if (typeof atmosphereProfileSetter === 'function') {
+			if (typeof atmosphereProfileSetter !== 'function') {
+				continue;
+			}
+
 			atmosphereProfileSetter.call(
-				this.webGPUAtmosphere,
+				atmosphereLayer,
 				this.renderProfile.atmosphereDensity,
 				this.definition?.atmosphere.haze ?? 0,
 			);
@@ -284,6 +460,20 @@ export class Planet {
 		}
 	}
 
+	setSunDirection(direction: THREE.Vector3): void {
+		const normalizedDirection = direction.clone().normalize();
+
+		this.surfaceMaterial?.setSunDirection?.(normalizedDirection);
+		this.setVectorUniform(
+			'uSunDirection',
+			normalizedDirection,
+		);
+		this.clouds?.setSunDirection(normalizedDirection);
+		this.webGPUClouds?.setSunDirection(normalizedDirection);
+		this.atmosphere?.setSunDirection(normalizedDirection);
+		this.webGPUAtmosphere?.setSunDirection(normalizedDirection);
+	}
+
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
 		if (this.planet) {
 			this.planet.rotation.y += 0.0008;
@@ -292,8 +482,8 @@ export class Planet {
 		this.gasGiantLayer?.update(deltaSeconds);
 		this.ringSystemLayer?.update(deltaSeconds);
 		this.moonSystemLayer?.update(deltaSeconds);
-		this.lavaPlanetLayer?.update(deltaSeconds);
-		this.nearSurfaceDetailLayer?.update(cameraPosition, deltaSeconds);
+		this.toxicHazeLayer?.update();
+		this.nearSurfaceTerrainLayer?.update(cameraPosition, deltaSeconds);
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
@@ -320,9 +510,7 @@ export class Planet {
 		this.currentRenderQuality = quality;
 
 		if (quality === 'moving') {
-			this.setUniform('uSurfaceDetailStrength', 0.25);
-			this.setUniform('uProceduralColorStrength', 0.25);
-			this.setUniform('uSurfaceTextureStrength', 0.35);
+			this.applyRenderTuning();
 			this.setSurfaceRaymarchSteps(
 				this.features.surfaceSteps.moving,
 			);
@@ -339,9 +527,7 @@ export class Planet {
 			return;
 		}
 
-		this.setUniform('uSurfaceDetailStrength', 1.0);
-		this.setUniform('uProceduralColorStrength', 0.65);
-		this.setUniform('uSurfaceTextureStrength', 1.0);
+		this.applyRenderTuning();
 		this.setSurfaceRaymarchSteps(
 			this.features.surfaceSteps.idle,
 		);
@@ -418,6 +604,10 @@ export class Planet {
 	}
 
 	private createMoonSystem(): void {
+		if (!this.features.moonSystem) {
+			return;
+		}
+
 		const moonCount =
 			      this.definition?.moons?.length ?? 0;
 
@@ -439,8 +629,12 @@ export class Planet {
 		this.group.add(this.moonSystemLayer.group);
 	}
 
-	private createNearSurfaceDetailLayer(): void {
-		if (this.nearSurfaceDetailLayer) {
+	private createNearSurfaceTerrainLayer(): void {
+		if (!this.features.nearSurfaceTerrain) {
+			return;
+		}
+
+		if (this.nearSurfaceTerrainLayer) {
 			return;
 		}
 
@@ -452,189 +646,25 @@ export class Planet {
 			return;
 		}
 
-		if (this.isLavaSurfaceRenderer()) {
-			return;
-		}
+		this.nearSurfaceTerrainLayer = new NearSurfaceTerrainLayer({
+			radius: this.radius,
+			terrainSeedConfig: this.terrainSeedConfig,
+			surfaceProfile: this.surfaceProfile,
+		});
 
-		this.nearSurfaceDetailLayer = new NearSurfaceDetailLayer({
-			                                                         radius: this.radius,
-			                                                         seed:
-				                                                         this.definition.render.biomeSeed ??
-				                                                         this.definition.render.terrainSeed ??
-				                                                         this.definition.seed,
-			                                                         planetClass: this.definition.class,
-			                                                         surfaceProfile: this.surfaceProfile,
-			                                                         sampleSurface: (normal) => this.sampleNearSurface(
-				                                                         normal),
-		                                                         });
-
-		this.group.add(this.nearSurfaceDetailLayer.group);
-	}
-
-	private sampleNearSurface(
-		normal: THREE.Vector3,
-	): NearSurfacePlacementSample | null {
-		const terrain = getTerrainSample(normal, this.terrainSeedConfig);
-
-		const climate = getClimateSample(
-			normal,
-			terrain.height,
-			terrain.landMask,
-		);
-
-		const slope = this.estimateNearSurfaceSlope(normal);
-
-		const biome = this.deriveNearSurfaceBiome(
-			terrain.landMask,
-			terrain.mountainMask,
-			climate.temperature,
-			climate.humidity,
-			climate.aridity,
-			climate.vegetation,
-			climate.snow ?? 0,
-		);
-
-		return {
-			height: terrain.height,
-			surfaceRadius: this.radius + terrain.height,
-			landMask: terrain.landMask,
-			mountainMask: terrain.mountainMask,
-			slope,
-
-			temperature: climate.temperature,
-			humidity: climate.humidity,
-			aridity: climate.aridity,
-			vegetation: climate.vegetation,
-			snow: climate.snow ?? 0,
-
-			biome,
-		};
-	}
-
-	private deriveNearSurfaceBiome(
-		landMask: number,
-		mountainMask: number,
-		temperature: number,
-		humidity: number,
-		aridity: number,
-		vegetation: number,
-		snow: number,
-	): NearSurfaceBiome {
-		if (landMask < 0.50) {
-			return 'ocean';
-		}
-
-		if (landMask < 0.62) {
-			return 'coast';
-		}
-
-		if (snow > 0.45 || temperature < 0.22) {
-			return 'snow';
-		}
-
-		if (mountainMask > 0.58) {
-			return 'rocky';
-		}
-
-		if (aridity > 0.72 && humidity < 0.35) {
-			return 'desert';
-		}
-
-		if (vegetation > 0.56 && humidity > 0.55) {
-			return 'forest';
-		}
-
-		if (vegetation > 0.28) {
-			return 'grassland';
-		}
-
-		return 'barren';
-	}
-
-	private estimateNearSurfaceSlope(
-		normal: THREE.Vector3,
-	): number {
-		const right   = new THREE.Vector3();
-		const forward = new THREE.Vector3();
-
-		this.createNearSurfaceTangentBasis(
-			normal,
-			right,
-			forward,
-		);
-
-		const offset = 0.010;
-
-		const center = getTerrainSample(normal, this.terrainSeedConfig).height;
-
-		const sampleA = getTerrainSample(
-			this.offsetNearSurfaceNormal(
-				normal,
-				right,
-				offset,
-			),
-			this.terrainSeedConfig,
-		).height;
-
-		const sampleB = getTerrainSample(
-			this.offsetNearSurfaceNormal(
-				normal,
-				forward,
-				offset,
-			),
-			this.terrainSeedConfig,
-		).height;
-
-		return THREE.MathUtils.clamp(
-			(Math.abs(center - sampleA) + Math.abs(center - sampleB)) * 18.0,
-			0,
-			1,
-		);
-	}
-
-	private offsetNearSurfaceNormal(
-		base: THREE.Vector3,
-		tangent: THREE.Vector3,
-		amount: number,
-	): THREE.Vector3 {
-		return base.clone()
-			.addScaledVector(tangent, amount)
-			.normalize();
-	}
-
-	private createNearSurfaceTangentBasis(
-		normal: THREE.Vector3,
-		outRight: THREE.Vector3,
-		outForward: THREE.Vector3,
-	): void {
-		const up =
-			      Math.abs(normal.y) < 0.92
-			      ? new THREE.Vector3(0, 1, 0)
-			      : new THREE.Vector3(1, 0, 0);
-
-		outRight.copy(up)
-			.cross(normal)
-			.normalize();
-		outForward.copy(normal)
-			.cross(outRight)
-			.normalize();
+		this.group.add(this.nearSurfaceTerrainLayer.group);
 	}
 
 	private createSurfaceMaterial(
 		radius: number,
 		atmosphereRadius: number,
 	): PlanetSurfaceRuntimeMaterial {
-		if (this.rendererMode === 'webgpu') {
-			return createPlanetSurfaceNodeMaterial(
-				radius,
-				this.terrainTextureSet,
-			) as PlanetSurfaceRuntimeMaterial;
-		}
-
-		return createPlanetSurfaceMaterial(
+		return createPlanetSurfaceRuntimeMaterial({
+			rendererMode: this.rendererMode,
 			radius,
 			atmosphereRadius,
-		) as PlanetSurfaceRuntimeMaterial;
+			terrainTextureSet: this.terrainTextureSet,
+		});
 	}
 
 	private updateSurfaceCameraUniform(cameraPosition: THREE.Vector3): void {
@@ -683,7 +713,11 @@ export class Planet {
 
 		this.setUniform(
 			'uHorizonGlowStrength',
-			THREE.MathUtils.lerp(0.85, 3.10, cinematicAtmosphere),
+			THREE.MathUtils.lerp(
+				0.72,
+				2.25,
+				cinematicAtmosphere,
+			) * this.renderTuning.horizonGlowScale,
 		);
 
 		this.setUniform(
@@ -698,8 +732,31 @@ export class Planet {
 
 		this.setUniform(
 			'uExposure',
-			THREE.MathUtils.lerp(1.30, 1.58, veryLowAtmosphere),
+			THREE.MathUtils.lerp(
+				1.14,
+				1.30,
+				veryLowAtmosphere,
+			) * this.renderTuning.exposureScale,
 		);
+
+		if (this.rendererMode === 'webgpu') {
+			const surfaceExposure = THREE.MathUtils.lerp(
+				1.52,
+				1.72,
+				veryLowAtmosphere,
+			);
+
+			const surfaceAmbient = THREE.MathUtils.lerp(
+				this.renderTuning.ambient,
+				Math.max(this.renderTuning.ambient, 0.74),
+				veryLowAtmosphere,
+			);
+
+			this.surfaceMaterial?.setRenderTuning?.({
+				ambient: surfaceAmbient,
+				exposure: surfaceExposure * this.renderTuning.exposureScale,
+			});
+		}
 	}
 
 	private setUniform(name: string, value: number): void {
@@ -710,6 +767,16 @@ export class Planet {
 		}
 
 		uniform.value = value;
+	}
+
+	private setVectorUniform(name: string, value: THREE.Vector3): void {
+		const uniform = this.surfaceMaterial?.uniforms?.[name];
+
+		if (!uniform || !(uniform.value instanceof THREE.Vector3)) {
+			return;
+		}
+
+		uniform.value.copy(value);
 	}
 
 	private createPlanet(
@@ -775,7 +842,11 @@ export class Planet {
 			return;
 		}
 
-		setter(enabled ? 1.0 : 0.0);
+		setter(
+			enabled
+			? this.renderTuning.bakedTerrainBlend
+			: 0.0,
+		);
 	}
 
 	toggleBakedTerrain(): boolean {
@@ -888,14 +959,12 @@ export class Planet {
 			metalInfluence: number;
 			raymarchOcclusionStrength: number;
 		};
-		nearSurfaceDetail: {
+		nearSurfaceTerrain: {
 			enabled: boolean;
 			visible: boolean;
-			alpha: number;
-			rocks: number;
-			tufts: number;
-			patches: number;
-			debug: boolean;
+			resolution: number;
+			patchSize: number;
+			height: number;
 		};
 	} {
 		if (!this.definition) {
@@ -959,14 +1028,12 @@ export class Planet {
 					metalInfluence: 0,
 					raymarchOcclusionStrength: 0,
 				},
-				nearSurfaceDetail: {
+				nearSurfaceTerrain: {
 					enabled: false,
 					visible: false,
-					alpha: 0,
-					rocks: 0,
-					tufts: 0,
-					patches: 0,
-					debug: false,
+					resolution: 0,
+					patchSize: 0,
+					height: 0,
 				},
 			};
 		}
@@ -1033,15 +1100,13 @@ export class Planet {
 				raymarchOcclusionStrength:
 					this.surfaceProfile?.raymarchOcclusionStrength ?? 0,
 			},
-			nearSurfaceDetail:
-				this.nearSurfaceDetailLayer?.getDebugStats?.() ?? {
+			nearSurfaceTerrain:
+				this.nearSurfaceTerrainLayer?.getDebugStats?.() ?? {
 					enabled: false,
 					visible: false,
-					alpha: 0,
-					rocks: 0,
-					tufts: 0,
-					patches: 0,
-					debug: false,
+					resolution: 0,
+					patchSize: 0,
+					height: 0,
 				},
 		};
 	}
@@ -1089,8 +1154,8 @@ export class Planet {
 
 	dispose(): void {
 		this.moonSystemLayer?.dispose();
-		this.lavaPlanetLayer?.dispose();
-		this.nearSurfaceDetailLayer?.dispose();
+		this.toxicHazeLayer?.dispose();
+		this.nearSurfaceTerrainLayer?.dispose();
 
 		this.group.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) {
@@ -1117,6 +1182,11 @@ export class Planet {
 		totalPatches: number;
 		visibleMeshes: number;
 		maxLevel: number;
+		balance: {
+			splits: number;
+			passes: number;
+			violations: number;
+		};
 		horizon: {
 			tested: number;
 			visible: number;
@@ -1130,6 +1200,11 @@ export class Planet {
 				totalPatches: 0,
 				visibleMeshes: 0,
 				maxLevel: 0,
+				balance: {
+					splits: 0,
+					passes: 0,
+					violations: 0,
+				},
 				horizon: {
 					tested: 0,
 					visible: 0,

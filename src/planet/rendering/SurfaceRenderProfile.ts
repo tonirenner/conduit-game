@@ -6,6 +6,7 @@ import type {
 import type { PlanetRenderProfile } from './PlanetRenderProfile';
 
 export type SurfacePaletteKind =
+	| 'barren'
 	| 'rocky'
 	| 'earthlike'
 	| 'oceanic'
@@ -57,12 +58,16 @@ export function createSurfaceRenderProfile(
 	const hasSolidSurface = planet.surface.hasSolidSurface;
 
 	const waterInfluence =
-		      planet.composition.water *
-		      (planet.surface.hasOcean ? 1.0 : 0.35);
+		      planetClass === 'toxic'
+		      ? 0.0
+		      : planet.composition.water *
+		        (planet.surface.hasOcean ? 1.0 : 0.35);
 
 	const iceInfluence =
-		      planet.composition.ice +
-		      (planet.surface.hasIceCaps ? 0.25 : 0.0);
+		      planet.class === 'ice'
+		      ? 1.0
+		      : planet.composition.ice +
+		        (planet.surface.hasIceCaps ? 0.25 : 0.0);
 
 	const lavaInfluence =
 		      planetClass === 'lava' || planet.surface.hasVolcanism
@@ -157,8 +162,10 @@ function resolveSurfacePalette(
 		case 'gas_giant':
 			return 'gas_bands';
 
-		case 'rocky':
 		case 'barren':
+			return 'barren';
+
+		case 'rocky':
 		default:
 			return 'rocky';
 	}

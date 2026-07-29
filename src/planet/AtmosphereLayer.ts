@@ -8,6 +8,11 @@ export class AtmosphereLayer {
 
 	private readonly material: THREE.ShaderMaterial;
 
+	private profileSunIntensity = 46.0;
+	private profileAtmosphereAlpha = 0.86;
+	private profileScatteringBoost = 1.0;
+	private profileOpacity = 0.58;
+
 	private currentRenderQuality: AtmosphereRenderQuality = 'idle';
 
 	constructor(radius: number) {
@@ -472,6 +477,61 @@ export class AtmosphereLayer {
 		// statisch
 	}
 
+	setSunDirection(direction: THREE.Vector3): void {
+		this.material.uniforms.uSunDirection.value.copy(direction).normalize();
+	}
+
+	setAtmosphereProfile(
+		density: number,
+		haze: number,
+	): void {
+		const normalizedDensity = THREE.MathUtils.clamp(
+			density / 2.5,
+			0,
+			1,
+		);
+
+		const normalizedHaze = THREE.MathUtils.clamp(
+			haze,
+			0,
+			1,
+		);
+
+		const atmosphereStrength = Math.max(
+			normalizedDensity,
+			normalizedHaze,
+		);
+
+		this.profileSunIntensity = THREE.MathUtils.lerp(
+			30.0,
+			54.0,
+			atmosphereStrength,
+		);
+
+		this.profileAtmosphereAlpha = THREE.MathUtils.lerp(
+			0.22,
+			0.92,
+			atmosphereStrength,
+		);
+
+		this.profileScatteringBoost = THREE.MathUtils.lerp(
+			0.35,
+			1.18,
+			atmosphereStrength,
+		);
+
+		this.profileOpacity = THREE.MathUtils.lerp(
+			0.24,
+			0.64,
+			atmosphereStrength,
+		);
+
+		this.material.uniforms.uSunIntensity.value = this.profileSunIntensity;
+		this.material.uniforms.uAtmosphereAlpha.value = this.profileAtmosphereAlpha;
+		this.material.uniforms.uScatteringBoost.value = this.profileScatteringBoost;
+		this.material.opacity = this.profileOpacity;
+	}
+
 	setRenderQuality(quality: AtmosphereRenderQuality): void {
 		if (quality === this.currentRenderQuality) {
 			return;
@@ -480,14 +540,19 @@ export class AtmosphereLayer {
 		this.currentRenderQuality = quality;
 
 		if (quality === 'moving') {
-			this.material.uniforms.uSunIntensity.value = 34.0;
-			this.material.uniforms.uAtmosphereAlpha.value = 0.62;
-			this.material.uniforms.uScatteringBoost.value = 0.78;
+			this.material.uniforms.uSunIntensity.value =
+				this.profileSunIntensity * 0.74;
+			this.material.uniforms.uAtmosphereAlpha.value =
+				this.profileAtmosphereAlpha * 0.72;
+			this.material.uniforms.uScatteringBoost.value =
+				this.profileScatteringBoost * 0.78;
+			this.material.opacity = this.profileOpacity * 0.72;
 			return;
 		}
 
-		this.material.uniforms.uSunIntensity.value = 46.0;
-		this.material.uniforms.uAtmosphereAlpha.value = 0.86;
-		this.material.uniforms.uScatteringBoost.value = 1.0;
+		this.material.uniforms.uSunIntensity.value = this.profileSunIntensity;
+		this.material.uniforms.uAtmosphereAlpha.value = this.profileAtmosphereAlpha;
+		this.material.uniforms.uScatteringBoost.value = this.profileScatteringBoost;
+		this.material.opacity = this.profileOpacity;
 	}
 }

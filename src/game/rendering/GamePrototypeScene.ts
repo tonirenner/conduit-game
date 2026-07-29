@@ -1,0 +1,2249 @@
+import * as THREE from 'three';
+import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import capitalShipMtlText from '../model/capital_ship.mtl' with { type: 'text' };
+import capitalShipObjText from '../model/capital_ship.obj' with { type: 'text' };
+
+import {
+	Planet,
+	type PlanetRendererMode,
+} from '../../planet/Planet';
+import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
+import { generateGameWorld } from '../generation/GameWorldGenerator';
+import type {
+	Fleet,
+	GameWorld,
+	OrbitalStationDefinition,
+	ShipDefinition,
+	StrategicNode,
+} from '../model/GameWorld';
+import {
+	addShipyardStation,
+	buildShipAtShipyard,
+	setFleetAttackOrder,
+	setFleetStrategicMoveOrder,
+	setFleetTacticalMoveOrder,
+	updateFleetSimulation,
+} from '../simulation/FleetSimulation';
+import {
+	cancelTacticalMoveDraft,
+	confirmTacticalMoveDraft,
+	createTacticalNavigationState,
+	getTacticalMoveDraftTarget,
+	startTacticalMoveDraft,
+	type TacticalNavigationState,
+	updateTacticalMoveDraftHeight,
+} from '../navigation/TacticalNavigation';
+
+export type GamePrototypeSceneOptions = {
+	scene: THREE.Scene;
+	camera: THREE.PerspectiveCamera;
+	controls: OrbitControls;
+	domElement: HTMLElement;
+	hud: HTMLDivElement;
+	seed: number;
+	rendererMode: PlanetRendererMode;
+};
+
+type GameViewMode =
+	| 'strategic'
+	| 'system';
+
+type SystemPlanetBuildJob = {
+	nodeId: string;
+	planet: StrategicNode['system']['planets'][number];
+	radius: number;
+	position: THREE.Vector3;
+	preview: THREE.Object3D;
+};
+
+const CAPITAL_SHIP_OBJ_LABEL = 'src/game/model/capital_ship.obj';
+const CAPITAL_SHIP_MTL_LABEL = 'src/game/model/capital_ship.mtl';
+
+let capitalShipModelPromise: Promise<THREE.Object3D> | null = null;
+let capitalShipModelWarningShown = false;
+
+export class GamePrototypeScene {
+	private world: GameWorld;
+	private navigation: TacticalNavigationState;
+	private readonly group = new THREE.Group();
+	private readonly strategicGroup = new THREE.Group();
+	private readonly systemGroup = new THREE.Group();
+	private readonly nodeMeshes = new Map<string, THREE.Mesh>();
+	private readonly shipMeshes = new Map<string, THREE.Object3D>();
+	private readonly systemShipMeshes = new Map<string, THREE.Object3D>();
+	private readonly stationMeshes = new Map<string, THREE.Object3D>();
+	private readonly systemExitMeshes = new Map<string, THREE.Object3D>();
+	private readonly systemPlanets: Planet[] = [];
+	private readonly systemPlanetCache = new Map<string, Planet[]>();
+	private readonly raycaster = new THREE.Raycaster();
+	private readonly pointer = new THREE.Vector2();
+	private readonly movePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+	private readonly intersection = new THREE.Vector3();
+	private readonly systemSunDirection = new THREE.Vector3();
+	private readonly selectionRingWorldQuaternion =
+		new THREE.Quaternion().setFromEuler(
+			new THREE.Euler(Math.PI * 0.5, 0, 0),
+		);
+	private readonly moveMarker: THREE.Group;
+	private systemMoveMarker: THREE.Group | null = null;
+	private fleetMenu: HTMLDivElement | null = null;
+	private fleetMenuSignature = '';
+	private activeSystemNodeId: string | null = null;
+	private pendingSystemPlanetBuilds: SystemPlanetBuildJob[] = [];
+	private viewMode: GameViewMode = 'strategic';
+	private selectedNodeId: string | null = null;
+	private selectedStationId: string | null = null;
+	private lastNodeClickId: string | null = null;
+	private lastNodeClickTime = 0;
+
+	constructor(
+		private readonly options: GamePrototypeSceneOptions,
+	) {
+		this.world = generateGameWorld(options.seed, {
+			nodeCount: 7,
+		});
+		this.navigation = createTacticalNavigationState();
+
+		this.group.name = 'GamePrototypeScene';
+		this.strategicGroup.name = 'StrategicMap';
+		this.systemGroup.name = 'SystemView';
+		this.systemGroup.visible = false;
+		this.moveMarker = this.createMoveMarker();
+		this.moveMarker.visible = false;
+
+		this.group.add(this.strategicGroup);
+		this.group.add(this.systemGroup);
+		this.strategicGroup.add(this.moveMarker);
+		this.createStrategicMap();
+		this.createShipMeshes();
+		this.createFleetMenu();
+		this.configureCamera();
+		this.bindInput();
+
+		options.scene.add(this.group);
+	}
+
+	private createFleetMenu(): void {
+		const menu = document.createElement('div');
+
+		menu.style.position = 'fixed';
+		menu.style.left = '12px';
+		menu.style.top = '92px';
+		menu.style.width = '220px';
+		menu.style.maxHeight = '42vh';
+		menu.style.overflow = 'auto';
+		menu.style.padding = '8px';
+		menu.style.border = '1px solid rgba(127,217,255,0.28)';
+		menu.style.background = 'rgba(3, 10, 18, 0.72)';
+		menu.style.color = '#d7f4ff';
+		menu.style.font = '12px/1.35 monospace';
+		menu.style.zIndex = '20';
+		menu.style.pointerEvents = 'auto';
+		menu.style.backdropFilter = 'blur(6px)';
+
+		document.body.appendChild(menu);
+		this.fleetMenu = menu;
+		this.updateFleetMenu();
+	}
+
+	private updateFleetMenu(): void {
+		if (!this.fleetMenu) {
+			return;
+		}
+
+		const signature = this.getFleetMenuSignature();
+
+		if (signature === this.fleetMenuSignature) {
+			return;
+		}
+
+		this.fleetMenuSignature = signature;
+
+		const rows = this.world.fleets
+			.map((fleet) => {
+				const node = this.getNode(fleet.nodeId);
+				const hull = this.getFleetHullText(fleet);
+				const selected = fleet.id === this.world.selectedFleetId;
+				const order = this.getFleetOrderLabel(fleet);
+
+				return (
+					`<button data-fleet-id="${fleet.id}" ` +
+					`style="width:100%;margin:0 0 6px 0;padding:7px 8px;` +
+					`text-align:left;border:1px solid ${selected ? '#8fe7ff' : 'rgba(143,231,255,0.22)'};` +
+					`background:${selected ? 'rgba(64,176,220,0.28)' : 'rgba(8,20,32,0.74)'};` +
+					`color:#d7f4ff;font:12px/1.35 monospace;cursor:pointer;">` +
+					`${fleet.name}<br>` +
+					`${node?.name ?? 'unknown'} | ${order} | ${hull}` +
+					`</button>`
+				);
+			})
+			.join('');
+
+		this.fleetMenu.innerHTML =
+			`<div style="margin:0 0 7px 0;color:#8fe7ff;">FLEETS</div>` +
+			rows;
+
+		for (const button of this.fleetMenu.querySelectorAll('button[data-fleet-id]')) {
+			button.addEventListener('click', () => {
+				const fleetId = button.getAttribute('data-fleet-id');
+
+				if (!fleetId) {
+					return;
+				}
+
+				this.world = {
+					...this.world,
+					selectedFleetId: fleetId,
+				};
+				this.showSelectedFleetSystem();
+				this.fleetMenuSignature = '';
+				this.updateFleetMenu();
+			});
+		}
+	}
+
+	private showSelectedFleetSystem(): void {
+		if (this.viewMode !== 'system') {
+			return;
+		}
+
+		const selectedFleet = this.getSelectedFleet();
+
+		if (!selectedFleet || selectedFleet.nodeId === this.selectedNodeId) {
+			return;
+		}
+
+		const node = this.getNode(selectedFleet.nodeId);
+
+		if (!node) {
+			return;
+		}
+
+		this.selectedNodeId = node.id;
+		this.navigation = cancelTacticalMoveDraft(this.navigation);
+		this.rebuildSystemView(node);
+		this.configureCamera();
+	}
+
+	private getFleetMenuSignature(): string {
+		return [
+			this.world.selectedFleetId ?? 'none',
+			...this.world.fleets.map((fleet) => (
+				[
+					fleet.id,
+					fleet.nodeId,
+					this.getFleetOrderLabel(fleet),
+					this.getFleetHullText(fleet),
+					fleet.shipIds.length,
+				].join(':')
+			)),
+		].join('|');
+	}
+
+	update(deltaSeconds: number): void {
+		this.world = updateFleetSimulation(this.world, deltaSeconds);
+		this.ensureSelectedFleetExists();
+		this.syncShipMeshes();
+		this.syncSystemShipMeshes();
+		this.processSystemPlanetBuildQueue();
+		this.updateSystemPlanets(deltaSeconds);
+		this.syncMoveMarker();
+		this.updateFleetMenu();
+		this.updateHud();
+	}
+
+	private ensureSelectedFleetExists(): void {
+		if (
+			this.world.selectedFleetId &&
+			this.world.fleets.some((fleet) => fleet.id === this.world.selectedFleetId)
+		) {
+			return;
+		}
+
+		this.world = {
+			...this.world,
+			selectedFleetId: this.world.fleets[0]?.id ?? null,
+		};
+	}
+
+	dispose(): void {
+		this.options.domElement.removeEventListener(
+			'pointerdown',
+			this.handlePointerDown,
+		);
+		this.options.domElement.removeEventListener(
+			'contextmenu',
+			this.handleContextMenu,
+		);
+		this.options.domElement.removeEventListener(
+			'wheel',
+			this.handleWheel,
+		);
+		window.removeEventListener(
+			'keydown',
+			this.handleKeyDown,
+		);
+
+		this.options.scene.remove(this.group);
+		this.fleetMenu?.remove();
+		this.fleetMenu = null;
+		this.clearSystemView();
+
+		for (const planets of this.systemPlanetCache.values()) {
+			for (const planet of planets) {
+				planet.dispose();
+			}
+		}
+
+		this.systemPlanetCache.clear();
+
+		this.group.traverse((object) => {
+			if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) {
+				return;
+			}
+
+			object.geometry.dispose();
+
+			const material = object.material;
+
+			if (Array.isArray(material)) {
+				for (const item of material) {
+					item.dispose();
+				}
+				return;
+			}
+
+			material.dispose();
+		});
+	}
+
+	private configureCamera(): void {
+		if (this.viewMode === 'system') {
+			this.options.camera.position.set(0, 55, 92);
+			this.options.camera.lookAt(0, 0, 0);
+			this.options.controls.target.set(0, 0, 0);
+			this.options.controls.enablePan = true;
+			this.options.controls.minDistance = 8;
+			this.options.controls.maxDistance = 260;
+			this.options.controls.update();
+			return;
+		}
+
+		this.options.camera.position.set(0, 58, 76);
+		this.options.camera.lookAt(0, 0, 0);
+		this.options.controls.target.set(0, 0, 0);
+		this.options.controls.enablePan = true;
+		this.options.controls.minDistance = 10;
+		this.options.controls.maxDistance = 180;
+		this.options.controls.update();
+	}
+
+	private createStrategicMap(): void {
+		const laneMaterial = new THREE.LineBasicMaterial({
+			color: 0x315b7c,
+			transparent: true,
+			opacity: 0.72,
+		});
+
+		for (const lane of this.world.lanes) {
+			const from = this.getNode(lane.fromNodeId);
+			const to = this.getNode(lane.toNodeId);
+
+			if (!from || !to) {
+				continue;
+			}
+
+			const geometry = new THREE.BufferGeometry().setFromPoints([
+				this.nodeToVector(from, -0.02),
+				this.nodeToVector(to, -0.02),
+			]);
+
+			const line = new THREE.Line(geometry, laneMaterial.clone());
+			line.name = `Lane ${lane.id}`;
+			this.strategicGroup.add(line);
+		}
+
+		for (const node of this.world.nodes) {
+			const mesh = new THREE.Mesh(
+				new THREE.SphereGeometry(this.getNodeRadius(node), 24, 16),
+				new THREE.MeshStandardMaterial({
+					color: this.getNodeColor(node),
+					emissive: this.getNodeColor(node),
+					emissiveIntensity: node.owner === 'neutral' ? 0.08 : 0.22,
+					roughness: 0.62,
+					metalness: 0.08,
+				}),
+			);
+
+			mesh.name = node.name;
+			mesh.position.copy(this.nodeToVector(node, 0));
+			this.nodeMeshes.set(node.id, mesh);
+			this.strategicGroup.add(mesh);
+		}
+
+		const grid = new THREE.GridHelper(110, 22, 0x24445e, 0x172334);
+		grid.position.y = -0.05;
+		this.strategicGroup.add(grid);
+	}
+
+	private createShipMeshes(): void {
+		for (const ship of this.world.ships) {
+			const mesh = this.createShipMesh(ship);
+
+			this.shipMeshes.set(ship.id, mesh);
+			this.strategicGroup.add(mesh);
+		}
+
+		this.syncShipMeshes();
+	}
+
+	private createShipMesh(ship: ShipDefinition): THREE.Object3D {
+		const group = new THREE.Group();
+		const hull = new THREE.Mesh(
+			new THREE.ConeGeometry(
+				ship.role === 'frigate' ? 0.42 : 0.28,
+				ship.role === 'frigate' ? 1.35 : 0.9,
+				4,
+			),
+			new THREE.MeshStandardMaterial({
+				color: ship.factionId === 'player' ? 0x7fd9ff : 0xff806a,
+				emissive: ship.factionId === 'player' ? 0x14384a : 0x4a1612,
+				roughness: 0.48,
+				metalness: 0.35,
+			}),
+		);
+
+		hull.name = 'ShipFallbackHull';
+		hull.rotation.set(
+			Math.PI * 0.5,
+			0,
+			0,
+		);
+		hull.scale.z = -1;
+		group.name = ship.name;
+		group.add(hull);
+
+		const selectionRing = new THREE.Mesh(
+			new THREE.TorusGeometry(0.72, 0.025, 6, 32),
+			new THREE.MeshBasicMaterial({
+				color: 0xffffff,
+				transparent: true,
+				opacity: 0.92,
+			}),
+		);
+
+		selectionRing.name = 'FleetSelectionRing';
+		selectionRing.rotation.x = Math.PI * 0.5;
+		selectionRing.visible = false;
+		group.add(selectionRing);
+		this.attachCapitalShipModel(
+			group,
+			ship,
+			hull,
+		);
+
+		return group;
+	}
+
+	private attachCapitalShipModel(
+		group: THREE.Group,
+		ship: ShipDefinition,
+		fallbackHull: THREE.Mesh,
+	): void {
+		this.loadCapitalShipModel()
+			.then((template) => {
+				if (!this.group.parent) {
+					return;
+				}
+
+				const model = this.cloneShipModelForInstance(
+					template,
+					ship,
+				);
+
+				model.name = 'CapitalShipModel';
+				model.rotation.set(
+					Math.PI * 0.5,
+					0,
+					0,
+				);
+				const modelScale =
+					      ship.role === 'frigate' || ship.role === 'carrier'
+					      ? 0.082
+					      : 0.064;
+
+				model.scale.set(
+					modelScale,
+					modelScale,
+					-modelScale,
+				);
+				fallbackHull.visible = false;
+				group.add(model);
+			})
+			.catch((error) => {
+				if (capitalShipModelWarningShown) {
+					return;
+				}
+
+				capitalShipModelWarningShown = true;
+				console.warn(
+					`Capital ship model could not be parsed from ${CAPITAL_SHIP_OBJ_LABEL} / ${CAPITAL_SHIP_MTL_LABEL}. ` +
+					'Using fallback ship mesh.',
+					error,
+				);
+			});
+	}
+
+	private loadCapitalShipModel(): Promise<THREE.Object3D> {
+		if (capitalShipModelPromise) {
+			return capitalShipModelPromise;
+		}
+
+		capitalShipModelPromise = new Promise((resolve, reject) => {
+			try {
+				const materials = new MTLLoader().parse(
+					capitalShipMtlText,
+					'',
+				);
+				const object = new OBJLoader()
+					.setMaterials(materials)
+					.parse(capitalShipObjText);
+
+				materials.preload();
+				this.prepareCapitalShipTemplate(object);
+				capitalShipModelWarningShown = false;
+				resolve(object);
+			} catch (error) {
+				reject(error);
+			}
+		});
+
+		capitalShipModelPromise.catch(() => {
+			capitalShipModelPromise = null;
+		});
+
+		return capitalShipModelPromise;
+	}
+
+	private prepareCapitalShipTemplate(object: THREE.Object3D): void {
+		object.traverse((item) => {
+			if (!(item instanceof THREE.Mesh)) {
+				return;
+			}
+
+			item.geometry.computeVertexNormals();
+			item.castShadow = false;
+			item.receiveShadow = false;
+		});
+	}
+
+	private cloneShipModelForInstance(
+		template: THREE.Object3D,
+		ship: ShipDefinition,
+	): THREE.Object3D {
+		const clone = template.clone(true);
+		const factionTint = ship.factionId === 'player'
+		                    ? new THREE.Color(0x7fd9ff)
+		                    : new THREE.Color(0xff806a);
+
+		clone.traverse((item) => {
+			if (!(item instanceof THREE.Mesh)) {
+				return;
+			}
+
+			item.geometry = item.geometry.clone();
+
+			const material = Array.isArray(item.material)
+			                 ? item.material[0]
+			                 : item.material;
+			const sourceColor =
+				      material && 'color' in material && material.color instanceof THREE.Color
+				      ? material.color
+				      : new THREE.Color(0x777a74);
+			const color = sourceColor.clone().lerp(
+				factionTint,
+				item.name.toLowerCase().includes('engine') ? 0.18 : 0.08,
+			);
+			const engineMaterial = item.name.toLowerCase().includes('engine');
+
+			item.material = new THREE.MeshStandardMaterial({
+				color,
+				emissive: engineMaterial
+				          ? factionTint.clone().multiplyScalar(0.55)
+				          : new THREE.Color(0x000000),
+				emissiveIntensity: engineMaterial ? 0.95 : 0.0,
+				roughness: engineMaterial ? 0.36 : 0.58,
+				metalness: engineMaterial ? 0.46 : 0.34,
+			});
+		});
+
+		return clone;
+	}
+
+	private createStationMesh(station: OrbitalStationDefinition): THREE.Object3D {
+		const group = new THREE.Group();
+		const core = new THREE.Mesh(
+			new THREE.BoxGeometry(0.9, 0.55, 0.9),
+			new THREE.MeshStandardMaterial({
+				color: station.factionId === 'player' ? 0x83d9ff : 0xff8a72,
+				emissive: station.factionId === 'player' ? 0x123447 : 0x45140f,
+				roughness: 0.52,
+				metalness: 0.42,
+			}),
+		);
+		const ring = new THREE.Mesh(
+			new THREE.TorusGeometry(0.92, 0.055, 8, 32),
+			new THREE.MeshStandardMaterial({
+				color: 0xaeb8bd,
+				roughness: 0.48,
+				metalness: 0.55,
+			}),
+		);
+
+		ring.rotation.x = Math.PI * 0.5;
+		group.name = station.name;
+		group.position.set(
+			station.position.x,
+			station.position.y,
+			station.position.z,
+		);
+		group.add(core);
+		group.add(ring);
+
+		return group;
+	}
+
+	private createMoveMarker(): THREE.Group {
+		const group = new THREE.Group();
+		const ring = new THREE.Mesh(
+			new THREE.TorusGeometry(1.35, 0.035, 8, 48),
+			new THREE.MeshBasicMaterial({
+				color: 0x8fe7ff,
+				transparent: true,
+				opacity: 0.88,
+			}),
+		);
+		const stem = new THREE.Line(
+			new THREE.BufferGeometry().setFromPoints([
+				new THREE.Vector3(0, 0, 0),
+				new THREE.Vector3(0, 1, 0),
+			]),
+			new THREE.LineBasicMaterial({
+				color: 0x8fe7ff,
+				transparent: true,
+				opacity: 0.62,
+			}),
+		);
+
+		ring.rotation.x = Math.PI * 0.5;
+		group.add(ring);
+		group.add(stem);
+
+		return group;
+	}
+
+	private bindInput(): void {
+		this.options.domElement.addEventListener(
+			'pointerdown',
+			this.handlePointerDown,
+		);
+		this.options.domElement.addEventListener(
+			'contextmenu',
+			this.handleContextMenu,
+		);
+		this.options.domElement.addEventListener(
+			'wheel',
+			this.handleWheel,
+			{
+				passive: false,
+			},
+		);
+		window.addEventListener(
+			'keydown',
+			this.handleKeyDown,
+		);
+	}
+
+	private readonly handleContextMenu = (event: MouseEvent): void => {
+		event.preventDefault();
+	};
+
+	private readonly handlePointerDown = (event: PointerEvent): void => {
+		if (this.viewMode === 'system') {
+			if (event.button === 0) {
+				if (this.selectStationFromPointer(event)) {
+					return;
+				}
+
+				this.selectSystemFleetFromPointer(event);
+				return;
+			}
+
+			if (event.button === 2) {
+				if (this.startAttackFleetFromPointer(event)) {
+					return;
+				}
+
+				if (this.startSystemExitMoveFromPointer(event)) {
+					return;
+				}
+
+				this.startMoveDraftFromPointer(event);
+			}
+
+			return;
+		}
+
+		if (event.button === 0) {
+			if (this.selectNodeFromPointer(event)) {
+				return;
+			}
+
+			this.selectFleetFromPointer(event);
+			return;
+		}
+
+		if (event.button === 2) {
+			if (this.startAttackFleetFromPointer(event)) {
+				return;
+			}
+
+			if (this.startStrategicMoveToNodeFromPointer(event)) {
+				return;
+			}
+
+			this.startMoveDraftFromPointer(event);
+		}
+	};
+
+	private readonly handleWheel = (event: WheelEvent): void => {
+		if (!this.navigation.moveDraft) {
+			return;
+		}
+
+		event.preventDefault();
+
+		this.navigation = updateTacticalMoveDraftHeight(
+			this.navigation,
+			THREE.MathUtils.clamp(
+				this.navigation.moveDraft.heightOffset - event.deltaY * 0.018,
+				this.viewMode === 'system' ? -12 : -18,
+				this.viewMode === 'system' ? 24 : 32,
+			),
+		);
+	};
+
+	private readonly handleKeyDown = (event: KeyboardEvent): void => {
+		if (event.code === 'KeyB' && this.viewMode === 'system') {
+			this.buildShipyardInCurrentSystem();
+			return;
+		}
+
+		if (event.code === 'KeyN' && this.viewMode === 'system') {
+			this.buildShipAtSelectedShipyard();
+			return;
+		}
+
+		if (event.code === 'Enter') {
+			if (
+				this.viewMode === 'strategic' &&
+				!this.navigation.moveDraft &&
+				this.selectedNodeId
+			) {
+				this.enterSystemView(this.selectedNodeId);
+				return;
+			}
+
+			const result = confirmTacticalMoveDraft(this.navigation);
+			this.navigation = result.state;
+
+			if (result.target && this.world.selectedFleetId) {
+				this.world = setFleetTacticalMoveOrder(
+					this.world,
+					this.world.selectedFleetId,
+					result.target,
+					this.viewMode,
+				);
+			}
+		}
+
+		if (event.code === 'Escape' || event.code === 'Backspace') {
+			if (this.viewMode === 'system') {
+				this.exitSystemView();
+				return;
+			}
+
+			this.navigation = cancelTacticalMoveDraft(this.navigation);
+		}
+	};
+
+	private selectNodeFromPointer(event: PointerEvent): boolean {
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			[...this.nodeMeshes.values()],
+			false,
+		);
+		const object = intersections[0]?.object;
+		const nodeId = object ? this.findNodeIdForObject(object) : null;
+
+		if (!nodeId) {
+			return false;
+		}
+
+		const now = performance.now();
+		const isDoubleClick =
+			nodeId === this.lastNodeClickId &&
+			now - this.lastNodeClickTime < 360;
+
+		this.selectedNodeId = nodeId;
+		this.lastNodeClickId = nodeId;
+		this.lastNodeClickTime = now;
+
+		if (isDoubleClick) {
+			this.enterSystemView(nodeId);
+		}
+
+		return true;
+	}
+
+	private selectFleetFromPointer(event: PointerEvent): void {
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			[...this.shipMeshes.values()],
+			true,
+		);
+
+		const object = intersections[0]?.object;
+
+		if (!object) {
+			return;
+		}
+
+		const shipId = this.findShipIdForObject(object);
+		const fleet = this.world.fleets.find(
+			(item) => item.shipIds.includes(shipId ?? ''),
+		);
+
+		if (!fleet) {
+			return;
+		}
+
+		this.world = {
+			...this.world,
+			selectedFleetId: fleet.id,
+		};
+	}
+
+	private selectSystemFleetFromPointer(event: PointerEvent): void {
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			[...this.systemShipMeshes.values()],
+			true,
+		);
+		const object = intersections[0]?.object;
+
+		if (!object) {
+			return;
+		}
+
+		const shipId = this.findSystemShipIdForObject(object);
+		const fleet = this.world.fleets.find(
+			(item) =>
+				item.nodeId === this.selectedNodeId &&
+				item.shipIds.includes(shipId ?? ''),
+		);
+
+		if (!fleet) {
+			return;
+		}
+
+		this.world = {
+			...this.world,
+			selectedFleetId: fleet.id,
+		};
+	}
+
+	private selectStationFromPointer(event: PointerEvent): boolean {
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			[...this.stationMeshes.values()],
+			true,
+		);
+		const object = intersections[0]?.object;
+		const stationId = object ? this.findStationIdForObject(object) : null;
+
+		if (!stationId) {
+			return false;
+		}
+
+		this.selectedStationId = stationId;
+		return true;
+	}
+
+	private startStrategicMoveToNodeFromPointer(event: PointerEvent): boolean {
+		const selectedFleet = this.getSelectedFleet();
+
+		if (!selectedFleet) {
+			return false;
+		}
+
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			[...this.nodeMeshes.values()],
+			false,
+		);
+		const object = intersections[0]?.object;
+		const nodeId = object ? this.findNodeIdForObject(object) : null;
+
+		if (!nodeId) {
+			return false;
+		}
+
+		this.world = setFleetStrategicMoveOrder(
+			this.world,
+			selectedFleet.id,
+			nodeId,
+		);
+		this.navigation = cancelTacticalMoveDraft(this.navigation);
+		return true;
+	}
+
+	private startSystemExitMoveFromPointer(event: PointerEvent): boolean {
+		const selectedFleet = this.getSelectedFleet();
+
+		if (!selectedFleet || selectedFleet.nodeId !== this.selectedNodeId) {
+			return false;
+		}
+
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			[...this.systemExitMeshes.values()],
+			true,
+		);
+		const object = intersections[0]?.object;
+		const targetNodeId = object ? this.findSystemExitNodeIdForObject(object) : null;
+
+		if (!targetNodeId) {
+			return false;
+		}
+
+		this.world = setFleetStrategicMoveOrder(
+			this.world,
+			selectedFleet.id,
+			targetNodeId,
+		);
+		this.navigation = cancelTacticalMoveDraft(this.navigation);
+		return true;
+	}
+
+	private startAttackFleetFromPointer(event: PointerEvent): boolean {
+		const selectedFleet = this.getSelectedFleet();
+
+		if (!selectedFleet) {
+			return false;
+		}
+
+		const targetFleet = this.getFleetFromPointer(
+			event,
+			this.viewMode === 'system',
+		);
+
+		if (
+			!targetFleet ||
+			targetFleet.id === selectedFleet.id ||
+			targetFleet.factionId === selectedFleet.factionId
+		) {
+			return false;
+		}
+
+		this.world = setFleetAttackOrder(
+			this.world,
+			selectedFleet.id,
+			targetFleet.id,
+		);
+		this.navigation = cancelTacticalMoveDraft(this.navigation);
+		return true;
+	}
+
+	private getFleetFromPointer(
+		event: PointerEvent,
+		system: boolean,
+	): Fleet | null {
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const meshes = system
+			? [...this.systemShipMeshes.values()]
+			: [...this.shipMeshes.values()];
+		const intersections = this.raycaster.intersectObjects(meshes, true);
+		const object = intersections[0]?.object;
+		const shipId = object
+			? (
+				system
+				? this.findSystemShipIdForObject(object)
+				: this.findShipIdForObject(object)
+			)
+			: null;
+
+		if (!shipId) {
+			return null;
+		}
+
+		return this.world.fleets.find(
+			(fleet) => fleet.shipIds.includes(shipId),
+		) ?? null;
+	}
+
+	private startMoveDraftFromPointer(event: PointerEvent): void {
+		if (!this.world.selectedFleetId) {
+			return;
+		}
+
+		if (this.viewMode === 'system') {
+			const fleet = this.getSelectedFleet();
+
+			if (!fleet || fleet.nodeId !== this.selectedNodeId) {
+				return;
+			}
+		}
+
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		if (!this.raycaster.ray.intersectPlane(this.movePlane, this.intersection)) {
+			return;
+		}
+
+		this.navigation = startTacticalMoveDraft(
+			this.navigation,
+			{
+				x: this.intersection.x,
+				y: 0,
+				z: this.intersection.z,
+			},
+		);
+	}
+
+	private syncShipMeshes(): void {
+		this.removeDestroyedShipMeshes(this.shipMeshes, this.strategicGroup);
+
+		for (const ship of this.world.ships) {
+			let mesh = this.shipMeshes.get(ship.id);
+
+			if (!mesh) {
+				mesh = this.createShipMesh(ship);
+				this.shipMeshes.set(ship.id, mesh);
+				this.strategicGroup.add(mesh);
+			}
+
+			mesh.position.set(
+				ship.position.x,
+				ship.position.y + 0.45,
+				ship.position.z,
+			);
+			if (
+				Math.abs(ship.velocity.x) > 0.001 ||
+				Math.abs(ship.velocity.z) > 0.001
+			) {
+				mesh.lookAt(
+					mesh.position.x + ship.velocity.x,
+					mesh.position.y + ship.velocity.y,
+					mesh.position.z + ship.velocity.z,
+				);
+			}
+
+			this.syncFleetSelectionRing(mesh, ship.id, 1.0);
+		}
+	}
+
+	private syncSystemShipMeshes(): void {
+		if (this.viewMode !== 'system') {
+			return;
+		}
+
+		this.removeDestroyedShipMeshes(this.systemShipMeshes, this.systemGroup);
+
+		for (const ship of this.world.ships) {
+			let mesh = this.systemShipMeshes.get(ship.id);
+
+			if (!mesh) {
+				if (ship.nodeId !== this.selectedNodeId) {
+					continue;
+				}
+
+				mesh = this.createShipMesh(ship);
+				mesh.scale.setScalar(0.36);
+				this.systemShipMeshes.set(ship.id, mesh);
+				this.systemGroup.add(mesh);
+			}
+
+			mesh.visible = ship.nodeId === this.selectedNodeId;
+
+			mesh.position.set(
+				ship.systemPosition.x,
+				ship.systemPosition.y,
+				ship.systemPosition.z,
+			);
+			if (
+				Math.abs(ship.systemVelocity.x) > 0.001 ||
+				Math.abs(ship.systemVelocity.y) > 0.001 ||
+				Math.abs(ship.systemVelocity.z) > 0.001
+			) {
+				mesh.lookAt(
+					mesh.position.x + ship.systemVelocity.x,
+					mesh.position.y + ship.systemVelocity.y,
+					mesh.position.z + ship.systemVelocity.z,
+				);
+			}
+
+			this.syncFleetSelectionRing(mesh, ship.id, 0.36);
+		}
+	}
+
+	private removeDestroyedShipMeshes(
+		meshes: Map<string, THREE.Object3D>,
+		parent: THREE.Group,
+	): void {
+		const liveShipIds = new Set(this.world.ships.map((ship) => ship.id));
+
+		for (const [shipId, mesh] of meshes) {
+			if (liveShipIds.has(shipId)) {
+				continue;
+			}
+
+			parent.remove(mesh);
+			this.disposeObject(mesh);
+			meshes.delete(shipId);
+		}
+	}
+
+	private updateSystemPlanets(deltaSeconds: number): void {
+		if (this.viewMode !== 'system') {
+			return;
+		}
+
+		const localCameraPosition = new THREE.Vector3();
+
+		for (const planet of this.systemPlanets) {
+			localCameraPosition.copy(this.options.camera.position)
+				.sub(planet.group.position);
+			this.systemSunDirection.copy(planet.group.position)
+				.multiplyScalar(-1);
+
+			if (this.systemSunDirection.lengthSq() <= 0.000001) {
+				this.systemSunDirection.set(1, 0.15, 0.35);
+			}
+
+			planet.setSunDirection(this.systemSunDirection);
+			planet.update(localCameraPosition, deltaSeconds);
+		}
+	}
+
+	private syncFleetSelectionRing(
+		mesh: THREE.Object3D,
+		shipId: string,
+		scale: number,
+	): void {
+		const selectedFleet = this.getSelectedFleet();
+		const selected = selectedFleet?.shipIds.includes(shipId) ?? false;
+		const ring = mesh.children.find(
+			(child) => child.name === 'FleetSelectionRing',
+		);
+
+		if (!ring) {
+			return;
+		}
+
+		ring.visible = selected;
+		ring.scale.setScalar(selected ? 1.35 / scale : 1);
+		ring.quaternion.copy(mesh.quaternion)
+			.invert()
+			.multiply(this.selectionRingWorldQuaternion);
+	}
+
+	private syncMoveMarker(): void {
+		const draft = this.navigation.moveDraft;
+
+		this.moveMarker.visible = this.viewMode === 'strategic' && draft !== null;
+
+		if (this.systemMoveMarker) {
+			this.systemMoveMarker.visible =
+				this.viewMode === 'system' && draft !== null;
+		}
+
+		if (!draft) {
+			return;
+		}
+
+		const target = getTacticalMoveDraftTarget(draft);
+		this.moveMarker.position.set(target.x, target.y, target.z);
+		this.moveMarker.scale.setScalar(1 + Math.abs(target.y) * 0.025);
+
+		if (this.systemMoveMarker) {
+			this.systemMoveMarker.position.set(target.x, target.y, target.z);
+			this.systemMoveMarker.scale.setScalar(0.72 + Math.abs(target.y) * 0.025);
+		}
+	}
+
+	private updateHud(): void {
+		const selectedFleet = this.getSelectedFleet();
+		const selectedNode = this.selectedNodeId
+			? this.getNode(this.selectedNodeId)
+			: null;
+		const order = selectedFleet?.order.type ?? 'none';
+		const draft = this.navigation.moveDraft;
+
+		if (this.viewMode === 'system') {
+			const node = selectedNode ?? this.world.nodes[0];
+			const planetClasses = node.system.planets
+				.map((planet) => planet.class.replace('_', ' '))
+				.join(' | ');
+			const stationCount = this.world.stations.filter(
+				(station) => station.nodeId === node.id,
+			).length;
+			const selectedStation = this.selectedStationId
+				? this.world.stations.find(
+					(station) => station.id === this.selectedStationId,
+				)
+				: null;
+
+			this.options.hud.textContent =
+				`GAME MODE | SYSTEM | ${node.name}\n` +
+				`star: ${node.system.star.class} | planets: ${node.system.planets.length} | belts: ${node.system.asteroidBelts.length}\n` +
+				`classes: ${planetClasses}\n` +
+				`fleet: ${selectedFleet?.name ?? 'none'} | order: ${order} | stations: ${stationCount} | yard: ${selectedStation?.name ?? 'none'}\n` +
+				(
+					draft
+					? `move draft: x ${draft.anchor.x.toFixed(1)} | ` +
+					`z ${draft.anchor.z.toFixed(1)} | ` +
+					`height ${draft.heightOffset.toFixed(1)}\n`
+					: ''
+				) +
+				`left select | right enemy attack/exit/move | B shipyard | N fighter | Esc map`;
+			return;
+		}
+
+		this.options.hud.textContent =
+			`GAME MODE | STRATEGIC | seed: ${this.world.seed}\n` +
+			`systems: ${this.world.nodes.length} | lanes: ${this.world.lanes.length} | ships: ${this.world.ships.length}\n` +
+			`system: ${selectedNode?.name ?? 'none'} | fleet: ${selectedFleet?.name ?? 'none'} | order: ${order}\n` +
+			(
+				draft
+				? `move draft: x ${draft.anchor.x.toFixed(1)} | ` +
+				`z ${draft.anchor.z.toFixed(1)} | ` +
+				`height ${draft.heightOffset.toFixed(1)}\n`
+				: ''
+			) +
+			`mouse: left select | right enemy attack | right system lane move | Enter system`;
+	}
+
+	private updatePointer(event: PointerEvent): void {
+		const rect = this.options.domElement.getBoundingClientRect();
+
+		this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+		this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+	}
+
+	private findShipIdForObject(object: THREE.Object3D): string | null {
+		for (const [shipId, mesh] of this.shipMeshes) {
+			let current: THREE.Object3D | null = object;
+
+			while (current) {
+				if (current === mesh) {
+					return shipId;
+				}
+
+				current = current.parent;
+			}
+		}
+
+		return null;
+	}
+
+	private findSystemShipIdForObject(object: THREE.Object3D): string | null {
+		for (const [shipId, mesh] of this.systemShipMeshes) {
+			let current: THREE.Object3D | null = object;
+
+			while (current) {
+				if (current === mesh) {
+					return shipId;
+				}
+
+				current = current.parent;
+			}
+		}
+
+		return null;
+	}
+
+	private findStationIdForObject(object: THREE.Object3D): string | null {
+		for (const [stationId, mesh] of this.stationMeshes) {
+			let current: THREE.Object3D | null = object;
+
+			while (current) {
+				if (current === mesh) {
+					return stationId;
+				}
+
+				current = current.parent;
+			}
+		}
+
+		return null;
+	}
+
+	private findSystemExitNodeIdForObject(object: THREE.Object3D): string | null {
+		for (const [nodeId, mesh] of this.systemExitMeshes) {
+			let current: THREE.Object3D | null = object;
+
+			while (current) {
+				if (current === mesh) {
+					return nodeId;
+				}
+
+				current = current.parent;
+			}
+		}
+
+		return null;
+	}
+
+	private findNodeIdForObject(object: THREE.Object3D): string | null {
+		for (const [nodeId, mesh] of this.nodeMeshes) {
+			if (object === mesh) {
+				return nodeId;
+			}
+		}
+
+		return null;
+	}
+
+	private enterSystemView(nodeId: string): void {
+		const node = this.getNode(nodeId);
+
+		if (!node) {
+			return;
+		}
+
+		this.viewMode = 'system';
+		this.selectedNodeId = nodeId;
+		this.navigation = cancelTacticalMoveDraft(this.navigation);
+		this.strategicGroup.visible = false;
+		this.systemGroup.visible = true;
+		this.rebuildSystemView(node);
+		this.configureCamera();
+	}
+
+	private exitSystemView(): void {
+		this.viewMode = 'strategic';
+		this.strategicGroup.visible = true;
+		this.systemGroup.visible = false;
+		this.configureCamera();
+	}
+
+	private buildShipyardInCurrentSystem(): void {
+		if (!this.selectedNodeId) {
+			return;
+		}
+
+		const selectedFleet = this.getSelectedFleet();
+		const position = this.getCurrentSystemBuildPosition();
+
+		this.world = addShipyardStation(
+			this.world,
+			this.selectedNodeId,
+			selectedFleet?.factionId ?? 'player',
+			position,
+		);
+
+		const node = this.getNode(this.selectedNodeId);
+
+		if (node) {
+			this.rebuildSystemView(node);
+		}
+	}
+
+	private buildShipAtSelectedShipyard(): void {
+		const nodeId = this.selectedNodeId;
+
+		if (!nodeId) {
+			return;
+		}
+
+		const station =
+			(
+				this.selectedStationId
+				? this.world.stations.find(
+					(item) =>
+						item.id === this.selectedStationId &&
+						item.nodeId === nodeId,
+				)
+				: null
+			) ??
+			this.world.stations.find(
+				(item) => item.nodeId === nodeId && item.type === 'shipyard',
+			);
+
+		if (!station) {
+			return;
+		}
+
+		this.world = buildShipAtShipyard(this.world, station.id, 'fighter');
+		this.selectedStationId = station.id;
+
+		const node = this.getNode(nodeId);
+
+		if (node) {
+			this.rebuildSystemView(node);
+		}
+	}
+
+	private getCurrentSystemBuildPosition(): {
+		x: number;
+		y: number;
+		z: number;
+	} {
+		const draft = this.navigation.moveDraft;
+
+		if (draft) {
+			return getTacticalMoveDraftTarget(draft);
+		}
+
+		const selectedFleet = this.getSelectedFleet();
+		const firstShipId = selectedFleet?.shipIds[0];
+		const firstShip = this.world.ships.find((ship) => ship.id === firstShipId);
+
+		if (firstShip && selectedFleet?.nodeId === this.selectedNodeId) {
+			return {
+				x: firstShip.systemPosition.x + 1.8,
+				y: firstShip.systemPosition.y,
+				z: firstShip.systemPosition.z + 1.2,
+			};
+		}
+
+		return {
+			x: 0,
+			y: 0,
+			z: 12,
+		};
+	}
+
+	private rebuildSystemView(node: StrategicNode): void {
+		this.clearSystemView();
+		this.systemShipMeshes.clear();
+		this.stationMeshes.clear();
+		this.systemExitMeshes.clear();
+
+		const starRadius = THREE.MathUtils.clamp(
+			node.system.star.radius * 2.1,
+			3.8,
+			7.5,
+		);
+		const star = new THREE.Mesh(
+			new THREE.SphereGeometry(starRadius, 48, 24),
+			new THREE.MeshBasicMaterial({
+				color: new THREE.Color(node.system.star.color),
+			}),
+		);
+
+		star.name = `${node.system.star.name} Star`;
+		this.systemGroup.add(star);
+
+		const light = new THREE.PointLight(
+			new THREE.Color(node.system.star.color),
+			12,
+			120,
+			1.35,
+		);
+		light.name = 'System Star Light';
+		light.position.set(0, 0, 0);
+		this.systemGroup.add(light);
+
+		this.activeSystemNodeId = node.id;
+		this.addSystemPlanets(node);
+		this.addSystemExits(node);
+
+		for (const belt of node.system.asteroidBelts) {
+			const radius = this.getPlanetOrbitRadius(
+				node.system.planets.length,
+				(belt.innerRadius + belt.outerRadius) * 0.5,
+			);
+			const beltLine = this.createOrbitLine(radius, 0x8f8372, 0.28);
+
+			beltLine.name = belt.name;
+			this.systemGroup.add(beltLine);
+		}
+
+		for (const fleet of this.world.fleets) {
+			if (fleet.nodeId !== node.id) {
+				continue;
+			}
+
+			for (const shipId of fleet.shipIds) {
+				const ship = this.world.ships.find((item) => item.id === shipId);
+
+				if (!ship) {
+					continue;
+				}
+
+				const mesh = this.createShipMesh(ship);
+				mesh.scale.setScalar(0.36);
+				this.systemShipMeshes.set(ship.id, mesh);
+				this.systemGroup.add(mesh);
+			}
+		}
+
+		for (const station of this.world.stations) {
+			if (station.nodeId !== node.id) {
+				continue;
+			}
+
+			const mesh = this.createStationMesh(station);
+			mesh.scale.setScalar(0.58);
+			this.stationMeshes.set(station.id, mesh);
+			this.systemGroup.add(mesh);
+		}
+
+		this.systemMoveMarker = this.createMoveMarker();
+		this.systemMoveMarker.visible = false;
+		this.systemMoveMarker.scale.setScalar(0.72);
+		this.systemGroup.add(this.systemMoveMarker);
+		this.syncSystemShipMeshes();
+	}
+
+	private clearSystemView(): void {
+		for (const planet of this.systemPlanets) {
+			this.systemGroup.remove(planet.group);
+		}
+
+		this.systemPlanets.length = 0;
+		this.pendingSystemPlanetBuilds = [];
+
+		while (this.systemGroup.children.length > 0) {
+			const child = this.systemGroup.children[0];
+
+			this.systemGroup.remove(child);
+			this.disposeObject(child);
+		}
+
+		this.systemMoveMarker = null;
+		this.activeSystemNodeId = null;
+	}
+
+	private addSystemPlanets(node: StrategicNode): void {
+		const cachedPlanets = this.systemPlanetCache.get(node.id);
+
+		if (cachedPlanets) {
+			for (let index = 0; index < node.system.planets.length; index++) {
+				this.systemGroup.add(this.createOrbitLine(
+					this.getPlanetOrbitRadius(
+						index,
+						node.system.planets[index].orbit.semiMajorAxis,
+					),
+				));
+			}
+
+			for (const planet of cachedPlanets) {
+				this.systemPlanets.push(planet);
+				this.systemGroup.add(planet.group);
+			}
+
+			for (
+				let index = cachedPlanets.length;
+				index < node.system.planets.length;
+				index++
+			) {
+				const planetDefinition = node.system.planets[index];
+				const orbitRadius = this.getPlanetOrbitRadius(
+					index,
+					planetDefinition.orbit.semiMajorAxis,
+				);
+				const angle = this.getSystemPlanetOrbitAngle(
+					index,
+					planetDefinition,
+				);
+				const planetRadius = THREE.MathUtils.clamp(
+					this.getSystemPlanetRenderRadius(planetDefinition),
+					1.40,
+					9.80,
+				);
+				const position = new THREE.Vector3(
+					Math.cos(angle) * orbitRadius,
+					0,
+					Math.sin(angle) * orbitRadius,
+				);
+				const preview = this.createSystemPlanetPreview(
+					planetDefinition,
+					planetRadius,
+				);
+
+				preview.position.copy(position);
+				this.systemGroup.add(preview);
+				this.pendingSystemPlanetBuilds.push({
+					nodeId: node.id,
+					planet: planetDefinition,
+					radius: planetRadius,
+					position,
+					preview,
+				});
+			}
+			return;
+		}
+
+		this.systemPlanetCache.set(node.id, []);
+
+		for (let index = 0; index < node.system.planets.length; index++) {
+			const planetDefinition = node.system.planets[index];
+			const orbitRadius = this.getPlanetOrbitRadius(
+				index,
+				planetDefinition.orbit.semiMajorAxis,
+			);
+			const angle = this.getSystemPlanetOrbitAngle(
+				index,
+				planetDefinition,
+			);
+			const planetRadius = THREE.MathUtils.clamp(
+				this.getSystemPlanetRenderRadius(planetDefinition),
+				1.40,
+				9.80,
+			);
+			const position = new THREE.Vector3(
+				Math.cos(angle) * orbitRadius,
+				0,
+				Math.sin(angle) * orbitRadius,
+			);
+			const preview = this.createSystemPlanetPreview(
+				planetDefinition,
+				planetRadius,
+			);
+
+			this.systemGroup.add(this.createOrbitLine(orbitRadius));
+			preview.position.copy(position);
+			this.systemGroup.add(preview);
+			this.pendingSystemPlanetBuilds.push({
+				nodeId: node.id,
+				planet: planetDefinition,
+				radius: planetRadius,
+				position,
+				preview,
+			});
+		}
+	}
+
+	private addSystemExits(node: StrategicNode): void {
+		const connectedNodeIds = this.world.lanes
+			.map((lane) => {
+				if (lane.fromNodeId === node.id) {
+					return lane.toNodeId;
+				}
+
+				if (lane.toNodeId === node.id) {
+					return lane.fromNodeId;
+				}
+
+				return null;
+			})
+			.filter((nodeId): nodeId is string => nodeId !== null);
+		const exitRadius =
+			20.0 + Math.max(0, node.system.planets.length - 1) * 9.5;
+
+		for (let index = 0; index < connectedNodeIds.length; index++) {
+			const targetNodeId = connectedNodeIds[index];
+			const targetNode = this.getNode(targetNodeId);
+
+			if (!targetNode) {
+				continue;
+			}
+
+			const angle = (index / Math.max(1, connectedNodeIds.length)) * Math.PI * 2;
+			const mesh = this.createSystemExitMesh(targetNode.owner);
+
+			mesh.name = `Jump Exit ${targetNode.name}`;
+			mesh.position.set(
+				Math.cos(angle) * exitRadius,
+				0.15,
+				Math.sin(angle) * exitRadius,
+			);
+			this.systemExitMeshes.set(targetNodeId, mesh);
+			this.systemGroup.add(mesh);
+		}
+	}
+
+	private createSystemExitMesh(owner: StrategicNode['owner']): THREE.Object3D {
+		const group = new THREE.Group();
+		const color =
+			owner === 'player'
+			? 0x7fd9ff
+			: owner === 'opponent'
+			  ? 0xff806a
+			  : 0xd4c06a;
+		const ring = new THREE.Mesh(
+			new THREE.TorusGeometry(0.88, 0.045, 8, 40),
+			new THREE.MeshBasicMaterial({
+				color,
+				transparent: true,
+				opacity: 0.86,
+			}),
+		);
+		const core = new THREE.Mesh(
+			new THREE.OctahedronGeometry(0.28, 0),
+			new THREE.MeshStandardMaterial({
+				color,
+				emissive: color,
+				emissiveIntensity: 0.36,
+				roughness: 0.42,
+				metalness: 0.2,
+			}),
+		);
+
+		ring.rotation.x = Math.PI * 0.5;
+		group.add(ring);
+		group.add(core);
+
+		return group;
+	}
+
+	private processSystemPlanetBuildQueue(): void {
+		if (this.viewMode !== 'system' || this.pendingSystemPlanetBuilds.length <= 0) {
+			return;
+		}
+
+		const job = this.pendingSystemPlanetBuilds.shift();
+
+		if (!job || job.nodeId !== this.activeSystemNodeId) {
+			return;
+		}
+
+		const planet = this.createSystemPlanet(job.planet, job.radius);
+
+		planet.group.position.copy(job.position);
+		this.systemGroup.remove(job.preview);
+		this.disposeObject(job.preview);
+		this.systemGroup.add(planet.group);
+		this.systemPlanets.push(planet);
+		this.systemPlanetCache.get(job.nodeId)?.push(planet);
+	}
+
+	private createSystemPlanet(
+		planetDefinition: StrategicNode['system']['planets'][number],
+		radius: number,
+	): Planet {
+		const planet = new Planet(
+			radius,
+			this.options.rendererMode,
+			null,
+			{
+				raymarchedClouds: this.options.rendererMode === 'webgpu',
+				raymarchedAtmosphere: this.options.rendererMode === 'webgpu',
+				raymarchedSurface: this.options.rendererMode === 'webgpu',
+				moonSystem: false,
+				nearSurfaceTerrain: false,
+				gasCloudParticles: false,
+				cloudSteps: {
+					moving: 4,
+					idle: 8,
+				},
+				atmosphereSteps: {
+					moving: 4,
+					idle: 8,
+				},
+				surfaceSteps: {
+					moving: 1,
+					idle: 3,
+				},
+			},
+			planetDefinition,
+			createPlanetRenderProfile(planetDefinition),
+		);
+
+		planet.group.name = planetDefinition.name;
+		planet.setRenderTuning(this.getSystemPlanetRenderTuning(planetDefinition));
+		planet.setRenderQuality('moving');
+
+		return planet;
+	}
+
+	private createSystemPlanetPreview(
+		planet: StrategicNode['system']['planets'][number],
+		radius: number,
+	): THREE.Group {
+		const group = new THREE.Group();
+		const previewStyle = this.getPlanetPreviewStyle(planet.class);
+		const body = new THREE.Mesh(
+			new THREE.SphereGeometry(radius, 32, 16),
+			new THREE.MeshStandardMaterial({
+				color: previewStyle.color,
+				emissive: previewStyle.emissive,
+				emissiveIntensity: previewStyle.emissiveIntensity,
+				roughness: previewStyle.roughness,
+				metalness: previewStyle.metalness,
+			}),
+		);
+
+		group.name = `${planet.name} Preview`;
+		group.add(body);
+
+		if (planet.rings?.enabled) {
+			const ring = new THREE.Mesh(
+				new THREE.RingGeometry(radius * 1.35, radius * 2.15, 48),
+				new THREE.MeshBasicMaterial({
+					color: 0xb7b1a2,
+					side: THREE.DoubleSide,
+					transparent: true,
+					opacity: 0.34,
+				}),
+			);
+
+			ring.rotation.x = Math.PI * 0.5;
+			group.add(ring);
+		}
+
+		return group;
+	}
+
+	private createOrbitLine(
+		radius: number,
+		color = 0x47657c,
+		opacity = 0.48,
+	): THREE.Line {
+		const points: THREE.Vector3[] = [];
+		const segments = 128;
+
+		for (let index = 0; index <= segments; index++) {
+			const angle = (index / segments) * Math.PI * 2;
+			points.push(
+				new THREE.Vector3(
+					Math.cos(angle) * radius,
+					0,
+					Math.sin(angle) * radius,
+				),
+			);
+		}
+
+		return new THREE.Line(
+			new THREE.BufferGeometry().setFromPoints(points),
+			new THREE.LineBasicMaterial({
+				color,
+				transparent: true,
+				opacity,
+			}),
+		);
+	}
+
+	private disposeObject(object: THREE.Object3D): void {
+		object.traverse((item) => {
+			if (!(item instanceof THREE.Mesh || item instanceof THREE.Line)) {
+				return;
+			}
+
+			item.geometry.dispose();
+
+			const material = item.material;
+
+			if (Array.isArray(material)) {
+				for (const entry of material) {
+					entry.dispose();
+				}
+				return;
+			}
+
+			material.dispose();
+		});
+	}
+
+	private getSelectedFleet(): Fleet | null {
+		return this.world.fleets.find(
+			(fleet) => fleet.id === this.world.selectedFleetId,
+		) ?? null;
+	}
+
+	private getFleetHullText(fleet: Fleet): string {
+		const ships = fleet.shipIds
+			.map((shipId) => this.world.ships.find((ship) => ship.id === shipId))
+			.filter((ship): ship is ShipDefinition => Boolean(ship));
+		const hull = ships.reduce((sum, ship) => sum + ship.hull, 0);
+		const maxHull = ships.reduce((sum, ship) => sum + ship.maxHull, 0);
+
+		if (maxHull <= 0) {
+			return '0%';
+		}
+
+		return `${Math.round((hull / maxHull) * 100)}%`;
+	}
+
+	private getFleetOrderLabel(fleet: Fleet): string {
+		switch (fleet.order.type) {
+			case 'attack_fleet':
+				return 'attack';
+
+			case 'move_strategic':
+				return `jump ${Math.round(fleet.order.progress * 100)}%`;
+
+			case 'move_tactical':
+				return fleet.order.space === 'system' ? 'system move' : 'move';
+
+			case 'hold':
+				return 'hold';
+		}
+	}
+
+	private getNode(id: string): StrategicNode | null {
+		return this.world.nodes.find((node) => node.id === id) ?? null;
+	}
+
+	private nodeToVector(node: StrategicNode, y: number): THREE.Vector3 {
+		return new THREE.Vector3(
+			node.position.x,
+			y,
+			node.position.y,
+		);
+	}
+
+	private getNodeRadius(node: StrategicNode): number {
+		switch (node.kind) {
+			case 'homeworld':
+				return 1.45;
+
+			case 'resource':
+				return 1.05;
+
+			case 'chokepoint':
+				return 0.86;
+
+			case 'frontier':
+				return 0.72;
+		}
+	}
+
+	private getPlanetOrbitRadius(index: number, semiMajorAxis: number): number {
+		return 13.0 + index * 9.5 + Math.log2(Math.max(1.1, semiMajorAxis)) * 1.20;
+	}
+
+	private getSystemPlanetOrbitAngle(
+		index: number,
+		planet: StrategicNode['system']['planets'][number],
+	): number {
+		const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+		const seedJitter = ((planet.seed % 1000) / 1000 - 0.5) * 0.56;
+
+		return index * goldenAngle + seedJitter;
+	}
+
+	private getSystemPlanetRenderRadius(
+		planet: StrategicNode['system']['planets'][number],
+	): number {
+		switch (planet.class) {
+			case 'gas_giant':
+				return THREE.MathUtils.clamp(
+					planet.physical.radius * 0.52,
+					5.80,
+					9.50,
+				);
+
+			case 'ice_giant':
+				return THREE.MathUtils.clamp(
+					planet.physical.radius * 0.48,
+					5.00,
+					8.10,
+				);
+
+			case 'terrestrial':
+			case 'ocean':
+				return THREE.MathUtils.clamp(
+					planet.physical.radius * 1.45,
+					2.20,
+					4.10,
+				);
+
+			case 'lava':
+			case 'toxic':
+			case 'desert':
+			case 'ice':
+				return THREE.MathUtils.clamp(
+					planet.physical.radius * 1.35,
+					2.00,
+					3.70,
+				);
+
+			case 'metal_rich':
+			case 'carbon':
+			case 'rocky':
+			case 'barren':
+				return THREE.MathUtils.clamp(
+					planet.physical.radius * 1.15,
+					1.65,
+					3.25,
+				);
+		}
+	}
+
+	private getSystemPlanetRenderTuning(
+		planet: StrategicNode['system']['planets'][number],
+	): Parameters<Planet['setRenderTuning']>[0] {
+		switch (planet.class) {
+			case 'ocean':
+				return {
+					ambient: 0.64,
+					exposureScale: 1.22,
+					horizonGlowScale: 1.14,
+					proceduralColorStrength: 1.04,
+					surfaceTextureStrength: 1.08,
+				};
+
+			case 'terrestrial':
+				return {
+					ambient: 0.58,
+					exposureScale: 1.16,
+					horizonGlowScale: 1.08,
+					proceduralColorStrength: 1.02,
+					surfaceTextureStrength: 1.04,
+				};
+
+			case 'ice':
+			case 'ice_giant':
+				return {
+					ambient: 0.72,
+					exposureScale: 1.30,
+					horizonGlowScale: 1.28,
+					proceduralColorStrength: 1.04,
+				};
+
+			case 'lava':
+				return {
+					ambient: 0.50,
+					exposureScale: 1.48,
+					horizonGlowScale: 1.52,
+					proceduralColorStrength: 1.12,
+				};
+
+			case 'toxic':
+				return {
+					ambient: 0.58,
+					exposureScale: 1.16,
+					horizonGlowScale: 1.34,
+					proceduralColorStrength: 1.08,
+				};
+
+			case 'metal_rich':
+				return {
+					ambient: 0.54,
+					exposureScale: 1.12,
+					proceduralColorStrength: 1.04,
+					surfaceTextureStrength: 1.16,
+				};
+
+			case 'carbon':
+				return {
+					ambient: 0.46,
+					exposureScale: 1.14,
+					proceduralColorStrength: 1.10,
+					surfaceTextureStrength: 1.12,
+				};
+
+			case 'barren':
+			case 'rocky':
+				return {
+					ambient: 0.52,
+					exposureScale: 1.12,
+					proceduralColorStrength: 1.06,
+					surfaceTextureStrength: 1.16,
+				};
+
+			case 'gas_giant':
+				return {
+					ambient: 0.62,
+					exposureScale: 1.12,
+				};
+		}
+	}
+
+	private getPlanetPreviewStyle(
+		planetClass: StrategicNode['system']['planets'][number]['class'],
+	): {
+		color: THREE.ColorRepresentation;
+		emissive: THREE.ColorRepresentation;
+		emissiveIntensity: number;
+		roughness: number;
+		metalness: number;
+	} {
+		switch (planetClass) {
+			case 'ocean':
+				return {
+					color: 0x0876c8,
+					emissive: 0x00182a,
+					emissiveIntensity: 0.10,
+					roughness: 0.50,
+					metalness: 0.02,
+				};
+
+			case 'terrestrial':
+				return {
+					color: 0x4da76a,
+					emissive: 0x06180c,
+					emissiveIntensity: 0.08,
+					roughness: 0.72,
+					metalness: 0.02,
+				};
+
+			case 'desert':
+				return {
+					color: 0xc98a45,
+					emissive: 0x1d0d03,
+					emissiveIntensity: 0.08,
+					roughness: 0.88,
+					metalness: 0.01,
+				};
+
+			case 'ice':
+				return {
+					color: 0xbfdff2,
+					emissive: 0x07131b,
+					emissiveIntensity: 0.10,
+					roughness: 0.44,
+					metalness: 0.02,
+				};
+
+			case 'ice_giant':
+				return {
+					color: 0x80c9f4,
+					emissive: 0x071a2a,
+					emissiveIntensity: 0.14,
+					roughness: 0.40,
+					metalness: 0.01,
+				};
+
+			case 'lava':
+				return {
+					color: 0x7f140a,
+					emissive: 0xff2b08,
+					emissiveIntensity: 0.30,
+					roughness: 0.62,
+					metalness: 0.05,
+				};
+
+			case 'toxic':
+				return {
+					color: 0x8aa28f,
+					emissive: 0x1a2316,
+					emissiveIntensity: 0.16,
+					roughness: 0.76,
+					metalness: 0.01,
+				};
+
+			case 'carbon':
+				return {
+					color: 0x252321,
+					emissive: 0x050403,
+					emissiveIntensity: 0.05,
+					roughness: 0.82,
+					metalness: 0.08,
+				};
+
+			case 'metal_rich':
+				return {
+					color: 0x9d9788,
+					emissive: 0x0b0b0b,
+					emissiveIntensity: 0.06,
+					roughness: 0.46,
+					metalness: 0.38,
+				};
+
+			case 'gas_giant':
+				return {
+					color: 0xc69054,
+					emissive: 0x1b0e05,
+					emissiveIntensity: 0.08,
+					roughness: 0.58,
+					metalness: 0.01,
+				};
+
+			case 'rocky':
+				return {
+					color: 0x766f68,
+					emissive: 0x070707,
+					emissiveIntensity: 0.04,
+					roughness: 0.90,
+					metalness: 0.04,
+				};
+
+			case 'barren':
+				return {
+					color: 0x8d7a65,
+					emissive: 0x080503,
+					emissiveIntensity: 0.04,
+					roughness: 0.92,
+					metalness: 0.03,
+				};
+		}
+	}
+
+	private getNodeColor(node: StrategicNode): number {
+		if (node.owner === 'player') {
+			return 0x4fc3ff;
+		}
+
+		if (node.owner === 'opponent') {
+			return 0xff6e58;
+		}
+
+		if (node.kind === 'resource') {
+			return 0xd4c06a;
+		}
+
+		return 0x8fa1ad;
+	}
+
+	private getPlanetPreviewColor(
+		planetClass: StrategicNode['system']['planets'][number]['class'],
+	): number {
+		switch (planetClass) {
+			case 'ocean':
+				return 0x2e8eb8;
+
+			case 'terrestrial':
+				return 0x5aa86b;
+
+			case 'desert':
+				return 0xd1a35f;
+
+			case 'ice':
+			case 'ice_giant':
+				return 0xb7d9ef;
+
+			case 'lava':
+				return 0xd85a2d;
+
+			case 'toxic':
+				return 0x9fb85a;
+
+			case 'carbon':
+				return 0x4e4d58;
+
+			case 'metal_rich':
+				return 0x9d9a8f;
+
+			case 'gas_giant':
+				return 0xc19a72;
+
+			case 'rocky':
+				return 0x8b8378;
+
+			case 'barren':
+				return 0x716b63;
+		}
+	}
+}

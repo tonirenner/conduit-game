@@ -4,6 +4,8 @@ import {
 	type CubeFace,
 	type LodOptions,
 	TerrainPatch,
+	type TerrainPatchEdgeAddress,
+	type TerrainPatchLeaf,
 } from './TerrainPatch';
 
 import {
@@ -30,9 +32,33 @@ export type TerrainLodProfile =
 	| 'near'
 	| 'surface';
 
+type LodBalanceStats = {
+	splits: number;
+	passes: number;
+	violations: number;
+};
+
+type LodBalanceEvaluation = {
+	candidates: TerrainPatch[];
+	violations: number;
+};
+
+type PatchBoundaryEdge = {
+	leaf: TerrainPatchLeaf;
+	key: string;
+	min: number;
+	max: number;
+};
+
 export class CubeSphere extends THREE.Group {
 	private readonly rootPatches: TerrainPatch[] = [];
 	private readonly horizonCulling: HorizonCulling;
+	private lodBalanceStats: LodBalanceStats = {
+		splits: 0,
+		passes: 0,
+		violations: 0,
+	};
+	private lodBalanceFrame = 0;
 
 	/**
 	 * Phase 5c.1 hotfix:
@@ -166,6 +192,25 @@ export class CubeSphere extends THREE.Group {
 				this.horizonCulling,
 			);
 		}
+
+		this.lodBalanceFrame++;
+
+		if (
+			this.lodBalanceFrame %
+			this.getBalanceUpdateInterval(nextProfile) === 0
+		) {
+			this.lodBalanceStats = this.enforceTwoToOneBalance(
+				lodOptions.maxLevel,
+				this.getFrameBalanceBudget(nextProfile),
+			);
+			return;
+		}
+
+		this.lodBalanceStats = {
+			...this.lodBalanceStats,
+			splits: 0,
+			passes: 0,
+		};
 	}
 
 	getCurrentLodProfile(): TerrainLodProfile {
@@ -215,6 +260,11 @@ export class CubeSphere extends THREE.Group {
 		totalPatches: number;
 		visibleMeshes: number;
 		maxLevel: number;
+		balance: {
+			splits: number;
+			passes: number;
+			violations: number;
+		};
 	} {
 		let totalPatches = 0;
 		let visibleMeshes = 0;
@@ -232,7 +282,327 @@ export class CubeSphere extends THREE.Group {
 			totalPatches,
 			visibleMeshes,
 			maxLevel,
+			balance: {
+				...this.lodBalanceStats,
+			},
 		};
+	}
+
+	private enforceTwoToOneBalance(
+		maxLevel: number,
+		splitBudget: number,
+	): LodBalanceStats {
+		let splits = 0;
+		let passes = 0;
+		let remainingBudget = splitBudget;
+
+		for (let pass = 0; pass < 6; pass++) {
+			const evaluation = this.evaluateTwoToOneBalance(maxLevel);
+
+			if (evaluation.candidates.length === 0 || remainingBudget <= 0) {
+				return {
+					splits,
+					passes,
+					violations: evaluation.violations,
+				};
+			}
+
+			for (const patch of evaluation.candidates) {
+				if (remainingBudget <= 0) {
+					break;
+				}
+
+				patch.split();
+				splits++;
+				remainingBudget--;
+			}
+
+			passes++;
+		}
+
+		return {
+			splits,
+			passes,
+			violations: this.evaluateTwoToOneBalance(maxLevel).violations,
+		};
+	}
+
+	private evaluateTwoToOneBalance(
+		maxLevel: number,
+	): LodBalanceEvaluation {
+		const leaves = this.collectLeavesByFace();
+		const candidates = new Set<TerrainPatch>();
+		let violations = 0;
+
+		for (const faceLeaves of leaves.values()) {
+			violations += this.collectFaceLocalBalanceViolations(
+				faceLeaves,
+				candidates,
+				maxLevel,
+			);
+		}
+
+		violations += this.collectCrossFaceBalanceViolations(
+			leaves,
+			candidates,
+			maxLevel,
+		);
+
+		return {
+			candidates: [...candidates],
+			violations,
+		};
+	}
+
+	private collectFaceLocalBalanceViolations(
+		leaves: TerrainPatchLeaf[],
+		candidates: Set<TerrainPatch>,
+		maxLevel: number,
+	): number {
+		const edgesByKey = this.collectFaceLocalEdgesByKey(leaves);
+		let violations = 0;
+
+		for (const edges of edgesByKey.values()) {
+			for (let index = 0; index < edges.length; index++) {
+				const edge = edges[index];
+
+				for (
+					let neighborIndex = index + 1;
+					neighborIndex < edges.length;
+					neighborIndex++
+				) {
+					const neighbor = edges[neighborIndex];
+
+					if (edge.leaf === neighbor.leaf) {
+						continue;
+					}
+
+					if (!this.areCubeBoundaryEdgesOverlapping(edge, neighbor)) {
+						continue;
+					}
+
+					if (!this.registerBalanceViolation(
+						edge.leaf,
+						neighbor.leaf,
+						candidates,
+						maxLevel,
+					)) {
+						continue;
+					}
+
+					violations++;
+				}
+			}
+		}
+
+		return violations;
+	}
+
+	private collectCrossFaceBalanceViolations(
+		leavesByFace: Map<CubeFace, TerrainPatchLeaf[]>,
+		candidates: Set<TerrainPatch>,
+		maxLevel: number,
+	): number {
+		const edgesByKey = this.collectBoundaryEdgesByKey(leavesByFace);
+		let violations = 0;
+
+		for (const edges of edgesByKey.values()) {
+			for (let index = 0; index < edges.length; index++) {
+				const edge = edges[index];
+
+				for (
+					let neighborIndex = index + 1;
+					neighborIndex < edges.length;
+					neighborIndex++
+				) {
+					const neighbor = edges[neighborIndex];
+
+					if (edge.leaf.face === neighbor.leaf.face) {
+						continue;
+					}
+
+					if (!this.areCubeBoundaryEdgesOverlapping(edge, neighbor)) {
+						continue;
+					}
+
+					if (!this.registerBalanceViolation(
+						edge.leaf,
+						neighbor.leaf,
+						candidates,
+						maxLevel,
+					)) {
+						continue;
+					}
+
+					violations++;
+				}
+			}
+		}
+
+		return violations;
+	}
+
+	private registerBalanceViolation(
+		leaf: TerrainPatchLeaf,
+		neighbor: TerrainPatchLeaf,
+		candidates: Set<TerrainPatch>,
+		maxLevel: number,
+	): boolean {
+		const levelDelta = Math.abs(leaf.level - neighbor.level);
+
+		if (levelDelta <= 1) {
+			return false;
+		}
+
+		const coarser =
+			      leaf.level < neighbor.level
+			      ? leaf
+			      : neighbor;
+
+		if (coarser.patch.canSplit(maxLevel)) {
+			candidates.add(coarser.patch);
+		}
+
+		return true;
+	}
+
+	private collectLeavesByFace(): Map<CubeFace, TerrainPatchLeaf[]> {
+		const leavesByFace = new Map<CubeFace, TerrainPatchLeaf[]>();
+
+		for (const rootPatch of this.rootPatches) {
+			const leaves: TerrainPatchLeaf[] = [];
+			rootPatch.collectLeaves(leaves);
+
+			for (const leaf of leaves) {
+				const faceLeaves = leavesByFace.get(leaf.face) ?? [];
+
+				faceLeaves.push(leaf);
+				leavesByFace.set(leaf.face, faceLeaves);
+			}
+		}
+
+		return leavesByFace;
+	}
+
+	private collectFaceLocalEdgesByKey(
+		leaves: TerrainPatchLeaf[],
+	): Map<string, PatchBoundaryEdge[]> {
+		const edgesByKey = new Map<string, PatchBoundaryEdge[]>();
+
+		for (const leaf of leaves) {
+			const bounds = leaf.bounds;
+			const right = bounds.x + bounds.size;
+			const bottom = bounds.y + bounds.size;
+
+			for (const edge of [
+				{
+					key: `f${leaf.address.faceId}:v:${this.numberKey(bounds.x)}`,
+					min: bounds.y,
+					max: bottom,
+				},
+				{
+					key: `f${leaf.address.faceId}:v:${this.numberKey(right)}`,
+					min: bounds.y,
+					max: bottom,
+				},
+				{
+					key: `f${leaf.address.faceId}:h:${this.numberKey(bounds.y)}`,
+					min: bounds.x,
+					max: right,
+				},
+				{
+					key: `f${leaf.address.faceId}:h:${this.numberKey(bottom)}`,
+					min: bounds.x,
+					max: right,
+				},
+			]) {
+				const edges = edgesByKey.get(edge.key) ?? [];
+
+				edges.push({
+					leaf,
+					key: edge.key,
+					min: edge.min,
+					max: edge.max,
+				});
+				edgesByKey.set(edge.key, edges);
+			}
+		}
+
+		return edgesByKey;
+	}
+
+	private collectBoundaryEdgesByKey(
+		leavesByFace: Map<CubeFace, TerrainPatchLeaf[]>,
+	): Map<string, PatchBoundaryEdge[]> {
+		const edgesByKey = new Map<string, PatchBoundaryEdge[]>();
+
+		for (const faceLeaves of leavesByFace.values()) {
+			for (const leaf of faceLeaves) {
+				for (const edge of this.createBoundaryEdgesForLeaf(leaf)) {
+					const edges = edgesByKey.get(edge.key) ?? [];
+
+					edges.push(edge);
+					edgesByKey.set(edge.key, edges);
+				}
+			}
+		}
+
+		return edgesByKey;
+	}
+
+	private createBoundaryEdgesForLeaf(
+		leaf: TerrainPatchLeaf,
+	): PatchBoundaryEdge[] {
+		const edges: PatchBoundaryEdge[] = [];
+		const bounds = leaf.bounds;
+		const right = bounds.x + bounds.size;
+		const bottom = bounds.y + bounds.size;
+		const epsilon = 0.000001;
+
+		if (Math.abs(bounds.x + 1) <= epsilon) {
+			edges.push(this.createBoundaryEdge(leaf, leaf.address.edges.left));
+		}
+
+		if (Math.abs(right - 1) <= epsilon) {
+			edges.push(this.createBoundaryEdge(leaf, leaf.address.edges.right));
+		}
+
+		if (Math.abs(bounds.y + 1) <= epsilon) {
+			edges.push(this.createBoundaryEdge(leaf, leaf.address.edges.top));
+		}
+
+		if (Math.abs(bottom - 1) <= epsilon) {
+			edges.push(this.createBoundaryEdge(leaf, leaf.address.edges.bottom));
+		}
+
+		return edges;
+	}
+
+	private createBoundaryEdge(
+		leaf: TerrainPatchLeaf,
+		edge: TerrainPatchEdgeAddress,
+	): PatchBoundaryEdge {
+		return {
+			leaf,
+			key: edge.cubeEdgeKey,
+			min: edge.min,
+			max: edge.max,
+		};
+	}
+
+	private areCubeBoundaryEdgesOverlapping(
+		a: PatchBoundaryEdge,
+		b: PatchBoundaryEdge,
+	): boolean {
+		if (a.key !== b.key) {
+			return false;
+		}
+
+		const epsilon = 0.000001;
+		const overlapMin = Math.max(a.min, b.min);
+		const overlapMax = Math.min(a.max, b.max);
+
+		return overlapMax - overlapMin > epsilon;
 	}
 
 	private getAdaptiveDetailOptions(
@@ -313,6 +683,48 @@ export class CubeSphere extends THREE.Group {
 			case 'surface':
 				return 2;
 		}
+	}
+
+	private getFrameBalanceBudget(profile: TerrainLodProfile): number {
+		switch (profile) {
+			case 'far':
+				return 6;
+
+			case 'orbit':
+				return 8;
+
+			case 'approach':
+				return 10;
+
+			case 'near':
+				return 8;
+
+			case 'surface':
+				return 6;
+		}
+	}
+
+	private getBalanceUpdateInterval(profile: TerrainLodProfile): number {
+		switch (profile) {
+			case 'far':
+				return 8;
+
+			case 'orbit':
+				return 6;
+
+			case 'approach':
+				return 4;
+
+			case 'near':
+				return 3;
+
+			case 'surface':
+				return 3;
+		}
+	}
+
+	private numberKey(value: number): string {
+		return value.toFixed(6);
 	}
 
 	private selectLodProfile(

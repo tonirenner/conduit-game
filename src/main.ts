@@ -5,10 +5,15 @@ import { TerrainTextureBakeManager } from './planet/TerrainTextureBakeManager';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
 import {createStarBackground} from './scene/createStarBackground';
-import {Planet} from './planet/Planet';
+import {Planet, type PlanetRenderTuning} from './planet/Planet';
 import { generatePlanetDefinition } from './planet/generation/PlanetGenerator';
 import { createPlanetRenderProfile } from './planet/rendering/PlanetRenderProfile';
+import {resolveTerrainProfileKind} from './planet/rendering/TerrainRenderProfile';
 import {SUN_DIRECTION, SUN_DISTANCE} from './planet/Sun';
+import {PostProcessingPipeline} from './postprocessing/PostProcessingPipeline';
+import {RenderTuningPanel} from './debug/RenderTuningPanel';
+import type {PlanetClass} from './planet/model/PlanetDefinition';
+import {GamePrototypeScene} from './game/rendering/GamePrototypeScene';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -47,16 +52,71 @@ function writePlanetSeedToUrl(seed: number): void {
 
 let currentPlanetSeed = getInitialPlanetSeed();
 
-type ForcedPlanetKind = 'auto' | 'gas_giant';
+const FORCED_PLANET_CLASSES: PlanetClass[] = [
+	'barren',
+	'rocky',
+	'terrestrial',
+	'ocean',
+	'desert',
+	'ice',
+	'lava',
+	'toxic',
+	'carbon',
+	'metal_rich',
+	'gas_giant',
+	'ice_giant',
+];
 
-let forcedPlanetKind: ForcedPlanetKind =
-	    new URLSearchParams(window.location.search).get('kind') === 'gas_giant'
-	    ? 'gas_giant'
-	    : 'auto';
+type ForcedPlanetKind = 'auto' | PlanetClass;
+
+function normalizePlanetClassParam(
+	value: string | null,
+): PlanetClass | null {
+	if (value === 'dessert') {
+		return 'desert';
+	}
+
+	if (
+		value &&
+		FORCED_PLANET_CLASSES.includes(value as PlanetClass)
+	) {
+		return value as PlanetClass;
+	}
+
+	return null;
+}
+
+function parseForcedPlanetKind(): ForcedPlanetKind {
+	const params = new URLSearchParams(window.location.search);
+	const classParam = normalizePlanetClassParam(
+		params.get('class') ?? params.get('kind'),
+	);
+
+	if (classParam) {
+		return classParam;
+	}
+
+	if (params.get('surface') === 'lava') {
+		return 'lava';
+	}
+
+	return 'auto';
+}
+
+let forcedPlanetKind: ForcedPlanetKind = parseForcedPlanetKind();
+const renderTuningPanelEnabled =
+	      new URLSearchParams(window.location.search).get('tuning') === '1' ||
+	      new URLSearchParams(window.location.search).get('renderDebug') === '1';
+const gameMode =
+	      new URLSearchParams(window.location.search).get('game') === '1';
 
 type ForcedSurfaceKind = 'auto' | 'lava';
 
 function getForcedSurfaceKind(): ForcedSurfaceKind {
+	if (forcedPlanetKind !== 'auto') {
+		return 'auto';
+	}
+
 	return new URLSearchParams(window.location.search).get('surface') === 'lava'
 	       ? 'lava'
 	       : 'auto';
@@ -66,9 +126,12 @@ function writeForcedKindToUrl(): void {
 	const url = new URL(window.location.href);
 
 	if (forcedPlanetKind === 'auto') {
+		url.searchParams.delete('class');
 		url.searchParams.delete('kind');
 	} else {
-		url.searchParams.set('kind', forcedPlanetKind);
+		url.searchParams.set('class', forcedPlanetKind);
+		url.searchParams.delete('kind');
+		url.searchParams.delete('surface');
 	}
 
 	window.history.replaceState(null, '', url);
@@ -132,6 +195,19 @@ const {
 );
 
 app.appendChild(renderer.domElement);
+
+const postProcessingEnabled =
+	      new URLSearchParams(window.location.search).get('postfx') !== '0';
+
+const postProcessing = new PostProcessingPipeline(
+	renderer,
+	scene,
+	camera,
+	{
+		enabled: postProcessingEnabled,
+		rendererMode,
+	},
+);
 
 const renderQuality = new RenderQuality(
 	renderer,
@@ -561,6 +637,53 @@ scene.add(sunLight);
 const ambientLight = new THREE.AmbientLight(0x223344, 0.08);
 scene.add(ambientLight);
 
+function resizeRenderer(): void {
+	const width  = window.innerWidth;
+	const height = window.innerHeight;
+
+	camera.aspect = width / height;
+	camera.updateProjectionMatrix();
+
+	renderer.setSize(width, height);
+	renderQuality.forceMoving();
+
+	starBackground.dispatchEvent(new Event('force-redraw'));
+}
+
+window.addEventListener('resize', resizeRenderer);
+
+if (gameMode) {
+	const gamePrototype = new GamePrototypeScene({
+		scene,
+		camera,
+		controls,
+		domElement: renderer.domElement,
+		hud,
+		seed: currentPlanetSeed,
+		rendererMode,
+	});
+
+	function animateGame(timestamp?: number): void {
+		requestAnimationFrame(animateGame);
+
+		timer.update(timestamp);
+
+		const deltaSeconds = Math.min(timer.getDelta(), 0.05);
+
+		controls.update();
+		renderQuality.update(deltaSeconds);
+		gamePrototype.update(deltaSeconds);
+
+		if (postProcessingEnabled) {
+			void postProcessing.render();
+		} else {
+			void renderFrame(renderer, scene, camera);
+		}
+	}
+
+	resizeRenderer();
+	animateGame();
+} else {
 // Planet
 const terrainBakeManager =
 	      rendererMode === 'webgpu'
@@ -585,7 +708,10 @@ function createPlanetDefinitionForSeed(
 			name: `Mira ${seed}`,
 			semiMajorAxis: 1.0,
 			starIrradiance: 1.0,
-			forceGasGiant: forcedPlanetKind === 'gas_giant',
+			forcePlanetClass:
+				forcedPlanetKind === 'auto'
+				? undefined
+				: forcedPlanetKind,
 		},
 	);
 
@@ -657,6 +783,9 @@ async function bakeTerrainTextureSetForDefinition(
 		                                                            resolution: 2048,
 		                                                            maxEncodedHeight: 0.42,
 		                                                            terrainSeed: planetDefinition.render.terrainSeed,
+		                                                            terrainProfile: resolveTerrainProfileKind(
+			                                                            planetDefinition.class,
+		                                                            ),
 	                                                            });
 
 	console.timeEnd('terrain-gpu-bake');
@@ -705,9 +834,44 @@ async function createPlanetForSeed(
 let planet = await createPlanetForSeed(
 	currentPlanetSeed,
 );
+let currentRenderTuning: PlanetRenderTuning = planet.getRenderTuning();
 
 scene.add(planet.group);
+planet.setRenderTuning(currentRenderTuning);
 writePlanetSeedToUrl(currentPlanetSeed);
+writeForcedKindToUrl();
+
+let renderTuningPanel: RenderTuningPanel | null = null;
+
+function setForcedPlanetKind(
+	planetKind: ForcedPlanetKind,
+): void {
+	forcedPlanetKind = planetKind;
+	void setPlanetSeed(currentPlanetSeed);
+}
+
+if (renderTuningPanelEnabled) {
+	renderTuningPanel = new RenderTuningPanel({
+		initialTuning: currentRenderTuning,
+		getSeed: () => currentPlanetSeed,
+		getClass: () => forcedPlanetKind,
+		getRendererMode: () => rendererMode,
+		onTuningChange: (tuning) => {
+			currentRenderTuning = {
+				...currentRenderTuning,
+				...tuning,
+			};
+			planet.setRenderTuning(currentRenderTuning);
+			renderQuality.forceMoving();
+		},
+		onClassChange: (planetClass) => {
+			setForcedPlanetKind(planetClass);
+		},
+		onSeedChange: (seed) => {
+			void setPlanetSeed(seed);
+		},
+	});
+}
 
 async function setPlanetSeed(seed: number): Promise<void> {
 	if (isChangingPlanetSeed) {
@@ -735,6 +899,8 @@ async function setPlanetSeed(seed: number): Promise<void> {
 		previousPlanet.dispose();
 
 		planet = nextPlanet;
+		planet.setRenderTuning(currentRenderTuning);
+		renderTuningPanel?.updateMeta();
 
 		writePlanetSeedToUrl(currentPlanetSeed);
 		writeForcedKindToUrl();
@@ -774,21 +940,25 @@ function toggleForcedGasGiant(): void {
 	void setPlanetSeed(currentPlanetSeed);
 }
 
-function resizeRenderer(): void {
-	const width  = window.innerWidth;
-	const height = window.innerHeight;
+function cycleForcedPlanetKind(): void {
+	if (forcedPlanetKind === 'auto') {
+		forcedPlanetKind = FORCED_PLANET_CLASSES[0];
+		void setPlanetSeed(currentPlanetSeed);
+		return;
+	}
 
-	camera.aspect = width / height;
-	camera.updateProjectionMatrix();
+	const currentIndex = FORCED_PLANET_CLASSES.indexOf(
+		forcedPlanetKind,
+	);
 
-	renderer.setSize(width, height);
-	renderQuality.forceMoving();
+	if (currentIndex < 0 || currentIndex >= FORCED_PLANET_CLASSES.length - 1) {
+		forcedPlanetKind = 'auto';
+	} else {
+		forcedPlanetKind = FORCED_PLANET_CLASSES[currentIndex + 1];
+	}
 
-	starBackground.dispatchEvent(new Event('force-redraw'));
+	void setPlanetSeed(currentPlanetSeed);
 }
-
-// Resize
-window.addEventListener('resize', resizeRenderer);
 
 // Keyboard controls
 window.addEventListener('keydown', (event) => {
@@ -814,6 +984,7 @@ window.addEventListener('keydown', (event) => {
 		'KeyN',
 		'KeyB',
 		'KeyR',
+		'KeyP',
 		'KeyY',
 		'KeyZ',
 		'ShiftLeft',
@@ -888,6 +1059,10 @@ window.addEventListener('keydown', (event) => {
 
 		case 'KeyR':
 			randomPlanetSeed();
+			break;
+
+		case 'KeyP':
+			cycleForcedPlanetKind();
 			break;
 
 		case 'KeyY':
@@ -977,6 +1152,9 @@ function updateHud(): void {
 		`fov: ${camera.fov.toFixed(0)}\n` +
 		`patches: ${terrainStats.visibleMeshes}/${terrainStats.totalPatches} | ` +
 		`lod: ${terrainStats.maxLevel}\n` +
+		`balance: splits ${terrainStats.balance.splits} | ` +
+		`passes ${terrainStats.balance.passes} | ` +
+		`violations ${terrainStats.balance.violations}\n` +
 		`horizon: ${horizonStats.culled}/${horizonStats.tested} culled ` +
 		`(${horizonCullPercent.toFixed(0)}%) | ` +
 		`visible: ${horizonStats.visible} | ` +
@@ -1018,12 +1196,10 @@ function updateHud(): void {
 		`volcano ${definitionStats.surfaceProfile.hasVolcanism ? 'yes' : 'no'} | ` +
 		`tectonics ${definitionStats.surfaceProfile.hasTectonics ? 'yes' : 'no'} | ` +
 		`occ ${definitionStats.surfaceProfile.raymarchOcclusionStrength.toFixed(2)}\n` +
-		`near detail: ${definitionStats.nearSurfaceDetail.visible ? 'visible' : definitionStats.nearSurfaceDetail.enabled ? 'ready' : 'off'} | ` +
-		`alpha ${definitionStats.nearSurfaceDetail.alpha.toFixed(2)} | ` +
-		`rocks ${definitionStats.nearSurfaceDetail.rocks} | ` +
-		`tufts ${definitionStats.nearSurfaceDetail.tufts} | ` +
-		`patches ${definitionStats.nearSurfaceDetail.patches} | ` +
-		`debug ${definitionStats.nearSurfaceDetail.debug ? 'yes' : 'no'}\n`
+		`near terrain: ${definitionStats.nearSurfaceTerrain.visible ? 'visible' : definitionStats.nearSurfaceTerrain.enabled ? 'ready' : 'off'} | ` +
+		`res ${definitionStats.nearSurfaceTerrain.resolution} | ` +
+		`size ${definitionStats.nearSurfaceTerrain.patchSize.toFixed(2)} | ` +
+		`height ${definitionStats.nearSurfaceTerrain.height.toFixed(2)}\n`
 			: ''
 		) +
 		`raymarch: clouds ${featureStats.clouds.raymarched ? featureStats.clouds.steps : 'off'} | ` +
@@ -1036,7 +1212,7 @@ function updateHud(): void {
 		`${terrainTextureStats.atlasWidth}x${terrainTextureStats.atlasHeight}\n`
 			: ''
 		) +
-		`keys: F flight/orbit | G cinematic | T terrain | N/B/R seed | Y gas | W/S A/D Q/E | mouse-drag look | H hud`;
+		`keys: F flight/orbit | G cinematic | T terrain | N/B/R seed | P class | Y gas | W/S A/D Q/E | mouse-drag look | H hud`;
 }
 
 // Animation loop
@@ -1063,11 +1239,16 @@ function animate(timestamp?: number): void {
 
 	updateHud();
 
-	void renderFrame(renderer, scene, camera);
+	if (postProcessingEnabled) {
+		void postProcessing.render();
+	} else {
+		void renderFrame(renderer, scene, camera);
+	}
 }
 
 resizeRenderer();
 animate();
+}
 
 if (import.meta.hot) {
 	import.meta.hot.accept(() => {

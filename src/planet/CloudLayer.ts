@@ -8,6 +8,10 @@ export class CloudLayer {
 
 	private readonly material: THREE.ShaderMaterial;
 
+	private profileCloudCoverage = 0.505;
+	private profileCloudDensity = 2.25;
+	private profileCloudAlpha = 0.84;
+
 	private currentRenderQuality: CloudRenderQuality = 'idle';
 
 	constructor(radius: number) {
@@ -726,6 +730,10 @@ export class CloudLayer {
 		this.material.uniforms.uTime.value += deltaSeconds * 0.14;
 	}
 
+	setSunDirection(direction: THREE.Vector3): void {
+		this.material.uniforms.uSunDirection.value.copy(direction).normalize();
+	}
+
 	setRenderQuality(quality: CloudRenderQuality): void {
 		if (quality === this.currentRenderQuality) {
 			return;
@@ -741,34 +749,85 @@ export class CloudLayer {
 		this.material.uniforms.uCloudDetailStrength.value = 1.0;
 	}
 
+	setCloudProfile(
+		cloudCoverage: number,
+		atmosphereDensity: number,
+	): void {
+		const normalizedCoverage = THREE.MathUtils.clamp(
+			cloudCoverage,
+			0,
+			1,
+		);
+
+		const normalizedDensity = THREE.MathUtils.clamp(
+			atmosphereDensity / 2.5,
+			0,
+			1,
+		);
+
+		this.profileCloudCoverage = THREE.MathUtils.lerp(
+			0.66,
+			0.43,
+			normalizedCoverage,
+		);
+
+		this.profileCloudDensity = THREE.MathUtils.lerp(
+			1.20,
+			2.85,
+			Math.max(normalizedCoverage, normalizedDensity),
+		);
+
+		this.profileCloudAlpha = THREE.MathUtils.lerp(
+			0.28,
+			0.92,
+			normalizedCoverage,
+		);
+
+		this.material.uniforms.uCoverage.value = this.profileCloudCoverage;
+		this.material.uniforms.uDensity.value = this.profileCloudDensity;
+		this.material.uniforms.uCloudAlpha.value = this.profileCloudAlpha;
+	}
+
 	updateLOD(cameraDistance: number, planetRadius: number): void {
 		const heightAboveSurface = cameraDistance - planetRadius;
 
 		if (heightAboveSurface > 8) {
-			this.material.uniforms.uDensity.value = 1.95;
-			this.material.uniforms.uCoverage.value = 0.535;
+			this.material.uniforms.uDensity.value =
+				this.profileCloudDensity * 0.86;
+			this.material.uniforms.uCoverage.value = THREE.MathUtils.clamp(
+				this.profileCloudCoverage + 0.030,
+				0.35,
+				0.78,
+			);
 			this.material.uniforms.uClimateInfluence.value = 0.21;
 			this.material.uniforms.uWeatherInfluence.value = 0.15;
 			this.material.uniforms.uStormInfluence.value = 0.08;
-			this.material.uniforms.uCloudAlpha.value = 0.74;
+			this.material.uniforms.uCloudAlpha.value =
+				this.profileCloudAlpha * 0.90;
 			return;
 		}
 
 		if (heightAboveSurface > 3) {
-			this.material.uniforms.uDensity.value = 2.25;
-			this.material.uniforms.uCoverage.value = 0.505;
+			this.material.uniforms.uDensity.value = this.profileCloudDensity;
+			this.material.uniforms.uCoverage.value = this.profileCloudCoverage;
 			this.material.uniforms.uClimateInfluence.value = 0.26;
 			this.material.uniforms.uWeatherInfluence.value = 0.20;
 			this.material.uniforms.uStormInfluence.value = 0.12;
-			this.material.uniforms.uCloudAlpha.value = 0.84;
+			this.material.uniforms.uCloudAlpha.value = this.profileCloudAlpha;
 			return;
 		}
 
-		this.material.uniforms.uDensity.value = 2.58;
-		this.material.uniforms.uCoverage.value = 0.475;
+		this.material.uniforms.uDensity.value =
+			this.profileCloudDensity * 1.15;
+		this.material.uniforms.uCoverage.value = THREE.MathUtils.clamp(
+			this.profileCloudCoverage - 0.030,
+			0.35,
+			0.78,
+		);
 		this.material.uniforms.uClimateInfluence.value = 0.31;
 		this.material.uniforms.uWeatherInfluence.value = 0.24;
 		this.material.uniforms.uStormInfluence.value = 0.16;
-		this.material.uniforms.uCloudAlpha.value = 0.92;
+		this.material.uniforms.uCloudAlpha.value =
+			this.profileCloudAlpha * 1.08;
 	}
 }

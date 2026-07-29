@@ -9,6 +9,9 @@ export type PlanetRenderFeatures = {
 	raymarchedClouds: boolean;
 	raymarchedAtmosphere: boolean;
 	raymarchedSurface: boolean;
+	moonSystem: boolean;
+	nearSurfaceTerrain: boolean;
+	gasCloudParticles: boolean;
 
 	cloudSteps: PlanetRaymarchStepProfile;
 	atmosphereSteps: PlanetRaymarchStepProfile;
@@ -19,6 +22,9 @@ export const DEFAULT_PLANET_RENDER_FEATURES: PlanetRenderFeatures = {
 	raymarchedClouds: true,
 	raymarchedAtmosphere: true,
 	raymarchedSurface: true,
+	moonSystem: true,
+	nearSurfaceTerrain: true,
+	gasCloudParticles: false,
 
 	/**
 	 * Phase 8b:

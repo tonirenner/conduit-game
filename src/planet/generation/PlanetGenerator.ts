@@ -5,6 +5,7 @@ import {
 
 import {
 	type PlanetAtmosphereDefinition,
+	type PlanetClass,
 	type PlanetClimateDefinition,
 	type PlanetDefinition,
 	type PlanetMoonDefinition,
@@ -23,6 +24,7 @@ export type PlanetGenerationOptions = {
 	semiMajorAxis?: number;
 	starIrradiance?: number;
 	forceGasGiant?: boolean;
+	forcePlanetClass?: PlanetClass;
 	forceRings?: boolean;
 };
 
@@ -34,7 +36,13 @@ export function generatePlanetDefinition(
 
 	const orbit = generateOrbit(random, options);
 	const composition = generateComposition(random, orbit.temperature, options);
-	const planetClass = resolvePlanetClass(composition, orbit.temperature);
+	const planetClass: PlanetClass =
+		      options.forcePlanetClass ??
+		      (
+			      options.forceGasGiant
+			      ? 'gas_giant'
+			      : resolvePlanetClass(composition, orbit.temperature)
+		      );
 
 	const physical = generatePhysical(random, composition, planetClass);
 	const atmosphere = generateAtmosphere(random, composition, planetClass);
@@ -100,7 +108,7 @@ function generateClimate(
 	biomeSeed: number,
 	weatherSeed: number,
 ): PlanetClimateDefinition {
-	const temperature01 = clamp01(
+	let temperature01 = clamp01(
 		(orbit.temperature - 120) / 760,
 	);
 
@@ -114,13 +122,13 @@ function generateClimate(
 		      ? 0.48
 		      : 0.0;
 
-	const humidity = clamp01(
+	let humidity = clamp01(
 		waterHumidity -
 		volcanicDryness +
 		random.range(-0.08, 0.08),
 	);
 
-	const aridity = clamp01(
+	let aridity = clamp01(
 		1.0 -
 		humidity * 0.72 +
 		temperature01 * 0.35 -
@@ -132,36 +140,81 @@ function generateClimate(
 		atmosphere.density / 2.5,
 	);
 
-	const windStrength = clamp01(
+	let windStrength = clamp01(
 		atmosphereStrength * 0.55 +
 		orbit.eccentricity * 1.35 +
 		random.range(0.08, 0.40),
 	);
 
-	const stormActivity = clamp01(
+	let stormActivity = clamp01(
 		atmosphere.cloudCoverage * 0.55 +
 		windStrength * 0.30 +
 		composition.volatiles * 0.45 +
 		random.range(-0.08, 0.18),
 	);
 
-	const seasonality = clamp01(
+	let seasonality = clamp01(
 		orbit.eccentricity * 2.25 +
 		random.range(0.02, 0.28),
 	);
 
-	const cloudPersistence = clamp01(
+	let cloudPersistence = clamp01(
 		atmosphere.cloudCoverage * 0.78 +
 		humidity * 0.28 +
 		stormActivity * 0.18,
 	);
 
-	const ashLoad = clamp01(
+	let ashLoad = clamp01(
 		planetClass === 'lava'
 		? 0.58 + random.range(0.08, 0.30)
 		: surface.hasVolcanism
 		  ? 0.18 + random.range(0.05, 0.22)
 		  : random.range(0.00, 0.05),
+	);
+
+	const classClimate = getClassClimateProfile(
+		random,
+		planetClass,
+	);
+
+	temperature01 = clamp01(
+		temperature01 * classClimate.temperatureScale +
+		classClimate.temperatureOffset,
+	);
+
+	humidity = clamp01(
+		humidity * classClimate.humidityScale +
+		classClimate.humidityOffset,
+	);
+
+	aridity = clamp01(
+		aridity * classClimate.aridityScale +
+		classClimate.aridityOffset,
+	);
+
+	windStrength = clamp01(
+		windStrength * classClimate.windScale +
+		classClimate.windOffset,
+	);
+
+	stormActivity = clamp01(
+		stormActivity * classClimate.stormScale +
+		classClimate.stormOffset,
+	);
+
+	seasonality = clamp01(
+		seasonality * classClimate.seasonalityScale +
+		classClimate.seasonalityOffset,
+	);
+
+	cloudPersistence = clamp01(
+		cloudPersistence * classClimate.cloudScale +
+		classClimate.cloudOffset,
+	);
+
+	ashLoad = clamp01(
+		ashLoad * classClimate.ashScale +
+		classClimate.ashOffset,
 	);
 
 	return {
@@ -179,21 +232,254 @@ function generateClimate(
 	};
 }
 
+type ClassClimateProfile = {
+	temperatureScale: number;
+	temperatureOffset: number;
+	humidityScale: number;
+	humidityOffset: number;
+	aridityScale: number;
+	aridityOffset: number;
+	windScale: number;
+	windOffset: number;
+	stormScale: number;
+	stormOffset: number;
+	seasonalityScale: number;
+	seasonalityOffset: number;
+	cloudScale: number;
+	cloudOffset: number;
+	ashScale: number;
+	ashOffset: number;
+};
+
+function getClassClimateProfile(
+	random: SeededRandom,
+	planetClass: string,
+): ClassClimateProfile {
+	const base: ClassClimateProfile = {
+		temperatureScale: 1.0,
+		temperatureOffset: 0.0,
+		humidityScale: 1.0,
+		humidityOffset: 0.0,
+		aridityScale: 1.0,
+		aridityOffset: 0.0,
+		windScale: 1.0,
+		windOffset: 0.0,
+		stormScale: 1.0,
+		stormOffset: 0.0,
+		seasonalityScale: 1.0,
+		seasonalityOffset: 0.0,
+		cloudScale: 1.0,
+		cloudOffset: 0.0,
+		ashScale: 1.0,
+		ashOffset: 0.0,
+	};
+
+	switch (planetClass) {
+		case 'barren':
+			return {
+				...base,
+				humidityScale: 0.08,
+				aridityScale: 0.85,
+				aridityOffset: 0.30,
+				windScale: 0.35,
+				stormScale: 0.10,
+				cloudScale: 0.05,
+				ashScale: 0.20,
+			};
+
+		case 'rocky':
+			return {
+				...base,
+				humidityScale: 0.20,
+				aridityScale: 0.90,
+				aridityOffset: 0.18,
+				windScale: 0.55,
+				stormScale: 0.20,
+				cloudScale: 0.14,
+				ashScale: 0.30,
+			};
+
+		case 'terrestrial':
+			return {
+				...base,
+				temperatureScale: 0.86,
+				temperatureOffset: 0.08,
+				humidityScale: 0.92,
+				humidityOffset: 0.10,
+				aridityScale: 0.62,
+				windScale: 0.90,
+				stormScale: 0.88,
+				cloudScale: 0.90,
+				cloudOffset: 0.10,
+			};
+
+		case 'ocean':
+			return {
+				...base,
+				temperatureScale: 0.82,
+				temperatureOffset: 0.07,
+				humidityScale: 0.72,
+				humidityOffset: 0.38,
+				aridityScale: 0.22,
+				windScale: 1.10,
+				windOffset: 0.10,
+				stormScale: 1.18,
+				stormOffset: 0.18,
+				cloudScale: 0.92,
+				cloudOffset: 0.28,
+				ashScale: 0.0,
+			};
+
+		case 'desert':
+			return {
+				...base,
+				temperatureScale: 0.94,
+				temperatureOffset: 0.13,
+				humidityScale: 0.10,
+				aridityScale: 0.70,
+				aridityOffset: 0.42,
+				windScale: 1.12,
+				windOffset: 0.10,
+				stormScale: 0.50,
+				stormOffset: 0.06,
+				cloudScale: 0.14,
+				ashScale: 0.25,
+			};
+
+		case 'ice':
+			return {
+				...base,
+				temperatureScale: 0.20,
+				temperatureOffset: random.range(0.02, 0.07),
+				humidityScale: 0.32,
+				humidityOffset: 0.08,
+				aridityScale: 0.56,
+				aridityOffset: 0.34,
+				windScale: 0.95,
+				windOffset: 0.06,
+				stormScale: 0.44,
+				stormOffset: 0.08,
+				seasonalityScale: 1.15,
+				seasonalityOffset: 0.08,
+				cloudScale: 0.24,
+				cloudOffset: 0.04,
+				ashScale: 0.0,
+			};
+
+		case 'lava':
+			return {
+				...base,
+				temperatureScale: 0.35,
+				temperatureOffset: 0.68,
+				humidityScale: 0.03,
+				aridityScale: 0.72,
+				aridityOffset: 0.42,
+				windScale: 0.95,
+				windOffset: 0.12,
+				stormScale: 0.75,
+				stormOffset: 0.16,
+				cloudScale: 0.42,
+				cloudOffset: 0.10,
+				ashScale: 0.65,
+				ashOffset: 0.30,
+			};
+
+		case 'toxic':
+			return {
+				...base,
+				temperatureScale: 0.92,
+				temperatureOffset: 0.10,
+				humidityScale: 0.65,
+				humidityOffset: 0.12,
+				aridityScale: 0.36,
+				aridityOffset: 0.16,
+				windScale: 1.05,
+				windOffset: 0.08,
+				stormScale: 1.10,
+				stormOffset: 0.16,
+				cloudScale: 0.88,
+				cloudOffset: 0.22,
+				ashScale: 0.40,
+			};
+
+		case 'carbon':
+			return {
+				...base,
+				humidityScale: 0.20,
+				aridityScale: 0.86,
+				aridityOffset: 0.18,
+				windScale: 0.52,
+				stormScale: 0.22,
+				cloudScale: 0.18,
+				ashScale: 0.18,
+			};
+
+		case 'metal_rich':
+			return {
+				...base,
+				humidityScale: 0.08,
+				aridityScale: 0.90,
+				aridityOffset: 0.24,
+				windScale: 0.42,
+				stormScale: 0.14,
+				cloudScale: 0.08,
+				ashScale: 0.20,
+			};
+
+		case 'gas_giant':
+			return {
+				...base,
+				humidityScale: 0.70,
+				humidityOffset: 0.16,
+				aridityScale: 0.0,
+				windScale: 1.30,
+				windOffset: 0.16,
+				stormScale: 1.20,
+				stormOffset: 0.24,
+				cloudScale: 0.90,
+				cloudOffset: 0.36,
+				ashScale: 0.0,
+			};
+
+		case 'ice_giant':
+			return {
+				...base,
+				temperatureScale: 0.45,
+				temperatureOffset: 0.04,
+				humidityScale: 0.54,
+				humidityOffset: 0.14,
+				aridityScale: 0.0,
+				windScale: 1.10,
+				windOffset: 0.12,
+				stormScale: 0.82,
+				stormOffset: 0.16,
+				cloudScale: 0.82,
+				cloudOffset: 0.26,
+				ashScale: 0.0,
+			};
+
+		default:
+			return base;
+	}
+}
+
 function generateComposition(
 	random: SeededRandom,
 	temperature: number,
 	options: PlanetGenerationOptions,
 ): PlanetMaterialComposition {
+	if (options.forcePlanetClass) {
+		return generateCompositionForClass(
+			random,
+			options.forcePlanetClass,
+		);
+	}
+
 	if (options.forceGasGiant) {
-		return normalizeComposition({
-			                            rock: random.range(0.02, 0.08),
-			                            metal: random.range(0.01, 0.05),
-			                            ice: random.range(0.02, 0.12),
-			                            water: random.range(0.00, 0.04),
-			                            gas: random.range(0.68, 0.88),
-			                            organic: random.range(0.00, 0.01),
-			                            volatiles: random.range(0.04, 0.16),
-		                            });
+		return generateCompositionForClass(
+			random,
+			'gas_giant',
+		);
 	}
 
 	const coldBoost = temperature < 220 ? 1.0 : 0.0;
@@ -210,6 +496,145 @@ function generateComposition(
 		                            organic: random.range(0.00, 0.10 + habitableBoost * 0.08),
 		                            volatiles: random.range(0.00, 0.16 + hotBoost * 0.08),
 	                            });
+}
+
+function generateCompositionForClass(
+	random: SeededRandom,
+	planetClass: PlanetClass,
+): PlanetMaterialComposition {
+	switch (planetClass) {
+		case 'barren':
+			return normalizeComposition({
+				                            rock: random.range(0.68, 0.86),
+				                            metal: random.range(0.10, 0.24),
+				                            ice: random.range(0.00, 0.03),
+				                            water: random.range(0.00, 0.02),
+				                            gas: random.range(0.00, 0.01),
+				                            organic: random.range(0.00, 0.01),
+				                            volatiles: random.range(0.00, 0.02),
+			                            });
+
+		case 'rocky':
+			return normalizeComposition({
+				                            rock: random.range(0.58, 0.78),
+				                            metal: random.range(0.10, 0.28),
+				                            ice: random.range(0.00, 0.08),
+				                            water: random.range(0.00, 0.06),
+				                            gas: random.range(0.00, 0.03),
+				                            organic: random.range(0.00, 0.03),
+				                            volatiles: random.range(0.02, 0.08),
+			                            });
+
+		case 'terrestrial':
+			return normalizeComposition({
+				                            rock: random.range(0.36, 0.54),
+				                            metal: random.range(0.10, 0.22),
+				                            ice: random.range(0.00, 0.08),
+				                            water: random.range(0.16, 0.30),
+				                            gas: random.range(0.03, 0.08),
+				                            organic: random.range(0.04, 0.12),
+				                            volatiles: random.range(0.04, 0.12),
+			                            });
+
+		case 'ocean':
+			return normalizeComposition({
+				                            rock: random.range(0.22, 0.42),
+				                            metal: random.range(0.05, 0.15),
+				                            ice: random.range(0.00, 0.08),
+				                            water: random.range(0.36, 0.58),
+				                            gas: random.range(0.03, 0.08),
+				                            organic: random.range(0.02, 0.08),
+				                            volatiles: random.range(0.04, 0.12),
+			                            });
+
+		case 'desert':
+			return normalizeComposition({
+				                            rock: random.range(0.54, 0.74),
+				                            metal: random.range(0.08, 0.20),
+				                            ice: random.range(0.00, 0.02),
+				                            water: random.range(0.00, 0.035),
+				                            gas: random.range(0.02, 0.07),
+				                            organic: random.range(0.00, 0.02),
+				                            volatiles: random.range(0.06, 0.14),
+			                            });
+
+		case 'ice':
+			return normalizeComposition({
+				                            rock: random.range(0.18, 0.36),
+				                            metal: random.range(0.03, 0.12),
+				                            ice: random.range(0.42, 0.64),
+				                            water: random.range(0.04, 0.16),
+				                            gas: random.range(0.01, 0.05),
+				                            organic: random.range(0.00, 0.03),
+				                            volatiles: random.range(0.06, 0.18),
+			                            });
+
+		case 'lava':
+			return normalizeComposition({
+				                            rock: random.range(0.58, 0.76),
+				                            metal: random.range(0.14, 0.30),
+				                            ice: 0,
+				                            water: 0,
+				                            gas: random.range(0.00, 0.04),
+				                            organic: 0,
+				                            volatiles: random.range(0.08, 0.18),
+			                            });
+
+		case 'toxic':
+			return normalizeComposition({
+				                            rock: random.range(0.34, 0.54),
+				                            metal: random.range(0.06, 0.18),
+				                            ice: random.range(0.00, 0.06),
+				                            water: random.range(0.04, 0.16),
+				                            gas: random.range(0.04, 0.12),
+				                            organic: random.range(0.00, 0.04),
+				                            volatiles: random.range(0.22, 0.38),
+			                            });
+
+		case 'carbon':
+			return normalizeComposition({
+				                            rock: random.range(0.32, 0.54),
+				                            metal: random.range(0.04, 0.14),
+				                            ice: random.range(0.00, 0.08),
+				                            water: random.range(0.00, 0.08),
+				                            gas: random.range(0.01, 0.05),
+				                            organic: random.range(0.18, 0.34),
+				                            volatiles: random.range(0.04, 0.14),
+			                            });
+
+		case 'metal_rich':
+			return normalizeComposition({
+				                            rock: random.range(0.26, 0.46),
+				                            metal: random.range(0.38, 0.58),
+				                            ice: random.range(0.00, 0.03),
+				                            water: random.range(0.00, 0.04),
+				                            gas: random.range(0.00, 0.03),
+				                            organic: random.range(0.00, 0.01),
+				                            volatiles: random.range(0.00, 0.05),
+			                            });
+
+		case 'gas_giant':
+			return normalizeComposition({
+				                            rock: random.range(0.02, 0.08),
+				                            metal: random.range(0.01, 0.05),
+				                            ice: random.range(0.02, 0.12),
+				                            water: random.range(0.00, 0.04),
+				                            gas: random.range(0.68, 0.88),
+				                            organic: random.range(0.00, 0.01),
+				                            volatiles: random.range(0.04, 0.16),
+			                            });
+
+		case 'ice_giant':
+			return normalizeComposition({
+				                            rock: random.range(0.01, 0.05),
+				                            metal: random.range(0.01, 0.04),
+				                            ice: random.range(0.14, 0.28),
+				                            water: random.range(0.02, 0.08),
+				                            gas: random.range(0.58, 0.76),
+				                            organic: random.range(0.00, 0.01),
+				                            volatiles: random.range(0.12, 0.24),
+			                            });
+	}
 }
 
 function generateOrbit(
@@ -286,6 +711,109 @@ function generateAtmosphere(
 		};
 	}
 
+	if (planetClass === 'ice') {
+		return {
+			type: 'thin',
+			density: random.range(0.08, 0.26),
+			pressure: random.range(0.04, 0.32),
+			cloudCoverage: random.range(0.02, 0.14),
+			haze: random.range(0.04, 0.18),
+			color: '#c8e8ff',
+		};
+	}
+
+	if (planetClass === 'barren' || planetClass === 'metal_rich') {
+		const hasTraceAtmosphere = random.chance(
+			planetClass === 'metal_rich' ? 0.22 : 0.16,
+		);
+
+		return {
+			type: hasTraceAtmosphere ? 'thin' : 'none',
+			density: hasTraceAtmosphere ? random.range(0.015, 0.09) : 0,
+			pressure: hasTraceAtmosphere ? random.range(0.005, 0.06) : 0,
+			cloudCoverage: 0,
+			haze: hasTraceAtmosphere ? random.range(0.01, 0.06) : 0,
+			color: hasTraceAtmosphere ? '#9aa3aa' : '#000000',
+		};
+	}
+
+	if (planetClass === 'rocky') {
+		return {
+			type: random.chance(0.38) ? 'thin' : 'none',
+			density: random.range(0.00, 0.22),
+			pressure: random.range(0.00, 0.18),
+			cloudCoverage: random.range(0.00, 0.08),
+			haze: random.range(0.00, 0.16),
+			color: '#8f9aa4',
+		};
+	}
+
+	if (planetClass === 'desert') {
+		return {
+			type: 'thin',
+			density: random.range(0.12, 0.56),
+			pressure: random.range(0.08, 0.75),
+			cloudCoverage: random.range(0.01, 0.14),
+			haze: random.range(0.18, 0.48),
+			color: '#d8a96b',
+		};
+	}
+
+	if (planetClass === 'ocean') {
+		return {
+			type: random.chance(0.62) ? 'breathable' : 'dense',
+			density: random.range(0.82, 1.95),
+			pressure: random.range(0.85, 3.2),
+			cloudCoverage: random.range(0.48, 0.86),
+			haze: random.range(0.10, 0.34),
+			color: '#8ecfff',
+		};
+	}
+
+	if (planetClass === 'terrestrial') {
+		return {
+			type: 'breathable',
+			density: random.range(0.62, 1.35),
+			pressure: random.range(0.55, 1.60),
+			cloudCoverage: random.range(0.22, 0.56),
+			haze: random.range(0.04, 0.24),
+			color: '#8ec5ff',
+		};
+	}
+
+	if (planetClass === 'lava') {
+		return {
+			type: random.chance(0.50) ? 'dense' : 'toxic',
+			density: random.range(0.38, 1.28),
+			pressure: random.range(0.22, 2.80),
+			cloudCoverage: random.range(0.18, 0.50),
+			haze: random.range(0.42, 0.92),
+			color: '#b66f48',
+		};
+	}
+
+	if (planetClass === 'toxic') {
+		return {
+			type: 'toxic',
+			density: random.range(1.45, 2.95),
+			pressure: random.range(1.8, 8.5),
+			cloudCoverage: random.range(0.62, 0.98),
+			haze: random.range(0.66, 1.0),
+			color: '#c4c79a',
+		};
+	}
+
+	if (planetClass === 'carbon') {
+		return {
+			type: random.chance(0.42) ? 'thin' : 'none',
+			density: random.range(0.00, 0.26),
+			pressure: random.range(0.00, 0.22),
+			cloudCoverage: random.range(0.00, 0.10),
+			haze: random.range(0.02, 0.18),
+			color: '#7c6a62',
+		};
+	}
+
 	const atmospherePotential =
 		      composition.gas * 2.2 +
 		      composition.volatiles * 1.6 +
@@ -337,6 +865,136 @@ function generateSurface(
 			terrainRoughness: 0,
 			mountainScale: 0,
 			oceanLevel: 0,
+		};
+	}
+
+	if (planetClass === 'ice') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: true,
+			hasVolcanism: false,
+			hasTectonics: false,
+			terrainRoughness: random.range(0.18, 0.56),
+			mountainScale: random.range(0.16, 0.72),
+			oceanLevel: -0.35,
+		};
+	}
+
+	if (planetClass === 'ocean') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: true,
+			hasIceCaps: composition.ice > 0.12,
+			hasVolcanism: random.chance(0.12),
+			hasTectonics: random.chance(0.52),
+			terrainRoughness: random.range(0.10, 0.34),
+			mountainScale: random.range(0.05, 0.30),
+			oceanLevel: random.range(0.72, 0.92),
+		};
+	}
+
+	if (planetClass === 'terrestrial') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: true,
+			hasIceCaps: composition.ice > 0.06 || random.chance(0.46),
+			hasVolcanism: random.chance(0.28),
+			hasTectonics: true,
+			terrainRoughness: random.range(0.32, 0.74),
+			mountainScale: random.range(0.32, 0.92),
+			oceanLevel: random.range(0.38, 0.64),
+		};
+	}
+
+	if (planetClass === 'desert') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: random.chance(0.10),
+			hasTectonics: random.chance(0.22),
+			terrainRoughness: random.range(0.22, 0.58),
+			mountainScale: random.range(0.16, 0.56),
+			oceanLevel: random.range(-0.58, -0.22),
+		};
+	}
+
+	if (planetClass === 'barren') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: false,
+			hasTectonics: false,
+			terrainRoughness: random.range(0.62, 1.0),
+			mountainScale: random.range(0.48, 1.18),
+			oceanLevel: random.range(-0.78, -0.44),
+		};
+	}
+
+	if (planetClass === 'rocky') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: composition.ice > 0.06 && random.chance(0.20),
+			hasVolcanism: random.chance(0.12),
+			hasTectonics: random.chance(0.18),
+			terrainRoughness: random.range(0.50, 0.92),
+			mountainScale: random.range(0.52, 1.26),
+			oceanLevel: random.range(-0.62, -0.28),
+		};
+	}
+
+	if (planetClass === 'toxic') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: random.chance(0.24),
+			hasTectonics: random.chance(0.26),
+			terrainRoughness: random.range(0.16, 0.48),
+			mountainScale: random.range(0.10, 0.54),
+			oceanLevel: random.range(0.22, 0.54),
+		};
+	}
+
+	if (planetClass === 'carbon') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: random.chance(0.08),
+			hasTectonics: random.chance(0.10),
+			terrainRoughness: random.range(0.34, 0.82),
+			mountainScale: random.range(0.22, 0.74),
+			oceanLevel: random.range(-0.66, -0.32),
+		};
+	}
+
+	if (planetClass === 'metal_rich') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: random.chance(0.22),
+			hasTectonics: random.chance(0.16),
+			terrainRoughness: random.range(0.52, 0.96),
+			mountainScale: random.range(0.74, 1.42),
+			oceanLevel: random.range(-0.76, -0.42),
+		};
+	}
+
+	if (planetClass === 'lava') {
+		return {
+			hasSolidSurface: true,
+			hasOcean: false,
+			hasIceCaps: false,
+			hasVolcanism: true,
+			hasTectonics: true,
+			terrainRoughness: random.range(0.72, 1.0),
+			mountainScale: random.range(1.05, 1.68),
+			oceanLevel: -1.0,
 		};
 	}
 

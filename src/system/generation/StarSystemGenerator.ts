@@ -7,6 +7,7 @@ import {
 
 import { SeededRandom } from '../../planet/generation/SeededRandom';
 import { generatePlanetDefinition } from '../../planet/generation/PlanetGenerator';
+import type { PlanetClass } from '../../planet/model/PlanetDefinition';
 
 export type StarSystemGenerationOptions = {
 	id?: string;
@@ -22,23 +23,51 @@ export function generateStarSystemDefinition(
 	const star = generateStar(random);
 
 	const planetCount = options.planetCount ?? random.int(4, 11);
-	const planets = Array.from({
-		length: planetCount,
-	}).map((_, index) => {
-		const semiMajorAxis = 0.28 + index * random.range(0.42, 1.45);
+	const planets: StarSystemDefinition['planets'] = [];
+	const habitableOrbitScale = Math.max(
+		0.35,
+		Math.sqrt(star.luminosity),
+	);
+	let previousSemiMajorAxis = 0;
 
-		return generatePlanetDefinition(
+	for (let index = 0; index < planetCount; index++) {
+		const planetClass = selectPlanetClassForOrbit(
+			random,
+			index,
+			planetCount,
+			planets.map((planet) => planet.class),
+			planets[index - 1]?.class ?? null,
+		);
+		const semiMajorAxis = Math.max(
+			previousSemiMajorAxis +
+			random.range(0.18, 0.42) * habitableOrbitScale,
+			getSemiMajorAxisForPlanetClass(
+				random,
+				planetClass,
+				habitableOrbitScale,
+			),
+		);
+
+		previousSemiMajorAxis = semiMajorAxis;
+
+		planets.push(generatePlanetDefinition(
 			random.childSeed(),
 			{
 				id: `planet-${seed}-${index + 1}`,
 				name: `${star.name} ${roman(index + 1)}`,
 				semiMajorAxis,
 				starIrradiance: star.luminosity,
-				forceGasGiant: index > 3 && random.chance(0.35),
-				forceRings: index > 3 && random.chance(0.20),
+				forcePlanetClass: planetClass,
+				forceRings:
+					(
+						planetClass === 'gas_giant' ||
+						planetClass === 'ice_giant'
+					)
+					? random.chance(0.42)
+					: index > 2 && random.chance(0.16),
 			},
-		);
-	});
+		));
+	}
 
 	return {
 		id: options.id ?? `system-${seed}`,
@@ -49,6 +78,175 @@ export function generateStarSystemDefinition(
 		asteroidBelts: generateAsteroidBelts(random),
 		jumpPoints: generateJumpPoints(random),
 	};
+}
+
+function selectPlanetClassForOrbit(
+	random: SeededRandom,
+	index: number,
+	planetCount: number,
+	existingClasses: PlanetClass[],
+	previousClass: PlanetClass | null,
+): PlanetClass {
+	const orbit01 =
+		      planetCount <= 1
+		      ? 0
+		      : index / (planetCount - 1);
+	const innerClasses: PlanetClass[] = [
+		'barren',
+		'rocky',
+		'metal_rich',
+		'lava',
+		'desert',
+	];
+	const middleClasses: PlanetClass[] = [
+		'terrestrial',
+		'ocean',
+		'desert',
+		'toxic',
+		'rocky',
+		'carbon',
+	];
+	const outerClasses: PlanetClass[] = [
+		'ice',
+		'ice_giant',
+		'gas_giant',
+		'rocky',
+		'carbon',
+	];
+	const farOuterClasses: PlanetClass[] = [
+		'gas_giant',
+		'ice_giant',
+		'ice',
+		'barren',
+		'carbon',
+	];
+
+	let candidates =
+		    orbit01 < 0.28
+		    ? innerClasses
+		    : orbit01 < 0.62
+		      ? middleClasses
+		      : orbit01 < 0.82
+		        ? outerClasses
+		        : farOuterClasses;
+
+	if (
+		index >= 4 &&
+		!previousClass?.includes('giant') &&
+		random.chance(0.32)
+	) {
+		candidates = [
+			...candidates,
+			random.chance(0.42) ? 'ice_giant' : 'gas_giant',
+		];
+	}
+
+	const previousFamily = previousClass
+	                       ? getPlanetClassFamily(previousClass)
+	                       : null;
+	const filtered = previousFamily
+	                 ? candidates.filter(
+		                 (candidate) =>
+			                 candidate !== previousClass &&
+			                 getPlanetClassFamily(candidate) !== previousFamily,
+	                 )
+	                 : candidates;
+	const diversityFiltered = filtered.filter((candidate) => {
+		const exactCount = existingClasses.filter(
+			(existingClass) => existingClass === candidate,
+		).length;
+		const familyCount = existingClasses.filter(
+			(existingClass) =>
+				getPlanetClassFamily(existingClass) ===
+				getPlanetClassFamily(candidate),
+		).length;
+
+		return exactCount < 1 && familyCount < 2;
+	});
+
+	if (diversityFiltered.length > 0) {
+		return random.pick(diversityFiltered);
+	}
+
+	return random.pick(filtered.length > 0 ? filtered : candidates);
+}
+
+function getPlanetClassFamily(planetClass: PlanetClass): string {
+	switch (planetClass) {
+		case 'barren':
+		case 'rocky':
+		case 'metal_rich':
+		case 'desert':
+			return 'dry_solid';
+
+		case 'terrestrial':
+		case 'ocean':
+			return 'wet_solid';
+
+		case 'ice':
+		case 'carbon':
+			return 'outer_solid';
+
+		case 'gas_giant':
+		case 'ice_giant':
+			return 'giant';
+
+		case 'lava':
+			return 'hot_solid';
+
+		case 'toxic':
+			return 'volatile_solid';
+	}
+}
+
+function getSemiMajorAxisForPlanetClass(
+	random: SeededRandom,
+	planetClass: PlanetClass,
+	habitableOrbitScale: number,
+): number {
+	const scaledRange = (
+		min: number,
+		max: number,
+	): number => random.range(
+		min * habitableOrbitScale,
+		max * habitableOrbitScale,
+	);
+
+	switch (planetClass) {
+		case 'lava':
+			return scaledRange(0.22, 0.48);
+
+		case 'barren':
+		case 'metal_rich':
+			return scaledRange(0.34, 0.78);
+
+		case 'rocky':
+			return scaledRange(0.48, 1.25);
+
+		case 'desert':
+			return scaledRange(0.58, 1.05);
+
+		case 'toxic':
+			return scaledRange(0.68, 1.18);
+
+		case 'terrestrial':
+			return scaledRange(0.86, 1.22);
+
+		case 'ocean':
+			return scaledRange(0.92, 1.34);
+
+		case 'carbon':
+			return scaledRange(1.10, 2.75);
+
+		case 'ice':
+			return scaledRange(1.65, 3.60);
+
+		case 'ice_giant':
+			return scaledRange(2.30, 5.20);
+
+		case 'gas_giant':
+			return scaledRange(2.55, 6.40);
+	}
 }
 
 function generateStar(random: SeededRandom): StarDefinition {

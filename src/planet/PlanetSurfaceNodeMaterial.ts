@@ -59,9 +59,9 @@ export function createPlanetSurfaceNodeMaterial(
 		SUN_DIRECTION.clone().normalize(),
 	);
 
-	const ambient = uniform(0.40);
-	const exposure = uniform(1.34);
-	const terminatorSoftness = uniform(0.92);
+	const ambient = uniform(0.54);
+	const exposure = uniform(1.36);
+	const terminatorSoftness = uniform(1.02);
 	const bakedTerrainBlend = uniform(
 		terrainTextureSet ? 1.0 : 0.0,
 	);
@@ -94,6 +94,7 @@ export function createPlanetSurfaceNodeMaterial(
 	const paletteCarbon = uniform(0.0);
 	const paletteEarthlike = uniform(0.0);
 	const paletteRocky = uniform(1.0);
+	const paletteBarren = uniform(0.0);
 
 	const initialForcedLavaSurface =
 		      typeof window !== 'undefined' &&
@@ -104,8 +105,8 @@ export function createPlanetSurfaceNodeMaterial(
 	const forcedLavaSurface = uniform(initialForcedLavaSurface);
 	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
 
-	const nightTint = color(0x061426);
-	const twilightTint = color(0x285f96);
+	const nightTint = color(0x102845);
+	const twilightTint = color(0x4f8bc2);
 	const rimTint = color(0xa8d8ff);
 	const fakeAtmosphereTint = color(0x7fc2ff);
 	const horizonHazeTint = color(0x9ed4ff);
@@ -135,7 +136,10 @@ export function createPlanetSurfaceNodeMaterial(
 	const proceduralTerrainSample = wgslFn(`
 fn procedural_terrain_sample(
 	normalInput: vec3<f32>,
-	terrainSeedOffset: vec3<f32>
+	terrainSeedOffset: vec3<f32>,
+	terrainOceanBias: f32,
+	terrainHeightScale: f32,
+	terrainMountainScale: f32
 ) -> vec4<f32> {
 	let normal = normalize(
 		normalInput +
@@ -153,7 +157,10 @@ fn procedural_terrain_sample(
 			5
 		) - 0.5) * 0.045;
 
-	let continent = continentBase + coastNoise;
+	let continent =
+		continentBase +
+		coastNoise -
+		terrainOceanBias;
 
 	let landMask =
 		smoothstep(
@@ -213,7 +220,8 @@ fn procedural_terrain_sample(
 
 	let mountains =
 		sharpPeaks *
-		mountainMask;
+		mountainMask *
+		terrainMountainScale;
 
 	let foothills =
 		smoothstep(
@@ -222,7 +230,8 @@ fn procedural_terrain_sample(
 			ridgeLarge
 		) *
 		mountainMask *
-		0.45;
+		0.45 *
+		terrainMountainScale;
 
 	let detail =
 		(terrain_fbm(
@@ -233,11 +242,14 @@ fn procedural_terrain_sample(
 		landMask;
 
 	let height =
-		landMask * 0.006 +
-		highlands * 0.095 +
-		foothills * 0.055 +
-		mountains * 0.165 +
-		detail;
+		(
+			landMask * 0.006 +
+			highlands * 0.095 +
+			foothills * 0.055 +
+			mountains * 0.165 +
+			detail
+		) *
+		terrainHeightScale;
 
 	return vec4<f32>(
 		max(0.0, height),
@@ -449,53 +461,53 @@ fn procedural_surface_detail(
 	detailColor = mix(
 		detailColor,
 		waterDepthTint,
-		deepWater * (0.060 + largeDetail * 0.045)
+		deepWater * (0.075 + largeDetail * 0.055)
 	);
 
 	detailColor = mix(
 		detailColor,
 		waterBasinTint,
-		oceanBasin * 0.135
+		oceanBasin * 0.16
 	);
 
 	detailColor = mix(
 		detailColor,
 		shelfTint,
-		oceanShelf * 0.042
+		oceanShelf * 0.045
 	);
 
 	detailColor = mix(
 		detailColor,
 		shallowTint,
-		shallowWater * (0.028 + mediumDetail * 0.034)
+		shallowWater * (0.030 + mediumDetail * 0.038)
 	);
 
 	detailColor = mix(
 		detailColor,
 		coastDetailTint,
-		clamp(coastMask, 0.0, 1.0) * 0.045
+		clamp(coastMask, 0.0, 1.0) * 0.075
 	);
 
 	detailColor = mix(
 		detailColor,
 		vegetationTint,
-		vegetationPattern * 0.105
+		vegetationPattern * 0.13
 	);
 
 	detailColor = mix(
 		detailColor,
 		dryTint,
-		dryPattern * 0.085
+		dryPattern * 0.10
 	);
 
 	detailColor = mix(
 		detailColor,
 		rockTint,
-		mountainDetailMask * (0.13 + fineDetail * 0.085)
+		mountainDetailMask * (0.16 + fineDetail * 0.10)
 	);
 
 	detailColor = detailColor +
-		vec3<f32>(combinedDetail * 0.040) *
+		vec3<f32>(combinedDetail * 0.055) *
 		landOnlyMask;
 
 	detailColor = detailColor +
@@ -504,13 +516,13 @@ fn procedural_surface_detail(
 		waterHintInput;
 
 	detailColor = detailColor +
-		vec3<f32>(combinedDetail * 0.010) *
+		vec3<f32>(combinedDetail * 0.014) *
 		waterHintInput;
 
 	let detailStrength =
 		clamp(
-			landOnlyMask * 0.74 +
-			waterHintInput * 0.50,
+			landOnlyMask * 0.94 +
+			waterHintInput * 0.76,
 			0.0,
 			1.0
 		);
@@ -606,9 +618,42 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * - baked atlas may only slightly assist mountain masks
 	 * - visible height stays terrainHeightAttribute for stable current geometry
 	 */
+	const terrainProfileOceanBias = profileWaterInfluence
+		.mul(0.095)
+		.add(paletteOceanic.mul(0.205))
+		.add(paletteToxic.mul(0.055))
+		.sub(paletteDesert.mul(0.175))
+		.sub(paletteBarren.mul(0.155))
+		.sub(paletteRocky.mul(0.105))
+		.sub(paletteMetallic.mul(0.135))
+		.sub(paletteCarbon.mul(0.095));
+
+	const terrainProfileHeightScale = float(1.0)
+		.sub(paletteOceanic.mul(0.52))
+		.sub(paletteToxic.mul(0.46))
+		.sub(paletteDesert.mul(0.42))
+		.sub(paletteCarbon.mul(0.28))
+		.add(paletteBarren.mul(0.22))
+		.add(paletteRocky.mul(0.14))
+		.add(paletteMetallic.mul(0.04));
+
+	const terrainProfileMountainScale = profileMountainScale.mul(
+		float(1.0)
+			.sub(paletteOceanic.mul(0.54))
+			.sub(paletteToxic.mul(0.48))
+			.sub(paletteDesert.mul(0.34))
+			.sub(paletteCarbon.mul(0.22))
+			.add(paletteBarren.mul(0.34))
+			.add(paletteRocky.mul(0.26))
+			.add(paletteMetallic.mul(0.48)),
+	);
+
 	const terrainSample = proceduralTerrainSample({
 		                                              normalInput: sphereNormal,
 		                                              terrainSeedOffset,
+		                                              terrainOceanBias: terrainProfileOceanBias,
+		                                              terrainHeightScale: terrainProfileHeightScale,
+		                                              terrainMountainScale: terrainProfileMountainScale,
 	                                              });
 
 	let terrainHeight: any = terrainHeightAttribute;
@@ -706,7 +751,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	const softCoastMask = oneMinus(
 		smoothstep(
 			0.050,
-			0.330,
+			0.280,
 			coastDistance,
 		),
 	);
@@ -893,11 +938,59 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
-	let paletteColor = proceduralColor;
+	const earthlikeLand = mix(
+		color(0x245b32),
+		color(0x7b9858),
+		smoothstep(
+			0.00,
+			0.18,
+			terrainHeight,
+		),
+	);
+
+	const earthlikeWater = mix(
+		color(0x052542),
+		color(0x126f92),
+		smoothstep(
+			0.16,
+			0.62,
+			landMask,
+		),
+	);
+
+	const earthlikeColor = mix(
+		earthlikeWater,
+		earthlikeLand,
+		smoothstep(
+			0.54,
+			0.74,
+			landMask,
+		),
+	);
+
+	const barrenLand = mix(
+		color(0x1d1b18),
+		color(0x8b7d68),
+		smoothstep(
+			0.00,
+			0.24,
+			terrainHeight,
+		),
+	);
+
+	const barrenColor = mix(
+		color(0x151412),
+		barrenLand,
+		smoothstep(
+			0.36,
+			0.58,
+			landMask,
+		),
+	);
 
 	const desertLand = mix(
-		color(0x7c6030),
-		color(0xcaa45f),
+		color(0x8a5128),
+		color(0xe0b564),
 		smoothstep(
 			0.02,
 			0.18,
@@ -906,8 +999,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const desertWater = mix(
-		color(0x071f2f),
-		color(0x18414d),
+		color(0x21180d),
+		color(0x5e3a1c),
 		waterHint,
 	);
 
@@ -915,45 +1008,96 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		desertWater,
 		desertLand,
 		smoothstep(
-			0.50,
-			0.70,
+			0.34,
+			0.56,
 			landMask,
 		),
 	);
 
-	const iceLand = mix(
-		color(0x8798a0),
-		color(0xe5f1f4),
+	const icePlate = mix(
+		color(0xb8d4de),
+		color(0xf8fbff),
 		smoothstep(
-			0.01,
-			0.22,
-			terrainHeight.add(polar.mul(0.12)),
+			0.18,
+			0.88,
+			landMask
+				.add(polar.mul(0.16))
+				.add(terrainHeight.mul(1.35)),
 		),
 	);
 
-	const iceWater = mix(
-		color(0x092235),
-		color(0x2f6678),
+	const icePlateShade = mix(
+		color(0x7ea3b5),
+		color(0xddeefa),
 		smoothstep(
-			0.15,
-			0.62,
-			landMask,
+			0.10,
+			0.64,
+			mountainMask.add(terrainHeight.mul(1.25)),
 		),
 	);
 
-	const iceColor = mix(
-		iceWater,
-		iceLand,
+	const iceCrackMask = max(
+		coastMask.mul(0.78),
 		smoothstep(
-			0.46,
-			0.68,
-			landMask,
+			0.54,
+			0.92,
+			mountainMask.add(terrainHeight.mul(2.2)),
+		).mul(0.48),
+	);
+
+	let iceColor = mix(
+		icePlate,
+		icePlateShade,
+		smoothstep(
+			0.20,
+			0.92,
+			mountainMask.add(terrainHeight.mul(1.7)),
 		),
+	);
+
+	iceColor = mix(
+		iceColor,
+		color(0x1f4e69),
+		iceCrackMask.mul(0.62),
+	);
+
+	iceColor = mix(
+		iceColor,
+		color(0xffffff),
+		polar.mul(0.30),
+	);
+
+	const oceanShelfMask = smoothstep(
+		0.38,
+		0.76,
+		landMask,
+	).mul(
+		oneMinus(
+			smoothstep(
+				0.78,
+				0.92,
+				landMask,
+			),
+		),
+	);
+
+	const oceanIslandMask = smoothstep(
+		0.86,
+		0.98,
+		landMask.add(terrainHeight.mul(0.72)),
+	);
+
+	const oceanPolarIce = smoothstep(
+		0.78,
+		0.97,
+		polar,
+	).mul(
+		oneMinus(oceanIslandMask.mul(0.42)),
 	);
 
 	const oceanicLand = mix(
-		color(0x274f34),
-		color(0x6d8050),
+		color(0x1f6a46),
+		color(0x8ca05a),
 		smoothstep(
 			0.02,
 			0.18,
@@ -961,29 +1105,37 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
-	const oceanicWater = mix(
-		color(0x041a2f),
-		color(0x0f6b86),
+	let oceanicWater = mix(
+		color(0x021a46),
+		color(0x067fb3),
 		smoothstep(
-			0.18,
-			0.62,
+			0.14,
+			0.64,
 			landMask,
 		),
 	);
 
-	const oceanicColor = mix(
+	oceanicWater = mix(
+		oceanicWater,
+		color(0x35c4d2),
+		oceanShelfMask.mul(0.72),
+	);
+
+	let oceanicColor = mix(
 		oceanicWater,
 		oceanicLand,
-		smoothstep(
-			0.72,
-			0.88,
-			landMask,
-		),
+		oceanIslandMask,
+	);
+
+	oceanicColor = mix(
+		oceanicColor,
+		color(0xe4f4f6),
+		oceanPolarIce.mul(0.68),
 	);
 
 	const rockyLand = mix(
-		color(0x34362f),
-		color(0x77705e),
+		color(0x242528),
+		color(0x9a856c),
 		smoothstep(
 			0.00,
 			0.22,
@@ -992,8 +1144,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const rockyWater = mix(
-		color(0x071722),
-		color(0x0b3844),
+		color(0x171514),
+		color(0x4f4438),
 		waterHint,
 	);
 
@@ -1067,46 +1219,64 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const lavaGlow = lavaGlowColor.mul(
-		lavaCracks.mul(0.70).add(
-			lavaHotspots.mul(1.10),
+		lavaCracks.mul(1.05).add(
+			lavaHotspots.mul(1.65),
 		),
 	);
 
 	const lavaColor = basaltColor.add(lavaGlow);
 
-	const toxicLand = mix(
-		color(0x445033),
-		color(0x9aa85a),
+	const toxicLowland = mix(
+		color(0x31403a),
+		color(0x8aa096),
 		smoothstep(
 			0.00,
-			0.18,
+			0.10,
 			terrainHeight,
 		),
 	);
 
-	const toxicWater = mix(
-		color(0x101c16),
-		color(0x566b2f),
+	const toxicHighland = mix(
+		color(0x4a2d1e),
+		color(0xa06038),
 		smoothstep(
-			0.10,
-			0.70,
-			landMask,
+			0.04,
+			0.22,
+			terrainHeight.add(mountainMask.mul(0.08)),
 		),
 	);
 
-	const toxicColor = mix(
-		toxicWater,
-		toxicLand,
+	const toxicHighlandMask = smoothstep(
+		0.055,
+		0.18,
+		terrainHeight.add(mountainMask.mul(0.10)),
+	);
+
+	let toxicColor = mix(
+		toxicLowland,
+		toxicHighland,
+		toxicHighlandMask,
+	);
+
+	const toxicChemicalStain = oneMinus(
 		smoothstep(
-			0.48,
-			0.72,
-			landMask,
+			0.06,
+			0.20,
+			terrainHeight,
 		),
+	).mul(
+		oneMinus(mountainMask.mul(0.62)),
+	);
+
+	toxicColor = mix(
+		toxicColor,
+		color(0xc8c2a0),
+		toxicChemicalStain.mul(0.30).add(polar.mul(0.10)),
 	);
 
 	const metallicLand = mix(
-		color(0x34393d),
-		color(0x8a8d87),
+		color(0x24282a),
+		color(0xa39a7a),
 		smoothstep(
 			0.00,
 			0.24,
@@ -1115,7 +1285,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const metallicColor = mix(
-		color(0x07131a),
+		color(0x11161a),
 		metallicLand,
 		smoothstep(
 			0.46,
@@ -1124,48 +1294,84 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
-	const carbonLand = mix(
-		color(0x15120f),
-		color(0x41342a),
+	const carbonLowland = mix(
+		color(0x0b0b0c),
+		color(0x24211f),
+		smoothstep(0.00, 0.10, terrainHeight),
+	);
+
+	const carbonHighland = mix(
+		color(0x302d2a),
+		color(0x6a6258),
 		smoothstep(
-			0.00,
-			0.22,
-			terrainHeight,
+			0.04,
+			0.23,
+			terrainHeight.add(mountainMask.mul(0.08)),
 		),
 	);
 
-	const carbonColor = mix(
-		color(0x05080b),
-		carbonLand,
-		smoothstep(
-			0.48,
-			0.72,
-			landMask,
-		),
+	const carbonRidgeVeins = smoothstep(
+		0.42,
+		0.86,
+		mountainMask.mul(0.72).add(softCoastMask.mul(0.28)),
+	).mul(
+		smoothstep(0.025, 0.17, terrainHeight.add(mountainMask.mul(0.06))),
+	);
+
+	const carbonDust = smoothstep(
+		0.10,
+		0.48,
+		coastMask.mul(0.48).add(terrainHeight.mul(1.8)),
+	).mul(float(1.0).sub(mountainMask.mul(0.55)));
+
+	let carbonColor = mix(
+		carbonLowland,
+		carbonHighland,
+		smoothstep(0.045, 0.19, terrainHeight.add(mountainMask.mul(0.08))),
+	);
+
+	carbonColor = mix(
+		carbonColor,
+		color(0x9b9388),
+		carbonRidgeVeins.mul(0.34),
+	);
+
+	carbonColor = mix(
+		carbonColor,
+		color(0x433328),
+		carbonDust.mul(0.18),
+	);
+
+	let paletteColor = proceduralColor;
+
+	paletteColor = mix(
+		paletteColor,
+		barrenColor,
+		paletteBarren,
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		rockyColor,
-		paletteRocky.mul(0.55),
+		paletteRocky,
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		oceanicColor,
-		paletteOceanic.mul(0.75),
+		paletteOceanic,
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		iceColor,
-		paletteIce.mul(0.86).add(profileIceInfluence.mul(0.18)),
+		max(paletteIce, profileIceInfluence.mul(0.82)),
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		desertColor,
-		paletteDesert.mul(0.82),
+		paletteDesert,
 	);
 
 	paletteColor = mix(
@@ -1173,32 +1379,68 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		lavaColor,
 		max(
 			forcedLavaSurface,
-			paletteLava.mul(0.92).add(profileLavaInfluence.mul(0.24)),
+			max(paletteLava, profileLavaInfluence.mul(0.92)),
 		),
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		toxicColor,
-		paletteToxic.mul(0.78).add(profileToxicInfluence.mul(0.16)),
+		max(paletteToxic, profileToxicInfluence.mul(0.82)),
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		metallicColor,
-		paletteMetallic.mul(0.82).add(profileMetalInfluence.mul(0.18)),
+		max(paletteMetallic, profileMetalInfluence.mul(0.86)),
 	);
 
 	paletteColor = mix(
 		paletteColor,
 		carbonColor,
-		paletteCarbon.mul(0.84),
+		paletteCarbon,
 	);
 
 	paletteColor = mix(
 		paletteColor,
-		proceduralColor,
-		paletteEarthlike.mul(0.30),
+		earthlikeColor,
+		paletteEarthlike,
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		color(0x073f68),
+		paletteOceanic.mul(waterHint).mul(0.30),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		color(0xd49a4f),
+		paletteDesert.mul(0.22),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		color(0xc8c34d),
+		paletteToxic.mul(0.24),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		color(0xb7aa86),
+		paletteMetallic.mul(0.18),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		color(0x050506),
+		paletteCarbon.mul(0.42),
+	);
+
+	paletteColor = mix(
+		paletteColor,
+		color(0x6f6656),
+		paletteBarren.mul(0.18),
 	);
 
 	proceduralColor = paletteColor;
@@ -1206,11 +1448,11 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	let baseColor = mix(
 		baseColorRaw,
 		proceduralColor,
-		float(0.72),
+		float(0.94),
 	);
 
 	/**
-	 * Similar to WebGL adjustSaturation(..., 0.82).
+	 * Keep class silhouettes readable in the system view.
 	 */
 	const luminance = baseColor.r
 		.mul(0.2126)
@@ -1220,13 +1462,24 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	baseColor = mix(
 		luminance.toVec3(),
 		baseColor,
-		float(0.82),
+		float(1.02),
+	);
+
+	const oceanTintInfluence = max(
+		paletteOceanic,
+		max(
+			paletteEarthlike,
+			max(
+				paletteIce.mul(0.55),
+				profileWaterInfluence,
+			),
+		),
 	);
 
 	baseColor = mix(
 		baseColor,
 		oceanDeepTint,
-		waterHint.mul(0.16),
+		waterHint.mul(0.16).mul(oceanTintInfluence),
 	);
 
 	const worldNormal = normalize(normalWorld);
@@ -1242,10 +1495,52 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		                                             mountainMaskInput: mountainMask,
 	                                             });
 
+	const surfaceDetailClassInfluence = oneMinus(
+		max(
+			max(
+				paletteIce.mul(0.82),
+				max(
+					paletteOceanic.mul(0.34),
+					paletteDesert.mul(0.28),
+				),
+			),
+			max(
+				max(
+					paletteBarren.mul(0.34),
+					paletteToxic.mul(0.30),
+				),
+				max(
+					paletteCarbon.mul(0.38),
+					paletteMetallic.mul(0.24),
+				),
+			),
+		),
+	);
+
 	baseColor = baseColor.add(
 		detailResult.rgb.mul(detailResult.a).mul(
-			oneMinus(forcedLavaSurface.mul(0.75)),
+			oneMinus(forcedLavaSurface.mul(0.75)).mul(surfaceDetailClassInfluence),
 		),
+	);
+
+	const iceFrost = paletteIce.mul(
+		smoothstep(
+			0.18,
+			0.82,
+			landMask.add(polar.mul(0.28)).add(terrainHeight.mul(1.8)),
+		),
+	);
+
+	baseColor = mix(
+		baseColor,
+		color(0xdceff4),
+		iceFrost.mul(0.38),
+	);
+
+	baseColor = mix(
+		baseColor,
+		iceColor,
+		paletteIce,
 	);
 
 	const ndl = dot(worldNormal, sunDirection);
@@ -1308,12 +1603,13 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.mul(0.055);
 
 	const waterDayLift = shallowWater
-		.mul(0.10)
+		.mul(0.060)
+		.mul(oneMinus(paletteIce))
 		.add(
-			shelfWater.mul(0.08),
+			shelfWater.mul(0.040).mul(oneMinus(paletteIce)),
 		)
 		.add(
-			coastWaterEdge.mul(0.055),
+			coastWaterEdge.mul(0.032).mul(oneMinus(paletteIce)),
 		);
 
 	const dayTintedBase = mix(
@@ -1326,7 +1622,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		ambient.add(
 			directLight
 				.mul(surfaceOcclusion)
-				.mul(1.12)
+				.mul(1.24)
 				.add(mountainContrast)
 				.add(mountainGrazingLift)
 				.add(highlandLight)
@@ -1336,19 +1632,19 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const nightColor = nightTint
 		.add(
-			baseColor.mul(0.20),
+			baseColor.mul(0.30),
 		)
 		.add(
 			mountainLightTint.mul(mountainPeak).mul(0.020),
 		)
 		.add(
-			oceanNightTint.mul(deepWater).mul(0.090),
+			oceanNightTint.mul(deepWater).mul(0.090).mul(oneMinus(paletteIce)),
 		)
 		.add(
-			oceanShelfTint.mul(shallowWater).mul(0.125),
+			oceanShelfTint.mul(shallowWater).mul(0.125).mul(oneMinus(paletteIce)),
 		)
 		.add(
-			oceanCoastLightTint.mul(softCoastWater).mul(0.026),
+			oceanCoastLightTint.mul(softCoastWater).mul(0.026).mul(oneMinus(paletteIce)),
 		);
 
 	let surfaceColor = mix(
@@ -1370,10 +1666,10 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const waterFresnel = fresnel.mul(
-		waterHint
+		waterHint.mul(oneMinus(paletteIce))
 			.mul(0.42)
-			.add(shelfWater.mul(0.10))
-			.add(coastWaterEdge.mul(0.060))
+			.add(shelfWater.mul(0.10).mul(oneMinus(paletteIce)))
+			.add(coastWaterEdge.mul(0.060).mul(oneMinus(paletteIce)))
 			.add(0.045),
 	);
 
@@ -1389,12 +1685,12 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	const tightSpecular = pow(
 		specDot,
 		96.0,
-	).mul(waterHint).mul(day).mul(0.18);
+	).mul(waterHint).mul(oneMinus(paletteIce)).mul(day).mul(0.18);
 
 	const broadSpecular = pow(
 		specDot,
 		18.0,
-	).mul(waterHint).mul(day).mul(0.075);
+	).mul(waterHint).mul(oneMinus(paletteIce)).mul(day).mul(0.075);
 
 	const mountainRim = pow(
 		grazingView,
@@ -1470,6 +1766,9 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		max(worldNormal.y, worldNormal.y.mul(-1.0)),
 	).mul(day);
 
+	const nonIceSurface = oneMinus(paletteIce);
+	const iceRim = paletteIce.mul(rim).mul(day.mul(0.65).add(0.12));
+
 	surfaceColor = surfaceColor
 		.add(
 			oceanFresnelTint
@@ -1487,31 +1786,36 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			oceanCoastLightTint
 				.mul(coastSurf)
-				.mul(0.020),
+				.mul(0.014)
+				.mul(nonIceSurface),
 		)
 		.add(
 			oceanLightTint
 				.mul(softCoastWater)
 				.mul(day.mul(0.55).add(0.08))
-				.mul(0.006),
+				.mul(0.003)
+				.mul(nonIceSurface),
 		)
 		.add(
 			coastTint
 				.mul(coastLandEdge)
 				.mul(day)
-				.mul(0.012),
+				.mul(0.020)
+				.mul(nonIceSurface),
 		)
 		.add(
 			highlandTint
 				.mul(softCoastLand)
 				.mul(day)
-				.mul(0.006),
+				.mul(0.006)
+				.mul(nonIceSurface),
 		)
 		.add(
 			coastTint
 				.mul(softCoastMask)
 				.mul(day.mul(0.45).add(0.04))
-				.mul(0.004),
+				.mul(0.002)
+				.mul(nonIceSurface),
 		)
 		.add(
 			mountainLightTint
@@ -1532,17 +1836,20 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			fakeAtmosphereTint
 				.mul(atmosphereEdge)
-				.mul(0.10),
+				.mul(0.10)
+				.mul(nonIceSurface.mul(0.80).add(0.20)),
 		)
 		.add(
 			horizonHazeTint
 				.mul(dayHaze)
-				.mul(0.070),
+				.mul(0.070)
+				.mul(nonIceSurface.mul(0.72).add(0.28)),
 		)
 		.add(
 			fakeAtmosphereTint
 				.mul(nightHaze)
-				.mul(0.060),
+				.mul(0.060)
+				.mul(nonIceSurface),
 		)
 		.add(
 			lowSunHazeTint
@@ -1552,7 +1859,13 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		.add(
 			twilightTint
 				.mul(twilight)
-				.mul(0.34),
+				.mul(0.34)
+				.mul(nonIceSurface.mul(0.78).add(0.22)),
+		)
+		.add(
+			color(0xd6e4e7)
+				.mul(iceRim)
+				.mul(0.16),
 		)
 		.add(
 			coolIceTint
@@ -1572,6 +1885,169 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 				.mul(oneMinus(day).mul(1.05).add(day.mul(0.42))),
 		)
 		.mul(exposure);
+
+	const typeDayLight = ambient.add(
+		directLight.mul(1.08),
+	);
+
+	const oceanTypeColor = mix(
+		color(0x020b1f),
+		oceanicColor.mul(typeDayLight)
+			.add(oceanFresnelTint.mul(waterFresnel).mul(0.42))
+			.add(oceanSpecularTint.mul(tightSpecular).mul(0.72))
+			.add(oceanLightTint.mul(broadSpecular).mul(0.88)),
+		day,
+	).add(
+		color(0x86dfff)
+			.mul(rim)
+			.mul(day.mul(0.16).add(0.035)),
+	).mul(exposure);
+
+	const desertTypeColor = mix(
+		color(0x120b06).add(desertColor.mul(0.12)),
+		desertColor
+			.mul(ambient.add(directLight.mul(1.18)))
+			.add(color(0xf1bc6b).mul(lowSunHaze).mul(0.20)),
+		day,
+	).add(
+		color(0xe1a251)
+			.mul(rim)
+			.mul(day.mul(0.08).add(0.015)),
+	).mul(exposure);
+
+	const barrenTypeColor = mix(
+		color(0x090909).add(barrenColor.mul(0.14)),
+		barrenColor
+			.mul(ambient.add(directLight.mul(1.06)))
+			.add(mountainLightTint.mul(mountainPeak).mul(day).mul(0.12)),
+		day,
+	).mul(exposure);
+
+	const rockyTypeColor = mix(
+		color(0x0b0f12).add(rockyColor.mul(0.14)),
+		rockyColor
+			.mul(ambient.add(directLight.mul(1.10)))
+			.add(mountainLightTint.mul(mountainPeak).mul(day).mul(0.16)),
+		day,
+	).mul(exposure);
+
+	const toxicTypeColor = mix(
+		color(0x101811).add(toxicColor.mul(0.20)),
+		toxicColor
+			.mul(ambient.add(directLight.mul(0.92)))
+			.add(color(0xc9d0a4).mul(horizon).mul(day.mul(0.34).add(0.10)))
+			.add(color(0x8fc1b6).mul(toxicChemicalStain).mul(day).mul(0.18)),
+		day,
+	).add(
+		color(0xc6caa0)
+			.mul(atmosphereEdge)
+			.mul(0.42),
+	).add(
+		color(0x5f8173)
+			.mul(nightHaze)
+			.mul(0.16),
+	).mul(exposure);
+
+	const metallicTypeColor = mix(
+		color(0x080a0c).add(metallicColor.mul(0.16)),
+		metallicColor
+			.mul(ambient.add(directLight.mul(1.20)))
+			.add(color(0xd8c58f).mul(tightSpecular).mul(0.42))
+			.add(color(0x9ca6ad).mul(mountainPeak).mul(day).mul(0.13)),
+		day,
+	).mul(exposure);
+
+	const carbonTypeColor = mix(
+		color(0x070707).add(carbonColor.mul(0.18)),
+		carbonColor
+			.mul(ambient.add(directLight.mul(1.18)))
+			.add(color(0xb8aca0).mul(carbonRidgeVeins).mul(day).mul(0.16))
+			.add(color(0x8a5a42).mul(mountainMask).mul(day).mul(0.09))
+			.add(color(0xc8bdae).mul(atmosphereEdge).mul(0.10)),
+		day,
+	).mul(exposure.mul(1.08));
+
+	surfaceColor = mix(
+		surfaceColor,
+		oceanTypeColor,
+		paletteOceanic,
+	);
+
+	surfaceColor = mix(
+		surfaceColor,
+		desertTypeColor,
+		paletteDesert,
+	);
+
+	surfaceColor = mix(
+		surfaceColor,
+		barrenTypeColor,
+		paletteBarren,
+	);
+
+	surfaceColor = mix(
+		surfaceColor,
+		rockyTypeColor,
+		paletteRocky,
+	);
+
+	surfaceColor = mix(
+		surfaceColor,
+		toxicTypeColor,
+		paletteToxic,
+	);
+
+	surfaceColor = mix(
+		surfaceColor,
+		metallicTypeColor,
+		paletteMetallic,
+	);
+
+	surfaceColor = mix(
+		surfaceColor,
+		carbonTypeColor,
+		paletteCarbon,
+	);
+
+	const iceDayColor = iceColor
+		.mul(
+			ambient
+				.add(directLight.mul(1.04))
+				.add(polarLift.mul(0.08)),
+		)
+		.add(
+			color(0xf7faf8)
+				.mul(day)
+				.mul(smoothstep(0.46, 0.92, landMask).mul(0.12).add(0.04)),
+		);
+
+	const iceNightColor = color(0x071018)
+		.add(
+			iceColor.mul(0.18),
+		);
+
+	const iceSurfaceColor = mix(
+		iceNightColor,
+		iceDayColor,
+		day,
+	)
+		.add(
+			color(0xd9e7ea)
+				.mul(iceRim)
+				.mul(0.18),
+		)
+		.add(
+			color(0x1b2a34)
+				.mul(iceCrackMask)
+				.mul(oneMinus(day).mul(0.36).add(day.mul(0.18))),
+		)
+		.mul(exposure);
+
+	surfaceColor = mix(
+		surfaceColor,
+		iceSurfaceColor,
+		paletteIce,
+	);
 
 	material.colorNode = surfaceColor;
 	material.toneMapped = false;
@@ -1639,8 +2115,34 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		paletteCarbon.value = profile.palette === 'carbon' ? 1.0 : 0.0;
 		paletteEarthlike.value = profile.palette === 'earthlike' ? 1.0 : 0.0;
 		paletteRocky.value = profile.palette === 'rocky' ? 1.0 : 0.0;
+		paletteBarren.value = profile.palette === 'barren' ? 1.0 : 0.0;
 
 		surfaceRaymarchStrength.value = profile.raymarchOcclusionStrength;
+	};
+
+	(material as any).setRenderTuning = (tuning: {
+		ambient?: number;
+		exposure?: number;
+	}): void => {
+		if (typeof tuning.ambient === 'number') {
+			ambient.value = THREE.MathUtils.clamp(
+				tuning.ambient,
+				0.12,
+				0.90,
+			);
+		}
+
+		if (typeof tuning.exposure === 'number') {
+			exposure.value = THREE.MathUtils.clamp(
+				tuning.exposure,
+				0.55,
+				2.20,
+			);
+		}
+	};
+
+	(material as any).setSunDirection = (direction: THREE.Vector3): void => {
+		sunDirection.value.copy(direction).normalize();
 	};
 
 	(material as any).getSurfaceProfileStats = () => ({
@@ -1661,6 +2163,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		paletteCarbon: paletteCarbon.value,
 		paletteEarthlike: paletteEarthlike.value,
 		paletteRocky: paletteRocky.value,
+		paletteBarren: paletteBarren.value,
 		forcedLavaSurface: forcedLavaSurface.value,
 		terrainSeedOffset: terrainSeedOffset.value.clone(),
 		raymarchOcclusionStrength: surfaceRaymarchStrength.value,

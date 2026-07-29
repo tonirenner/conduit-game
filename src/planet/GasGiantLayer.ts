@@ -6,6 +6,7 @@ export type GasGiantLayerOptions = {
 	kind: GasGiantLayerKind;
 	radius: number;
 	seed: number;
+	enableCloudParticles?: boolean;
 };
 
 type CloudParticleLayer = {
@@ -42,7 +43,7 @@ export class GasGiantLayer {
 	public readonly mesh: THREE.Mesh;
 
 	private readonly atmosphereMesh: THREE.Mesh;
-	private readonly cloudParticleLayer: CloudParticleLayer;
+	private readonly cloudParticleLayer: CloudParticleLayer | null;
 	private readonly cloudVolumeShells: CloudVolumeShell[];
 	private readonly bandTexture: THREE.CanvasTexture;
 	private readonly rng: () => number;
@@ -64,7 +65,10 @@ export class GasGiantLayer {
 		this.bandTexture = this.createBandTexture();
 		this.mesh = this.createBody();
 		this.cloudVolumeShells = this.createCloudVolumeShells();
-		this.cloudParticleLayer = this.createCloudParticles();
+		this.cloudParticleLayer =
+			options.enableCloudParticles === false
+			? null
+			: this.createCloudParticles();
 		this.atmosphereMesh = this.createAtmosphere();
 
 		this.group.add(this.mesh);
@@ -73,7 +77,9 @@ export class GasGiantLayer {
 			this.group.add(shell.mesh);
 		}
 
-		this.group.add(this.cloudParticleLayer.points);
+		if (this.cloudParticleLayer) {
+			this.group.add(this.cloudParticleLayer.points);
+		}
 		this.group.add(this.atmosphereMesh);
 	}
 
@@ -96,16 +102,18 @@ export class GasGiantLayer {
 			shell.mesh.rotation.z += deltaSeconds * shell.rotationZ;
 		}
 
-		this.cloudParticleLayer.points.rotation.y +=
-			deltaSeconds *
-			(
-				this.options.kind === 'ice_giant'
-				? 0.00028
-				: 0.00045
-			);
+		if (this.cloudParticleLayer) {
+			this.cloudParticleLayer.points.rotation.y +=
+				deltaSeconds *
+				(
+					this.options.kind === 'ice_giant'
+					? 0.00028
+					: 0.00045
+				);
 
-		this.cloudParticleLayer.points.rotation.z +=
-			deltaSeconds * 0.00004;
+			this.cloudParticleLayer.points.rotation.z +=
+				deltaSeconds * 0.00004;
+		}
 
 		this.bandTexture.offset.x =
 			(this.bandTexture.offset.x +
@@ -126,8 +134,8 @@ export class GasGiantLayer {
 			shell.material.dispose();
 		}
 
-		this.cloudParticleLayer.geometry.dispose();
-		this.cloudParticleLayer.material.dispose();
+		this.cloudParticleLayer?.geometry.dispose();
+		this.cloudParticleLayer?.material.dispose();
 
 		this.group.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) {

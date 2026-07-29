@@ -34,17 +34,217 @@ export type LodOptions = {
 	adaptiveDetail?: AdaptiveDetailLodOptions;
 };
 
+export type TerrainPatchLeaf = {
+	patch: TerrainPatch;
+	face: CubeFace;
+	bounds: PatchBounds;
+	level: number;
+	address: TerrainPatchAddress;
+};
+
+export type TerrainPatchAddress = {
+	id: string;
+	faceId: number;
+	level: number;
+	bounds: PatchBounds;
+	edges: {
+		top: TerrainPatchEdgeAddress;
+		right: TerrainPatchEdgeAddress;
+		bottom: TerrainPatchEdgeAddress;
+		left: TerrainPatchEdgeAddress;
+	};
+};
+
+export type TerrainPatchEdgeAddress = {
+	id: string;
+	cubeEdgeKey: string;
+	min: number;
+	max: number;
+};
+
 type PatchDetailFactors = {
 	coastFactor: number;
 	reliefFactor: number;
 	mountainFactor: number;
 };
 
+function createTerrainPatchAddress(
+	face: CubeFace,
+	bounds: PatchBounds,
+	level: number,
+): TerrainPatchAddress {
+	const faceId = getTerrainFaceIndexForFace(face);
+	const addressBounds = {
+		...bounds,
+	};
+
+	return {
+		id: [
+			`f${faceId}`,
+			`l${level}`,
+			`x${numberKey(addressBounds.x)}`,
+			`y${numberKey(addressBounds.y)}`,
+			`s${numberKey(addressBounds.size)}`,
+		].join('/'),
+		faceId,
+		level,
+		bounds: addressBounds,
+		edges: {
+			top: createTerrainPatchEdgeAddress(
+				face,
+				faceId,
+				'top',
+				addressBounds.x,
+				addressBounds.y,
+				addressBounds.x + addressBounds.size,
+				addressBounds.y,
+			),
+			right: createTerrainPatchEdgeAddress(
+				face,
+				faceId,
+				'right',
+				addressBounds.x + addressBounds.size,
+				addressBounds.y,
+				addressBounds.x + addressBounds.size,
+				addressBounds.y + addressBounds.size,
+			),
+			bottom: createTerrainPatchEdgeAddress(
+				face,
+				faceId,
+				'bottom',
+				addressBounds.x,
+				addressBounds.y + addressBounds.size,
+				addressBounds.x + addressBounds.size,
+				addressBounds.y + addressBounds.size,
+			),
+			left: createTerrainPatchEdgeAddress(
+				face,
+				faceId,
+				'left',
+				addressBounds.x,
+				addressBounds.y,
+				addressBounds.x,
+				addressBounds.y + addressBounds.size,
+			),
+		},
+	};
+}
+
+function createTerrainPatchEdgeAddress(
+	face: CubeFace,
+	faceId: number,
+	localEdge: 'top' | 'right' | 'bottom' | 'left',
+	startX: number,
+	startY: number,
+	endX: number,
+	endY: number,
+): TerrainPatchEdgeAddress {
+	const start = getCubePointForFace(face, startX, startY);
+	const end = getCubePointForFace(face, endX, endY);
+	const epsilon = 0.000001;
+	const fixedAxes: string[] = [];
+	let variableAxis = -1;
+
+	for (let axis = 0; axis < 3; axis++) {
+		const startValue = start.getComponent(axis);
+		const endValue = end.getComponent(axis);
+
+		if (
+			Math.abs(startValue - endValue) <= epsilon &&
+			Math.abs(Math.abs(startValue) - 1) <= epsilon
+		) {
+			fixedAxes.push(`${axis}:${Math.sign(startValue)}`);
+			continue;
+		}
+
+		variableAxis = axis;
+	}
+
+	const startValue =
+		      variableAxis >= 0
+		      ? start.getComponent(variableAxis)
+		      : 0;
+
+	const endValue =
+		      variableAxis >= 0
+		      ? end.getComponent(variableAxis)
+		      : 0;
+
+	const cubeEdgeKey =
+		      fixedAxes.length === 2 && variableAxis >= 0
+		      ? fixedAxes.sort().join('|')
+		      : `face:${faceId}:${localEdge}`;
+
+	const min = Math.min(startValue, endValue);
+	const max = Math.max(startValue, endValue);
+
+	return {
+		id: [
+			cubeEdgeKey,
+			`a${numberKey(min)}`,
+			`b${numberKey(max)}`,
+		].join('/'),
+		cubeEdgeKey,
+		min,
+		max,
+	};
+}
+
+function getTerrainFaceIndexForFace(face: CubeFace): number {
+	const normal = face.normal;
+
+	if (normal.x > 0.5) {
+		return 0;
+	}
+
+	if (normal.x < -0.5) {
+		return 1;
+	}
+
+	if (normal.y > 0.5) {
+		return 2;
+	}
+
+	if (normal.y < -0.5) {
+		return 3;
+	}
+
+	if (normal.z > 0.5) {
+		return 4;
+	}
+
+	return 5;
+}
+
+function getCubePointForFace(
+	face: CubeFace,
+	cubeX: number,
+	cubeY: number,
+): THREE.Vector3 {
+	return face.normal
+		.clone()
+		.add(
+			face.right
+				.clone()
+				.multiplyScalar(cubeX),
+		)
+		.add(
+			face.up
+				.clone()
+				.multiplyScalar(cubeY),
+		);
+}
+
+function numberKey(value: number): string {
+	return value.toFixed(6);
+}
+
 export class TerrainPatch extends THREE.Group {
 	private readonly mesh: THREE.Mesh;
 	private readonly childrenPatches: TerrainPatch[] = [];
 	private readonly terrainGrid: TerrainGrid;
 	private readonly detailFactors: PatchDetailFactors;
+	private readonly patchAddress: TerrainPatchAddress;
 
 	constructor(
 		private readonly face: CubeFace,
@@ -59,6 +259,11 @@ export class TerrainPatch extends THREE.Group {
 		super();
 
 		this.name = `TerrainPatch L${level}`;
+		this.patchAddress = createTerrainPatchAddress(
+			this.face,
+			this.bounds,
+			this.level,
+		);
 
 		this.terrainGrid = this.terrainSource.getPatchGrid(
 			this.face,
@@ -201,6 +406,38 @@ export class TerrainPatch extends THREE.Group {
 
 			this.childrenPatches.push(child);
 			this.add(child);
+		}
+	}
+
+	canSplit(maxLevel: number): boolean {
+		return this.childrenPatches.length === 0 &&
+		       this.level < maxLevel;
+	}
+
+	collectLeaves(
+		leaves: TerrainPatchLeaf[],
+	): void {
+		if (this.childrenPatches.length === 0) {
+			leaves.push({
+				patch: this,
+				face: this.face,
+				bounds: {
+					...this.bounds,
+				},
+				level: this.level,
+				address:
+					this.patchAddress ??
+					createTerrainPatchAddress(
+						this.face,
+						this.bounds,
+						this.level,
+					),
+			});
+			return;
+		}
+
+		for (const child of this.childrenPatches) {
+			child.collectLeaves(leaves);
 		}
 	}
 
@@ -496,7 +733,6 @@ export class TerrainPatch extends THREE.Group {
 	private createGeometry(): THREE.BufferGeometry {
 		const colors: number[] = [];
 		const positions: number[] = [];
-		const normalSourcePositions: number[] = [];
 		const sphereNormals: number[] = [];
 		const terrainNormals: number[] = [];
 		const terrainHeights: number[] = [];
@@ -566,10 +802,6 @@ export class TerrainPatch extends THREE.Group {
 				const height = this.terrainGrid.heights[index];
 				const landMask = this.terrainGrid.landMasks[index];
 				const mountainMask = this.terrainGrid.mountainMasks[index];
-				const displacedSpherePoint = sphereNormal
-					.clone()
-					.multiplyScalar(this.radius + height);
-
 				const renderSpherePoint = sphereNormal
 					.clone()
 					.multiplyScalar(
@@ -585,11 +817,6 @@ export class TerrainPatch extends THREE.Group {
 					renderSpherePoint.z,
 				);
 
-				normalSourcePositions.push(
-					displacedSpherePoint.x,
-					displacedSpherePoint.y,
-					displacedSpherePoint.z,
-				);
 				sphereNormals.push(sphereNormal.x, sphereNormal.y, sphereNormal.z);
 
 				colors.push(
@@ -605,7 +832,6 @@ export class TerrainPatch extends THREE.Group {
 		}
 
 		this.buildTerrainNormals(
-			normalSourcePositions,
 			sphereNormals,
 			terrainNormals,
 			rowSize,
@@ -692,27 +918,10 @@ export class TerrainPatch extends THREE.Group {
 	}
 
 	private buildTerrainNormals(
-		positions: number[],
 		sphereNormals: number[],
 		terrainNormals: number[],
 		rowSize: number,
 	): void {
-		const getPosition = (
-			x: number,
-			y: number,
-			out: THREE.Vector3,
-		): THREE.Vector3 => {
-			const clampedX = THREE.MathUtils.clamp(x, 0, rowSize - 1);
-			const clampedY = THREE.MathUtils.clamp(y, 0, rowSize - 1);
-			const index = (clampedX + clampedY * rowSize) * 3;
-
-			return out.set(
-				positions[index + 0],
-				positions[index + 1],
-				positions[index + 2],
-			);
-		};
-
 		const getSphereNormal = (
 			x: number,
 			y: number,
@@ -729,10 +938,25 @@ export class TerrainPatch extends THREE.Group {
 			);
 		};
 
-		const pLeft = new THREE.Vector3();
-		const pRight = new THREE.Vector3();
-		const pDown = new THREE.Vector3();
-		const pUp = new THREE.Vector3();
+		const sampleStep = Math.max(
+			0.0005,
+			this.bounds.size / Math.max(1, this.resolution),
+		);
+
+		const sampleTerrainPoint = (
+			cubeX: number,
+			cubeY: number,
+			out: THREE.Vector3,
+		): THREE.Vector3 => {
+			const sampleNormal = this.getSphereNormal(cubeX, cubeY);
+
+			return out.copy(this.getTerrainPoint(sampleNormal));
+		};
+
+		const pMinusX = new THREE.Vector3();
+		const pPlusX = new THREE.Vector3();
+		const pMinusY = new THREE.Vector3();
+		const pPlusY = new THREE.Vector3();
 		const tangentX = new THREE.Vector3();
 		const tangentY = new THREE.Vector3();
 		const normal = new THREE.Vector3();
@@ -740,14 +964,20 @@ export class TerrainPatch extends THREE.Group {
 
 		for (let y = 0; y < rowSize; y++) {
 			for (let x = 0; x < rowSize; x++) {
-				getPosition(x - 1, y, pLeft);
-				getPosition(x + 1, y, pRight);
-				getPosition(x, y - 1, pDown);
-				getPosition(x, y + 1, pUp);
 				getSphereNormal(x, y, sphereNormal);
 
-				tangentX.subVectors(pRight, pLeft);
-				tangentY.subVectors(pUp, pDown);
+				const localU = x / Math.max(1, rowSize - 1);
+				const localV = y / Math.max(1, rowSize - 1);
+				const cubeX = this.bounds.x + localU * this.bounds.size;
+				const cubeY = this.bounds.y + localV * this.bounds.size;
+
+				sampleTerrainPoint(cubeX - sampleStep, cubeY, pMinusX);
+				sampleTerrainPoint(cubeX + sampleStep, cubeY, pPlusX);
+				sampleTerrainPoint(cubeX, cubeY - sampleStep, pMinusY);
+				sampleTerrainPoint(cubeX, cubeY + sampleStep, pPlusY);
+
+				tangentX.subVectors(pPlusX, pMinusX);
+				tangentY.subVectors(pPlusY, pMinusY);
 
 				normal.crossVectors(tangentX, tangentY);
 
@@ -760,21 +990,8 @@ export class TerrainPatch extends THREE.Group {
 						normal.multiplyScalar(-1);
 					}
 
-					const edgeDistance = Math.min(
-						x,
-						y,
-						rowSize - 1 - x,
-						rowSize - 1 - y,
-					);
-
-					const edgeBlend = edgeDistance <= 1
-					                  ? 0.62
-					                  : edgeDistance <= 2
-					                    ? 0.38
-					                    : 0.18;
-
 					normal
-						.lerp(sphereNormal, edgeBlend)
+						.lerp(sphereNormal, 0.025)
 						.normalize();
 				}
 
@@ -931,6 +1148,14 @@ export class TerrainPatch extends THREE.Group {
 		cubeX: number,
 		cubeY: number,
 	): THREE.Vector3 {
+		return this.getCubePoint(cubeX, cubeY)
+			.normalize();
+	}
+
+	private getCubePoint(
+		cubeX: number,
+		cubeY: number,
+	): THREE.Vector3 {
 		return this.face.normal
 			.clone()
 			.add(
@@ -942,8 +1167,7 @@ export class TerrainPatch extends THREE.Group {
 				this.face.up
 					.clone()
 					.multiplyScalar(cubeY),
-			)
-			.normalize();
+			);
 	}
 
 	private getSkirtDepth(): number {

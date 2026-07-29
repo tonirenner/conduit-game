@@ -9,11 +9,16 @@ import {
 import type {
 	CubeFace,
 } from './TerrainSource';
+import {
+	getTerrainProfileSettings,
+	type TerrainProfileKind,
+} from '../utils/noise';
 
 export type TerrainTextureBakeMaterialHandle = {
 	material: any;
 	setFace(face: CubeFace): void;
 	setTerrainSeed(seed: number): void;
+	setTerrainProfile(profile: TerrainProfileKind): void;
 };
 
 export function createTerrainTextureBakeMaterial(
@@ -33,6 +38,9 @@ export function createTerrainTextureBakeMaterial(
 	const faceRight = uniform(new THREE.Vector3(0, 0, -1));
 	const encodedHeightMax = uniform(maxEncodedHeight);
 	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
+	const terrainOceanBias = uniform(0.0);
+	const terrainHeightScale = uniform(1.0);
+	const terrainMountainScale = uniform(1.0);
 
 	const bakeTerrainData = wgslFn(`
 fn bake_terrain_data(
@@ -41,7 +49,10 @@ fn bake_terrain_data(
 	faceUp: vec3<f32>,
 	faceRight: vec3<f32>,
 	maxEncodedHeight: f32,
-	terrainSeedOffset: vec3<f32>
+	terrainSeedOffset: vec3<f32>,
+	terrainOceanBias: f32,
+	terrainHeightScale: f32,
+	terrainMountainScale: f32
 ) -> vec4<f32> {
 	let cubeX = uvInput.x * 2.0 - 1.0;
 	let cubeY = uvInput.y * 2.0 - 1.0;
@@ -54,7 +65,10 @@ fn bake_terrain_data(
 
 	let terrain = bake_terrain_sample(
 		normal,
-		terrainSeedOffset
+		terrainSeedOffset,
+		terrainOceanBias,
+		terrainHeightScale,
+		terrainMountainScale
 	);
 
 	let encodedHeight =
@@ -74,7 +88,10 @@ fn bake_terrain_data(
 
 fn bake_terrain_sample(
 	normalInput: vec3<f32>,
-	terrainSeedOffset: vec3<f32>
+	terrainSeedOffset: vec3<f32>,
+	terrainOceanBias: f32,
+	terrainHeightScale: f32,
+	terrainMountainScale: f32
 ) -> vec4<f32> {
 	let normal = normalize(
 		normalInput +
@@ -97,7 +114,8 @@ fn bake_terrain_sample(
 
 	let continent =
 		continentBase +
-		coastNoise;
+		coastNoise -
+		terrainOceanBias;
 
 	let landMask =
 		smoothstep(
@@ -161,7 +179,8 @@ fn bake_terrain_sample(
 
 	let mountains =
 		sharpPeaks *
-		mountainMask;
+		mountainMask *
+		terrainMountainScale;
 
 	let foothills =
 		smoothstep(
@@ -170,7 +189,8 @@ fn bake_terrain_sample(
 			ridgeLarge
 		) *
 		mountainMask *
-		0.45;
+		0.45 *
+		terrainMountainScale;
 
 	let detail =
 		(
@@ -183,11 +203,14 @@ fn bake_terrain_sample(
 		landMask;
 
 	let height =
-		landMask * 0.006 +
-		highlands * 0.095 +
-		foothills * 0.055 +
-		mountains * 0.165 +
-		detail;
+		(
+			landMask * 0.006 +
+			highlands * 0.095 +
+			foothills * 0.055 +
+			mountains * 0.165 +
+			detail
+		) *
+		terrainHeightScale;
 
 	return vec4<f32>(
 		max(0.0, height),
@@ -334,6 +357,9 @@ fn bake_ridged_fbm(
 		                                  faceRight,
 		                                  maxEncodedHeight: encodedHeightMax,
 		                                  terrainSeedOffset,
+		                                  terrainOceanBias,
+		                                  terrainHeightScale,
+		                                  terrainMountainScale,
 	                                  });
 
 	material.colorNode = bakedData.rgb;
@@ -377,6 +403,14 @@ fn bake_ridged_fbm(
 				nextRandom() * 2 - 1,
 				nextRandom() * 2 - 1,
 			).multiplyScalar(240.0);
+		},
+
+		setTerrainProfile(profile: TerrainProfileKind): void {
+			const settings = getTerrainProfileSettings(profile);
+
+			terrainOceanBias.value = settings.oceanBias;
+			terrainHeightScale.value = settings.heightScale;
+			terrainMountainScale.value = settings.mountainScale;
 		},
 	};
 }
