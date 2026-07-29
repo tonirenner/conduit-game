@@ -47,6 +47,8 @@ export function createPlanetRenderProfile(
 		enableTerrain: planet.surface.hasSolidSurface,
 		enableOcean: planet.surface.hasOcean,
 		enableClouds:
+			planet.class !== 'ice' &&
+			planet.class !== 'lava' &&
 			planet.class !== 'toxic' &&
 			planet.atmosphere.cloudCoverage > 0.02,
 		enableAtmosphere: planet.atmosphere.type !== 'none',

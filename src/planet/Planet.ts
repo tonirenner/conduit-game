@@ -401,6 +401,9 @@ export class Planet {
 			);
 		}
 
+		const atmosphereRenderProfile =
+			      this.getAtmosphereRenderProfileValues();
+
 		for (const atmosphereLayer of [
 			this.atmosphere,
 			this.webGPUAtmosphere,
@@ -414,8 +417,8 @@ export class Planet {
 
 			atmosphereProfileSetter.call(
 				atmosphereLayer,
-				this.renderProfile.atmosphereDensity,
-				this.definition?.atmosphere.haze ?? 0,
+				atmosphereRenderProfile.density,
+				atmosphereRenderProfile.haze,
 			);
 		}
 
@@ -457,6 +460,61 @@ export class Planet {
 				this.surfaceMaterial,
 				forcedSurface === 'lava',
 			);
+		}
+	}
+
+	private getAtmosphereRenderProfileValues(): {
+		density: number;
+		haze: number;
+	} {
+		const density = this.renderProfile?.atmosphereDensity ?? 0;
+		const haze = this.definition?.atmosphere.haze ?? 0;
+
+		switch (this.definition?.class) {
+			case 'barren':
+				return {
+					density: density * 0.28,
+					haze: haze * 0.22,
+				};
+
+			case 'metal_rich':
+				return {
+					density: density * 0.18,
+					haze: haze * 0.14,
+				};
+
+			case 'rocky':
+				return {
+					density: density * 0.42,
+					haze: haze * 0.32,
+				};
+
+			case 'carbon':
+				return {
+					density: density * 0.34,
+					haze: haze * 0.26,
+				};
+
+			case 'desert':
+				return {
+					density: density * 0.68,
+					haze: haze * 0.58,
+				};
+
+			case 'lava':
+				return {
+					density: density * 0.24,
+					haze: Math.max(
+						0.10,
+						haze * 0.30,
+					),
+				};
+
+			default:
+				return {
+					density,
+					haze,
+				};
 		}
 	}
 

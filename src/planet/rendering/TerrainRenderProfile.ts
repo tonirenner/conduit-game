@@ -8,8 +8,14 @@ export function resolveTerrainProfileKind(
 		case 'ocean':
 			return 'oceanic';
 
+		case 'ice':
+			return 'ice';
+
 		case 'desert':
 			return 'desert';
+
+		case 'lava':
+			return 'lava';
 
 		case 'barren':
 			return 'barren';

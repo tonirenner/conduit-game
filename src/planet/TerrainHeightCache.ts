@@ -153,6 +153,42 @@ export class TerrainHeightCache {
 	private getTerrainColor(
 		sample: TerrainSample,
 	): THREE.Color {
+		if (this.terrainSeedConfig.profile === 'ice') {
+			return this.getIceTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'oceanic') {
+			return this.getOceanicTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'barren') {
+			return this.getBarrenTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'rocky') {
+			return this.getRockyTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'desert') {
+			return this.getDesertTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'lava') {
+			return this.getLavaTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'carbon') {
+			return this.getCarbonTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'metallic') {
+			return this.getMetallicTerrainColor(sample);
+		}
+
+		if (this.terrainSeedConfig.profile === 'toxic') {
+			return this.getToxicTerrainColor(sample);
+		}
+
 		const land = sample.landMask;
 		const height = sample.height;
 
@@ -227,6 +263,451 @@ export class TerrainHeightCache {
 		return color;
 	}
 
+	private getToxicTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const chemicalBasin = 1 - this.smoothstep(
+			0.34,
+			0.72,
+			land,
+		);
+
+		const highland = this.smoothstep(
+			0.02,
+			0.20,
+			height + mountain * 0.065,
+		);
+
+		const stain = this.smoothstep(
+			0.30,
+			0.82,
+			mountain + Math.abs(land - 0.54) * 0.54,
+		);
+
+		const milkyLowland = new THREE.Color(0x6f9489);
+		const chemicalGrey = new THREE.Color(0xa7b6a9);
+		const sulfurCrust = new THREE.Color(0xc7bd88);
+		const rustHighland = new THREE.Color(0x9a5d36);
+		const darkSludge = new THREE.Color(0x24322e);
+
+		const color = milkyLowland.clone().lerp(
+			chemicalGrey,
+			chemicalBasin * 0.62,
+		);
+
+		color.lerp(
+			sulfurCrust,
+			chemicalBasin * stain * 0.30,
+		);
+
+		color.lerp(
+			rustHighland,
+			highland * 0.42,
+		);
+
+		color.lerp(
+			rustHighland,
+			stain * highland * 0.18,
+		);
+
+		color.lerp(
+			darkSludge,
+			chemicalBasin * 0.16,
+		);
+
+		return color;
+	}
+
+	private getOceanicTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const land = sample.landMask;
+		const height = sample.height;
+
+		const deepWater = new THREE.Color(0x093456);
+		const midWater = new THREE.Color(0x0e6383);
+		const shallowWater = new THREE.Color(0x158faa);
+		const coastalWater = new THREE.Color(0x42bfc6);
+		const islandGreen = new THREE.Color(0x2f6a45);
+		const highIsland = new THREE.Color(0x8ca05a);
+
+		if (land < 0.36) {
+			return deepWater.clone().lerp(
+				midWater,
+				this.smoothstep(0.00, 0.36, land),
+			);
+		}
+
+		if (land < 0.52) {
+			return midWater.clone().lerp(
+				shallowWater,
+				this.smoothstep(0.36, 0.52, land),
+			);
+		}
+
+		if (land < 0.72) {
+			return shallowWater.clone().lerp(
+				coastalWater,
+				this.smoothstep(0.52, 0.72, land),
+			);
+		}
+
+		const color = islandGreen.clone().lerp(
+			highIsland,
+			this.smoothstep(0.00, 0.18, height),
+		);
+
+		return coastalWater.clone().lerp(
+			color,
+			this.smoothstep(0.72, 0.94, land),
+		);
+	}
+
+	private getLavaTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const mountain = sample.mountainMask;
+
+		const fissure = this.smoothstep(
+			0.62,
+			1.02,
+			mountain + height * 1.45,
+		);
+
+		const hotspot = this.smoothstep(
+			0.82,
+			1.14,
+			mountain + height * 2.25,
+		);
+
+		const basalt = new THREE.Color(0x050403);
+		const warmBasalt = new THREE.Color(0x1a100b);
+		const lavaRed = new THREE.Color(0xd93a10);
+		const lavaOrange = new THREE.Color(0xff9a2f);
+		const lavaYellow = new THREE.Color(0xffd96a);
+
+		const color = basalt.clone().lerp(
+			warmBasalt,
+			this.smoothstep(0.00, 0.30, height + mountain * 0.05),
+		);
+
+		color.lerp(
+			lavaRed,
+			fissure * 0.38,
+		);
+
+		color.lerp(
+			lavaOrange,
+			hotspot * 0.48,
+		);
+
+		color.lerp(
+			lavaYellow,
+			hotspot * fissure * 0.28,
+		);
+
+		return color;
+	}
+
+	private getMetallicTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const basin = 1 - this.smoothstep(
+			0.36,
+			0.74,
+			land,
+		);
+
+		const relief = this.smoothstep(
+			0.00,
+			0.22,
+			height + mountain * 0.09,
+		);
+
+		const ridge = this.smoothstep(
+			0.34,
+			0.90,
+			mountain + height * 1.70,
+		);
+
+		const darkIron = new THREE.Color(0x1a1e21);
+		const ironGrey = new THREE.Color(0x555a5d);
+		const brightRidge = new THREE.Color(0xb3b2aa);
+		const goldOxide = new THREE.Color(0xb59a55);
+		const coldBasin = new THREE.Color(0x0e1114);
+
+		const color = darkIron.clone().lerp(
+			ironGrey,
+			relief * 0.82,
+		);
+
+		color.lerp(
+			brightRidge,
+			ridge * 0.42,
+		);
+
+		color.lerp(
+			goldOxide,
+			ridge * relief * 0.20,
+		);
+
+		color.lerp(
+			coldBasin,
+			basin * 0.16,
+		);
+
+		return color;
+	}
+
+	private getCarbonTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const basin = 1 - this.smoothstep(
+			0.34,
+			0.72,
+			land,
+		);
+
+		const relief = this.smoothstep(
+			0.00,
+			0.24,
+			height + mountain * 0.085,
+		);
+
+		const vein = this.smoothstep(
+			0.38,
+			0.88,
+			mountain + height * 1.65,
+		);
+
+		const graphite = new THREE.Color(0x151516);
+		const carbonDust = new THREE.Color(0x39332e);
+		const warmRidge = new THREE.Color(0x7e7368);
+		const paleVein = new THREE.Color(0xb4aa9e);
+		const blackBasin = new THREE.Color(0x0b0b0c);
+
+		const color = graphite.clone().lerp(
+			carbonDust,
+			relief * 0.78,
+		);
+
+		color.lerp(
+			warmRidge,
+			vein * 0.34,
+		);
+
+		color.lerp(
+			paleVein,
+			vein * relief * 0.22,
+		);
+
+		color.lerp(
+			blackBasin,
+			basin * 0.14,
+		);
+
+		return color;
+	}
+
+	private getDesertTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const dryBasin = 1 - this.smoothstep(
+			0.32,
+			0.72,
+			land,
+		);
+
+		const relief = this.smoothstep(
+			0.00,
+			0.20,
+			height + mountain * 0.055,
+		);
+
+		const ridge = this.smoothstep(
+			0.36,
+			0.86,
+			mountain + height * 1.30,
+		);
+
+		const shadowSalt = new THREE.Color(0x4a321f);
+		const redSand = new THREE.Color(0x9c5e32);
+		const ochre = new THREE.Color(0xd49a4f);
+		const palePlateau = new THREE.Color(0xe2bf78);
+
+		const color = redSand.clone().lerp(
+			ochre,
+			relief * 0.86,
+		);
+
+		color.lerp(
+			palePlateau,
+			ridge * 0.34,
+		);
+
+		color.lerp(
+			shadowSalt,
+			dryBasin * 0.20,
+		);
+
+		return color;
+	}
+
+	private getRockyTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const basin = 1 - this.smoothstep(
+			0.34,
+			0.70,
+			land,
+		);
+
+		const relief = this.smoothstep(
+			0.00,
+			0.24,
+			height + mountain * 0.075,
+		);
+
+		const ridge = this.smoothstep(
+			0.34,
+			0.88,
+			mountain + height * 1.45,
+		);
+
+		const shadowBasin = new THREE.Color(0x1f1d1b);
+		const basalt = new THREE.Color(0x383634);
+		const rustDust = new THREE.Color(0x756451);
+		const ridgeRock = new THREE.Color(0xa19076);
+
+		const color = basalt.clone().lerp(
+			rustDust,
+			relief * 0.72,
+		);
+
+		color.lerp(
+			ridgeRock,
+			ridge * 0.38,
+		);
+
+		color.lerp(
+			shadowBasin,
+			basin * 0.24,
+		);
+
+		return color;
+	}
+
+	private getBarrenTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const relief = this.smoothstep(
+			0.00,
+			0.26,
+			height + mountain * 0.08,
+		);
+
+		const basin = 1 - this.smoothstep(
+			0.36,
+			0.68,
+			land,
+		);
+
+		const ridge = this.smoothstep(
+			0.36,
+			0.90,
+			mountain + height * 1.55,
+		);
+
+		const lowDust = new THREE.Color(0x3a332c);
+		const dryRegolith = new THREE.Color(0x7d6f5d);
+		const highRock = new THREE.Color(0xb3a184);
+		const basinShadow = new THREE.Color(0x24211e);
+
+		const color = lowDust.clone().lerp(
+			dryRegolith,
+			relief,
+		);
+
+		color.lerp(
+			highRock,
+			ridge * 0.48,
+		);
+
+		color.lerp(
+			basinShadow,
+			basin * 0.18,
+		);
+
+		return color;
+	}
+
+	private getIceTerrainColor(
+		sample: TerrainSample,
+	): THREE.Color {
+		const height = sample.height;
+		const land = sample.landMask;
+		const mountain = sample.mountainMask;
+
+		const compressedRelief = this.smoothstep(
+			0.00,
+			0.18,
+			height + mountain * 0.045,
+		);
+
+		const fracture = this.smoothstep(
+			0.42,
+			0.88,
+			mountain + Math.abs(land - 0.52) * 0.62,
+		);
+
+		const blueIce = new THREE.Color(0x9fc9d8);
+		const packedIce = new THREE.Color(0xe8f6fb);
+		const snowCap = new THREE.Color(0xfbfdff);
+		const crackBlue = new THREE.Color(0x23607c);
+
+		const color = blueIce.clone().lerp(
+			packedIce,
+			compressedRelief,
+		);
+
+		color.lerp(
+			snowCap,
+			this.smoothstep(0.12, 0.32, height + mountain * 0.10),
+		);
+
+		color.lerp(
+			crackBlue,
+			fracture * 0.24,
+		);
+
+		return color;
+	}
+
 	private getSphereNormal(
 		face: CubeFace,
 		cubeX: number,
@@ -261,6 +742,7 @@ export class TerrainHeightCache {
 			this.numberKey(bounds.size),
 			resolution,
 			this.terrainSeedConfig.seed,
+			this.terrainSeedConfig.profile,
 		].join('|');
 	}
 

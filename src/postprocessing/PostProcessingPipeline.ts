@@ -250,10 +250,7 @@ export class PostProcessingPipeline {
 		this.disposePipeline();
 
 		if (this.rendererMode === 'webgpu') {
-			this.warnFallback(
-				'WebGPU postprocessing is disabled for now because Three WebGPU rejects legacy ShaderMaterial passes. Falling back to normal rendering.',
-			);
-			this.enabled = false;
+			this.createWebGPUPipeline();
 			return;
 		}
 
@@ -398,6 +395,10 @@ export class PostProcessingPipeline {
 		}
 
 		this.fallbackWarned = true;
+		if (error === undefined) {
+			console.warn(message);
+			return;
+		}
 		console.warn(message, error);
 	}
 }

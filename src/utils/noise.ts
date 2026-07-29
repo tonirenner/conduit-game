@@ -12,7 +12,9 @@ export type TerrainProfileKind =
 	| 'rocky'
 	| 'earthlike'
 	| 'oceanic'
+	| 'ice'
 	| 'desert'
+	| 'lava'
 	| 'toxic'
 	| 'carbon'
 	| 'metallic';
@@ -97,6 +99,15 @@ export function getTerrainProfileSettings(
 				oceanBias: 0.205,
 			};
 
+		case 'ice':
+			return {
+				continentScale: 0.78,
+				coastScale: 0.34,
+				mountainScale: 0.82,
+				heightScale: 0.58,
+				oceanBias: -0.245,
+			};
+
 		case 'desert':
 			return {
 				continentScale: 0.82,
@@ -104,6 +115,15 @@ export function getTerrainProfileSettings(
 				mountainScale: 0.66,
 				heightScale: 0.58,
 				oceanBias: -0.175,
+			};
+
+		case 'lava':
+			return {
+				continentScale: 0.70,
+				coastScale: 0.32,
+				mountainScale: 1.42,
+				heightScale: 1.12,
+				oceanBias: -0.36,
 			};
 
 		case 'barren':

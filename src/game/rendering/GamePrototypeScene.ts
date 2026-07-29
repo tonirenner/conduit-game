@@ -1578,7 +1578,7 @@ export class GamePrototypeScene {
 				);
 				const planetRadius = THREE.MathUtils.clamp(
 					this.getSystemPlanetRenderRadius(planetDefinition),
-					1.40,
+					3.00,
 					9.80,
 				);
 				const position = new THREE.Vector3(
@@ -1618,7 +1618,7 @@ export class GamePrototypeScene {
 			);
 			const planetRadius = THREE.MathUtils.clamp(
 				this.getSystemPlanetRenderRadius(planetDefinition),
-				1.40,
+				3.00,
 				9.80,
 			);
 			const position = new THREE.Vector3(
@@ -1965,7 +1965,7 @@ export class GamePrototypeScene {
 			case 'ocean':
 				return THREE.MathUtils.clamp(
 					planet.physical.radius * 1.45,
-					2.20,
+					3.00,
 					4.10,
 				);
 
@@ -1975,7 +1975,7 @@ export class GamePrototypeScene {
 			case 'ice':
 				return THREE.MathUtils.clamp(
 					planet.physical.radius * 1.35,
-					2.00,
+					3.00,
 					3.70,
 				);
 
@@ -1985,7 +1985,7 @@ export class GamePrototypeScene {
 			case 'barren':
 				return THREE.MathUtils.clamp(
 					planet.physical.radius * 1.15,
-					1.65,
+					3.00,
 					3.25,
 				);
 		}
@@ -2032,33 +2032,54 @@ export class GamePrototypeScene {
 
 			case 'toxic':
 				return {
-					ambient: 0.58,
-					exposureScale: 1.16,
+					ambient: 0.64,
+					exposureScale: 1.24,
 					horizonGlowScale: 1.34,
+					proceduralColorStrength: 1.12,
+					surfaceTextureStrength: 1.08,
+				};
+
+			case 'desert':
+				return {
+					ambient: 0.58,
+					exposureScale: 1.22,
+					horizonGlowScale: 0.76,
 					proceduralColorStrength: 1.08,
+					surfaceTextureStrength: 1.12,
 				};
 
 			case 'metal_rich':
 				return {
-					ambient: 0.54,
-					exposureScale: 1.12,
-					proceduralColorStrength: 1.04,
-					surfaceTextureStrength: 1.16,
+					ambient: 0.58,
+					exposureScale: 1.22,
+					horizonGlowScale: 0.34,
+					proceduralColorStrength: 1.08,
+					surfaceTextureStrength: 1.14,
 				};
 
 			case 'carbon':
 				return {
-					ambient: 0.46,
-					exposureScale: 1.14,
+					ambient: 0.54,
+					exposureScale: 1.24,
+					horizonGlowScale: 0.58,
 					proceduralColorStrength: 1.10,
 					surfaceTextureStrength: 1.12,
 				};
 
 			case 'barren':
+				return {
+					ambient: 0.52,
+					exposureScale: 1.12,
+					horizonGlowScale: 0.50,
+					proceduralColorStrength: 1.06,
+					surfaceTextureStrength: 1.16,
+				};
+
 			case 'rocky':
 				return {
 					ambient: 0.52,
 					exposureScale: 1.12,
+					horizonGlowScale: 0.62,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,
 				};
