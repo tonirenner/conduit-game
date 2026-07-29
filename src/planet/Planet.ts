@@ -1,34 +1,31 @@
 import * as THREE from 'three';
 
-import { CubeSphere } from './CubeSphere';
-import { CloudLayer } from './CloudLayer';
-import { AtmosphereLayer } from './AtmosphereLayer';
-import { WebGPUAtmosphereLayer } from './WebGPUAtmosphereLayer';
-import { WebGPUCloudLayer } from './WebGPUCloudLayer';
-import { createPlanetSurfaceMaterial } from './PlanetSurfaceMaterial';
-import { createPlanetSurfaceNodeMaterial } from './PlanetSurfaceNodeMaterial';
-import { GasGiantLayer } from './GasGiantLayer';
-import { RingSystemLayer } from './RingSystemLayer';
-import { MoonSystemLayer } from './MoonSystemLayer';
-import { LavaPlanetLayer } from './LavaPlanetLayer';
+import {getClimateSample} from './Climate';
+import {createTerrainSeedConfig, getTerrainSample, type TerrainSeedConfig} from '../utils/noise';
 
-import type { TerrainTextureSet } from './TerrainTextureSet';
-import type { PlanetDefinition } from './model/PlanetDefinition';
-import type { PlanetRenderProfile } from './rendering/PlanetRenderProfile';
+import {CubeSphere} from './CubeSphere';
+import {CloudLayer} from './CloudLayer';
+import {AtmosphereLayer} from './AtmosphereLayer';
+import {WebGPUAtmosphereLayer} from './WebGPUAtmosphereLayer';
+import {WebGPUCloudLayer} from './WebGPUCloudLayer';
+import {createPlanetSurfaceMaterial} from './PlanetSurfaceMaterial';
+import {createPlanetSurfaceNodeMaterial} from './PlanetSurfaceNodeMaterial';
+import {GasGiantLayer} from './GasGiantLayer';
+import {RingSystemLayer} from './RingSystemLayer';
+import {MoonSystemLayer} from './MoonSystemLayer';
+import {LavaPlanetLayer} from './LavaPlanetLayer';
 import {
-	createSurfaceRenderProfile,
-	type SurfaceRenderProfile,
-} from './rendering/SurfaceRenderProfile';
+	type NearSurfaceBiome,
+	NearSurfaceDetailLayer,
+	type NearSurfacePlacementSample,
+} from './NearSurfaceDetailLayer';
 
-import {
-	createTerrainSeedConfig,
-	type TerrainSeedConfig,
-} from '../utils/noise';
+import type {TerrainTextureSet} from './TerrainTextureSet';
+import type {PlanetDefinition} from './model/PlanetDefinition';
+import type {PlanetRenderProfile} from './rendering/PlanetRenderProfile';
+import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from './rendering/SurfaceRenderProfile';
 
-import {
-	mergePlanetRenderFeatures,
-	type PlanetRenderFeatures,
-} from './rendering/PlanetRenderFeatures';
+import {mergePlanetRenderFeatures, type PlanetRenderFeatures,} from './rendering/PlanetRenderFeatures';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
@@ -66,26 +63,27 @@ export class Planet {
 	private ringSystemLayer?: RingSystemLayer;
 	private moonSystemLayer?: MoonSystemLayer;
 	private lavaPlanetLayer?: LavaPlanetLayer;
+	private nearSurfaceDetailLayer?: NearSurfaceDetailLayer;
 
 	private readonly rendererKind: string;
 
 	private readonly atmosphereRadius: number;
 
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
-	private bakedTerrainEnabled = true;
+	private bakedTerrainEnabled                       = true;
 	private readonly features: PlanetRenderFeatures;
 	private readonly surfaceProfile: SurfaceRenderProfile | null;
 	private readonly terrainSeedConfig: TerrainSeedConfig;
 
 	constructor(
 		private readonly radius: number,
-		private readonly rendererMode: PlanetRendererMode = 'webgl',
+		private readonly rendererMode: PlanetRendererMode            = 'webgl',
 		private readonly terrainTextureSet: TerrainTextureSet | null = null,
-		features: Partial<PlanetRenderFeatures> = {},
-		private readonly definition: PlanetDefinition | null = null,
-		private readonly renderProfile: PlanetRenderProfile | null = null,
+		features: Partial<PlanetRenderFeatures>                      = {},
+		private readonly definition: PlanetDefinition | null         = null,
+		private readonly renderProfile: PlanetRenderProfile | null   = null,
 	) {
-		this.features = mergePlanetRenderFeatures(features);
+		this.features       = mergePlanetRenderFeatures(features);
 		this.surfaceProfile =
 			this.definition && this.renderProfile
 			? createSurfaceRenderProfile(
@@ -102,7 +100,7 @@ export class Planet {
 			this.renderProfile?.rendererKind ??
 			'solid_surface';
 
-		this.group = new THREE.Group();
+		this.group      = new THREE.Group();
 		this.group.name = 'PlanetGroup';
 
 		this.atmosphereRadius = radius * 1.045;
@@ -143,8 +141,8 @@ export class Planet {
 
 			this.configureSurfaceRaymarching();
 
-			this.planetBody = this.createPlanetBody(radius);
-			this.planet = this.createPlanet(radius, this.surfaceMaterial);
+			this.planetBody    = this.createPlanetBody(radius);
+			this.planet        = this.createPlanet(radius, this.surfaceMaterial);
 			this.depthOccluder = this.createDepthOccluder(radius);
 
 			this.group.add(this.depthOccluder);
@@ -152,7 +150,7 @@ export class Planet {
 			this.group.add(this.planet);
 
 			if (this.rendererMode === 'webgl') {
-				this.clouds = new CloudLayer(radius);
+				this.clouds     = new CloudLayer(radius);
 				this.atmosphere = new AtmosphereLayer(radius);
 
 				this.group.add(this.clouds.group);
@@ -160,7 +158,7 @@ export class Planet {
 			}
 
 			if (this.rendererMode === 'webgpu') {
-				this.webGPUClouds = new WebGPUCloudLayer(radius);
+				this.webGPUClouds     = new WebGPUCloudLayer(radius);
 				this.webGPUAtmosphere = new WebGPUAtmosphereLayer(radius);
 
 				this.group.add(this.webGPUClouds.mesh);
@@ -171,6 +169,7 @@ export class Planet {
 			this.createMoonSystem();
 
 			this.applyRenderProfile();
+			this.createNearSurfaceDetailLayer();
 			return;
 		}
 
@@ -294,6 +293,7 @@ export class Planet {
 		this.ringSystemLayer?.update(deltaSeconds);
 		this.moonSystemLayer?.update(deltaSeconds);
 		this.lavaPlanetLayer?.update(deltaSeconds);
+		this.nearSurfaceDetailLayer?.update(cameraPosition, deltaSeconds);
 
 		const heightAboveSurface = cameraPosition.length() - this.radius;
 
@@ -439,6 +439,187 @@ export class Planet {
 		this.group.add(this.moonSystemLayer.group);
 	}
 
+	private createNearSurfaceDetailLayer(): void {
+		if (this.nearSurfaceDetailLayer) {
+			return;
+		}
+
+		if (!this.definition || !this.surfaceProfile) {
+			return;
+		}
+
+		if (this.rendererKind !== 'solid_surface') {
+			return;
+		}
+
+		if (this.isLavaSurfaceRenderer()) {
+			return;
+		}
+
+		this.nearSurfaceDetailLayer = new NearSurfaceDetailLayer({
+			                                                         radius: this.radius,
+			                                                         seed:
+				                                                         this.definition.render.biomeSeed ??
+				                                                         this.definition.render.terrainSeed ??
+				                                                         this.definition.seed,
+			                                                         planetClass: this.definition.class,
+			                                                         surfaceProfile: this.surfaceProfile,
+			                                                         sampleSurface: (normal) => this.sampleNearSurface(
+				                                                         normal),
+		                                                         });
+
+		this.group.add(this.nearSurfaceDetailLayer.group);
+	}
+
+	private sampleNearSurface(
+		normal: THREE.Vector3,
+	): NearSurfacePlacementSample | null {
+		const terrain = getTerrainSample(normal, this.terrainSeedConfig);
+
+		const climate = getClimateSample(
+			normal,
+			terrain.height,
+			terrain.landMask,
+		);
+
+		const slope = this.estimateNearSurfaceSlope(normal);
+
+		const biome = this.deriveNearSurfaceBiome(
+			terrain.landMask,
+			terrain.mountainMask,
+			climate.temperature,
+			climate.humidity,
+			climate.aridity,
+			climate.vegetation,
+			climate.snow ?? 0,
+		);
+
+		return {
+			height: terrain.height,
+			surfaceRadius: this.radius + terrain.height,
+			landMask: terrain.landMask,
+			mountainMask: terrain.mountainMask,
+			slope,
+
+			temperature: climate.temperature,
+			humidity: climate.humidity,
+			aridity: climate.aridity,
+			vegetation: climate.vegetation,
+			snow: climate.snow ?? 0,
+
+			biome,
+		};
+	}
+
+	private deriveNearSurfaceBiome(
+		landMask: number,
+		mountainMask: number,
+		temperature: number,
+		humidity: number,
+		aridity: number,
+		vegetation: number,
+		snow: number,
+	): NearSurfaceBiome {
+		if (landMask < 0.50) {
+			return 'ocean';
+		}
+
+		if (landMask < 0.62) {
+			return 'coast';
+		}
+
+		if (snow > 0.45 || temperature < 0.22) {
+			return 'snow';
+		}
+
+		if (mountainMask > 0.58) {
+			return 'rocky';
+		}
+
+		if (aridity > 0.72 && humidity < 0.35) {
+			return 'desert';
+		}
+
+		if (vegetation > 0.56 && humidity > 0.55) {
+			return 'forest';
+		}
+
+		if (vegetation > 0.28) {
+			return 'grassland';
+		}
+
+		return 'barren';
+	}
+
+	private estimateNearSurfaceSlope(
+		normal: THREE.Vector3,
+	): number {
+		const right   = new THREE.Vector3();
+		const forward = new THREE.Vector3();
+
+		this.createNearSurfaceTangentBasis(
+			normal,
+			right,
+			forward,
+		);
+
+		const offset = 0.010;
+
+		const center = getTerrainSample(normal, this.terrainSeedConfig).height;
+
+		const sampleA = getTerrainSample(
+			this.offsetNearSurfaceNormal(
+				normal,
+				right,
+				offset,
+			),
+			this.terrainSeedConfig,
+		).height;
+
+		const sampleB = getTerrainSample(
+			this.offsetNearSurfaceNormal(
+				normal,
+				forward,
+				offset,
+			),
+			this.terrainSeedConfig,
+		).height;
+
+		return THREE.MathUtils.clamp(
+			(Math.abs(center - sampleA) + Math.abs(center - sampleB)) * 18.0,
+			0,
+			1,
+		);
+	}
+
+	private offsetNearSurfaceNormal(
+		base: THREE.Vector3,
+		tangent: THREE.Vector3,
+		amount: number,
+	): THREE.Vector3 {
+		return base.clone()
+			.addScaledVector(tangent, amount)
+			.normalize();
+	}
+
+	private createNearSurfaceTangentBasis(
+		normal: THREE.Vector3,
+		outRight: THREE.Vector3,
+		outForward: THREE.Vector3,
+	): void {
+		const up =
+			      Math.abs(normal.y) < 0.92
+			      ? new THREE.Vector3(0, 1, 0)
+			      : new THREE.Vector3(1, 0, 0);
+
+		outRight.copy(up)
+			.cross(normal)
+			.normalize();
+		outForward.copy(normal)
+			.cross(outRight)
+			.normalize();
+	}
+
 	private createSurfaceMaterial(
 		radius: number,
 		atmosphereRadius: number,
@@ -543,7 +724,7 @@ export class Planet {
 			this.terrainSeedConfig,
 		);
 
-		cubeSphere.name = 'PlanetTerrain';
+		cubeSphere.name        = 'PlanetTerrain';
 		cubeSphere.renderOrder = 1;
 
 		return cubeSphere;
@@ -562,7 +743,7 @@ export class Planet {
 
 		const mesh = new THREE.Mesh(geometry, material);
 
-		mesh.name = 'PlanetBody';
+		mesh.name        = 'PlanetBody';
 		mesh.renderOrder = 0;
 
 		return mesh;
@@ -579,7 +760,7 @@ export class Planet {
 
 		const mesh = new THREE.Mesh(geometry, material);
 
-		mesh.name = 'PlanetDepthOccluder';
+		mesh.name        = 'PlanetDepthOccluder';
 		mesh.renderOrder = -1000;
 
 		return mesh;
@@ -631,7 +812,7 @@ export class Planet {
 		}
 
 		const texture = this.terrainTextureSet.getDataAtlasTexture();
-		const image = texture.image as {
+		const image   = texture.image as {
 			width?: number;
 			height?: number;
 		};
@@ -707,6 +888,15 @@ export class Planet {
 			metalInfluence: number;
 			raymarchOcclusionStrength: number;
 		};
+		nearSurfaceDetail: {
+			enabled: boolean;
+			visible: boolean;
+			alpha: number;
+			rocks: number;
+			tufts: number;
+			patches: number;
+			debug: boolean;
+		};
 	} {
 		if (!this.definition) {
 			return {
@@ -768,6 +958,15 @@ export class Planet {
 					toxicInfluence: 0,
 					metalInfluence: 0,
 					raymarchOcclusionStrength: 0,
+				},
+				nearSurfaceDetail: {
+					enabled: false,
+					visible: false,
+					alpha: 0,
+					rocks: 0,
+					tufts: 0,
+					patches: 0,
+					debug: false,
 				},
 			};
 		}
@@ -834,6 +1033,16 @@ export class Planet {
 				raymarchOcclusionStrength:
 					this.surfaceProfile?.raymarchOcclusionStrength ?? 0,
 			},
+			nearSurfaceDetail:
+				this.nearSurfaceDetailLayer?.getDebugStats?.() ?? {
+					enabled: false,
+					visible: false,
+					alpha: 0,
+					rocks: 0,
+					tufts: 0,
+					patches: 0,
+					debug: false,
+				},
 		};
 	}
 
@@ -881,6 +1090,7 @@ export class Planet {
 	dispose(): void {
 		this.moonSystemLayer?.dispose();
 		this.lavaPlanetLayer?.dispose();
+		this.nearSurfaceDetailLayer?.dispose();
 
 		this.group.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) {

@@ -1017,7 +1017,13 @@ function updateHud(): void {
 		`ice ${definitionStats.surfaceProfile.hasIceCaps ? 'yes' : 'no'} | ` +
 		`volcano ${definitionStats.surfaceProfile.hasVolcanism ? 'yes' : 'no'} | ` +
 		`tectonics ${definitionStats.surfaceProfile.hasTectonics ? 'yes' : 'no'} | ` +
-		`occ ${definitionStats.surfaceProfile.raymarchOcclusionStrength.toFixed(2)}\n`
+		`occ ${definitionStats.surfaceProfile.raymarchOcclusionStrength.toFixed(2)}\n` +
+		`near detail: ${definitionStats.nearSurfaceDetail.visible ? 'visible' : definitionStats.nearSurfaceDetail.enabled ? 'ready' : 'off'} | ` +
+		`alpha ${definitionStats.nearSurfaceDetail.alpha.toFixed(2)} | ` +
+		`rocks ${definitionStats.nearSurfaceDetail.rocks} | ` +
+		`tufts ${definitionStats.nearSurfaceDetail.tufts} | ` +
+		`patches ${definitionStats.nearSurfaceDetail.patches} | ` +
+		`debug ${definitionStats.nearSurfaceDetail.debug ? 'yes' : 'no'}\n`
 			: ''
 		) +
 		`raymarch: clouds ${featureStats.clouds.raymarched ? featureStats.clouds.steps : 'off'} | ` +

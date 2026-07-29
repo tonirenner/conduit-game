@@ -1680,7 +1680,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	(material as any).setSurfaceRaymarchSteps = (steps: number): void => {
 		surfaceRaymarchSteps.value = Math.max(
 			0,
-			Math.min(6, steps),
+			Math.min(10, steps),
 		);
 	};
 
@@ -1744,7 +1744,7 @@ fn surface_raymarch_occlusion(
 
 	var visibility = 1.0;
 
-	for (var i = 1; i <= 6; i = i + 1) {
+	for (var i = 1; i <= 10; i = i + 1) {
 		if (f32(i) > steps) {
 			break;
 		}
