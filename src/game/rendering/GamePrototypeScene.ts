@@ -11,6 +11,7 @@ import {
 } from '../../planet/Planet';
 import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
 import { SystemNebulaBackdrop } from './SystemNebulaBackdrop';
+import { WormholeNodeVisual } from './WormholeNodeVisual';
 import { generateGameWorld } from '../generation/GameWorldGenerator';
 import type {
 	Fleet,
@@ -100,10 +101,12 @@ export class GamePrototypeScene {
 		'Systemansicht wird initialisiert...',
 	];
 	private readonly nodeMeshes = new Map<string, THREE.Mesh>();
+	private readonly strategicNodeVisuals = new Map<string, WormholeNodeVisual>();
 	private readonly shipMeshes = new Map<string, THREE.Object3D>();
 	private readonly systemShipMeshes = new Map<string, THREE.Object3D>();
 	private readonly stationMeshes = new Map<string, THREE.Object3D>();
 	private readonly systemExitMeshes = new Map<string, THREE.Object3D>();
+	private readonly systemExitVisuals = new Map<string, WormholeNodeVisual>();
 	private readonly systemPlanets: Planet[] = [];
 	private readonly systemPlanetCache = new Map<string, Planet[]>();
 	private readonly raycaster = new THREE.Raycaster();
@@ -150,8 +153,6 @@ export class GamePrototypeScene {
 		this.navigation = createTacticalNavigationState();
 		this.systemNebulaBackdrop = new SystemNebulaBackdrop({
 			                                                     seed: options.seed,
-			                                                     enabled:
-				                                                     new URLSearchParams(window.location.search).get('nebula') !== '0',
 		                                                     });
 		this.loadingOverlay = this.createLoadingOverlay();
 		this.group.name = 'GamePrototypeScene';
@@ -478,6 +479,7 @@ export class GamePrototypeScene {
 		this.syncSystemShipMeshes();
 		this.processSystemPlanetBuildQueue();
 		this.updateSystemPlanets(deltaSeconds);
+		this.updateWormholeVisuals(deltaSeconds);
 		this.updateKeyboardCamera(deltaSeconds);
 		this.syncPlanetOrbitCameraTarget();
 		this.recenterSystemViewIfNeeded();
@@ -546,6 +548,8 @@ export class GamePrototypeScene {
 		}
 
 		this.systemPlanetCache.clear();
+		this.strategicNodeVisuals.clear();
+		this.systemExitVisuals.clear();
 		this.wormholeSpriteTexture?.dispose();
 		this.wormholeSpriteTexture = null;
 
@@ -1247,43 +1251,41 @@ export class GamePrototypeScene {
 		}
 
 		for (const node of this.world.nodes) {
-			const mesh = new THREE.Mesh(
-				new THREE.SphereGeometry(this.getNodeRadius(node), 24, 16),
-				new THREE.MeshStandardMaterial({
-					                               color: this.getNodeColor(node),
-					                               emissive: this.getNodeColor(node),
-					                               emissiveIntensity: node.owner === 'neutral' ? 0.08 : 0.22,
-					                               roughness: 0.62,
-					                               metalness: 0.08,
-				                               }),
-			);
+			const position = this.nodeToVector(node, 0);
+			const hitProxy = this.createStrategicNodeHitProxy(node);
+			hitProxy.name = node.name;
+			hitProxy.position.copy(position);
 
-			mesh.name = node.name;
-			mesh.position.copy(this.nodeToVector(node, 0));
+			const visual = new WormholeNodeVisual({
+				                                      name: `Wormhole ${node.name}`,
+				                                      radius: this.getNodeRadius(node),
+				                                      owner: node.owner,
+				                                      selected: node.id === this.selectedNodeId,
+			                                      });
 
-			const wormholeSprite = this.createWormholeSprite(
-				`Wormhole ${node.name}`,
-				this.getNodeRadius(node) * 5.4,
-				node.owner === 'player'
-				? 0x8fe7ff
-				: node.owner === 'enemy'
-				  ? 0xff806a
-				  : 0xc8e6ff,
-			);
+			visual.group.position.copy(position);
 
-			wormholeSprite.renderOrder = 18;
-			mesh.add(wormholeSprite);
-			mesh.material.transparent = true;
-			mesh.material.opacity = 0.28;
-			mesh.material.depthWrite = false;
-
-			this.nodeMeshes.set(node.id, mesh);
-			this.strategicGroup.add(mesh);
+			this.nodeMeshes.set(node.id, hitProxy);
+			this.strategicNodeVisuals.set(node.id, visual);
+			this.strategicGroup.add(visual.group);
+			this.strategicGroup.add(hitProxy);
 		}
 
 		const grid = new THREE.GridHelper(110, 22, 0x24445e, 0x172334);
 		grid.position.y = -0.05;
 		this.strategicGroup.add(grid);
+	}
+
+	private createStrategicNodeHitProxy(node: StrategicNode): THREE.Mesh {
+		return new THREE.Mesh(
+			new THREE.SphereGeometry(this.getNodeRadius(node) * 2.25, 18, 12),
+			new THREE.MeshBasicMaterial({
+				                            color: 0xffffff,
+				                            transparent: true,
+				                            opacity: 0.001,
+				                            depthWrite: false,
+			                            }),
+		);
 	}
 
 	private createShipMeshes(): void {
@@ -2234,6 +2236,21 @@ export class GamePrototypeScene {
 		}
 	}
 
+	private updateWormholeVisuals(deltaSeconds: number): void {
+		for (const [nodeId, visual] of this.strategicNodeVisuals) {
+			visual.setSelected(this.viewMode === 'strategic' && nodeId === this.selectedNodeId);
+			visual.update(deltaSeconds);
+		}
+
+		if (this.viewMode !== 'system') {
+			return;
+		}
+
+		for (const visual of this.systemExitVisuals.values()) {
+			visual.update(deltaSeconds);
+		}
+	}
+
 	private syncFleetSelectionRing(
 		mesh: THREE.Object3D,
 		shipId: string,
@@ -2533,12 +2550,31 @@ export class GamePrototypeScene {
 		};
 	}
 
+	private ensureSystemNebulaAttached(): void {
+		if (this.systemNebulaBackdrop.group.parent === this.systemGroup) {
+			return;
+		}
+
+		this.systemGroup.add(this.systemNebulaBackdrop.group);
+
+		if (
+			typeof window !== 'undefined' &&
+			new URLSearchParams(window.location.search).get('nebulaDebugRemoved') === '1'
+		) {
+			console.log('[NebulaDebug] reattached to systemGroup', {
+				children: this.systemGroup.children.length,
+				nebulaChildren: this.systemNebulaBackdrop.group.children.length,
+			});
+		}
+	}
+
 	private rebuildSystemView(node: StrategicNode): void {
 		const shouldShowSystemLoading =
 			      this.shouldShowLoadingOverlayForSystem(node.id);
 
 		this.activeSystemNodeId = node.id;
 		this.clearSystemView();
+		this.ensureSystemNebulaAttached();
 
 		if (
 			shouldShowSystemLoading &&
@@ -2654,6 +2690,7 @@ export class GamePrototypeScene {
 
 		this.systemPlanets.length = 0;
 		this.pendingSystemPlanetBuilds = [];
+		this.systemExitVisuals.clear();
 
 		while (this.systemGroup.children.length > 0) {
 			const child = this.systemGroup.children[0];
@@ -2801,51 +2838,40 @@ export class GamePrototypeScene {
 			}
 
 			const angle = (index / Math.max(1, connectedNodeIds.length)) * Math.PI * 2;
-			const mesh = this.createSystemExitMesh(targetNode.owner);
-
-			mesh.name = `Jump Exit ${targetNode.name}`;
-			mesh.position.set(
+			const position = new THREE.Vector3(
 				Math.cos(angle) * exitRadius,
 				0.15,
 				Math.sin(angle) * exitRadius,
 			);
+			const mesh = this.createSystemExitMesh();
+
+			mesh.name = `Jump Exit ${targetNode.name}`;
+			mesh.position.copy(position);
 			this.systemExitMeshes.set(targetNodeId, mesh);
 			this.systemGroup.add(mesh);
+
+			const visual = new WormholeNodeVisual({
+				                                      name: `Jump Exit ${targetNode.name} Visual`,
+				                                      radius: 1.1,
+				                                      owner: targetNode.owner,
+			                                      });
+
+			visual.group.position.copy(position);
+			this.systemExitVisuals.set(targetNodeId, visual);
+			this.systemGroup.add(visual.group);
 		}
 	}
 
-	private createSystemExitMesh(owner: StrategicNode['owner']): THREE.Object3D {
-		const group = new THREE.Group();
-		const color =
-			      owner === 'player'
-			      ? 0x7fd9ff
-			      : owner === 'opponent'
-			        ? 0xff806a
-			        : 0xd4c06a;
-		const ring = new THREE.Mesh(
-			new THREE.TorusGeometry(0.88, 0.045, 8, 40),
+	private createSystemExitMesh(): THREE.Object3D {
+		return new THREE.Mesh(
+			new THREE.SphereGeometry(1.8, 16, 12),
 			new THREE.MeshBasicMaterial({
-				                            color,
+				                            color: 0xffffff,
 				                            transparent: true,
-				                            opacity: 0.86,
+				                            opacity: 0.001,
+				                            depthWrite: false,
 			                            }),
 		);
-		const core = new THREE.Mesh(
-			new THREE.OctahedronGeometry(0.28, 0),
-			new THREE.MeshStandardMaterial({
-				                               color,
-				                               emissive: color,
-				                               emissiveIntensity: 0.36,
-				                               roughness: 0.42,
-				                               metalness: 0.2,
-			                               }),
-		);
-
-		ring.rotation.x = Math.PI * 0.5;
-		group.add(ring);
-		group.add(core);
-
-		return group;
 	}
 
 	private processSystemPlanetBuildQueue(): void {
