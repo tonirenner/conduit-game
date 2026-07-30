@@ -10,6 +10,7 @@ import {
 	type PlanetRendererMode,
 } from '../../planet/Planet';
 import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
+import { SystemNebulaBackdrop } from './SystemNebulaBackdrop';
 import { generateGameWorld } from '../generation/GameWorldGenerator';
 import type {
 	Fleet,
@@ -83,6 +84,21 @@ export class GamePrototypeScene {
 	private readonly backdropGroup = new THREE.Group();
 	private readonly strategicGroup = new THREE.Group();
 	private readonly systemGroup = new THREE.Group();
+	private readonly systemNebulaBackdrop: SystemNebulaBackdrop;
+	private readonly loadingOverlay: HTMLDivElement;
+	private loadingOverlayVisible = false;
+	private loadingOverlayStep = 0;
+	private loadingOverlayTimer = 0;
+	private loadingOverlayVisibleSeconds = 0;
+	private loadingOverlayMessage = 'Com-Link wird bereitgestellt...';
+	private readonly loadingOverlayMessages = [
+		'Com-Link wird bereitgestellt...',
+		'Sternkarten werden synchronisiert...',
+		'Orbitaldaten werden empfangen...',
+		'Sensorphalanx kalibriert...',
+		'Flottenkanäle werden geöffnet...',
+		'Systemansicht wird initialisiert...',
+	];
 	private readonly nodeMeshes = new Map<string, THREE.Mesh>();
 	private readonly shipMeshes = new Map<string, THREE.Object3D>();
 	private readonly systemShipMeshes = new Map<string, THREE.Object3D>();
@@ -92,6 +108,7 @@ export class GamePrototypeScene {
 	private readonly systemPlanetCache = new Map<string, Planet[]>();
 	private readonly raycaster = new THREE.Raycaster();
 	private readonly pointer = new THREE.Vector2();
+	private wormholeSpriteTexture: THREE.CanvasTexture | null = null;
 	private readonly movePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 	private readonly intersection = new THREE.Vector3();
 	private readonly systemSunDirection = new THREE.Vector3();
@@ -108,6 +125,8 @@ export class GamePrototypeScene {
 	private fleetMenuSignature = '';
 	private activeSystemNodeId: string | null = null;
 	private pendingSystemPlanetBuilds: SystemPlanetBuildJob[] = [];
+	private readonly loadedSystemNodeIds = new Set<string>();
+	private loadingOverlayNodeId: string | null = null;
 	private viewMode: GameViewMode = 'strategic';
 	private systemCameraMode: SystemCameraMode = 'pan';
 	private orbitFocusPlanet: Planet | null = null;
@@ -129,6 +148,12 @@ export class GamePrototypeScene {
 			nodeCount: 7,
 		});
 		this.navigation = createTacticalNavigationState();
+		this.systemNebulaBackdrop = new SystemNebulaBackdrop({
+			                                                     seed: options.seed,
+			                                                     enabled:
+				                                                     new URLSearchParams(window.location.search).get('nebula') !== '0',
+		                                                     });
+		this.loadingOverlay = this.createLoadingOverlay();
 		this.group.name = 'GamePrototypeScene';
 		this.backdropGroup.name = 'HomeworldStyleBackdrop';
 		this.strategicGroup.name = 'StrategicMap';
@@ -140,15 +165,170 @@ export class GamePrototypeScene {
 		this.group.add(this.backdropGroup);
 		this.group.add(this.strategicGroup);
 		this.group.add(this.systemGroup);
+		this.systemGroup.add(this.systemNebulaBackdrop.group);
 		this.createSpaceBackdrop();
 		this.strategicGroup.add(this.moveMarker);
 		this.createStrategicMap();
 		this.createShipMeshes();
 		this.createFleetMenu();
+		document.body.appendChild(this.loadingOverlay);
 		this.configureCamera();
 		this.bindInput();
 
 		options.scene.add(this.group);
+	}
+
+
+	private createLoadingOverlay(): HTMLDivElement {
+		const overlay = document.createElement('div');
+
+		overlay.style.position = 'fixed';
+		overlay.style.left = '50%';
+		overlay.style.top = '50%';
+		overlay.style.transform = 'translate(-50%, -50%)';
+		overlay.style.zIndex = '60';
+		overlay.style.minWidth = '320px';
+		overlay.style.padding = '18px 22px';
+		overlay.style.border = '1px solid rgba(143,231,255,0.38)';
+		overlay.style.borderRadius = '10px';
+		overlay.style.background = 'rgba(2, 10, 18, 0.78)';
+		overlay.style.color = '#d8f7ff';
+		overlay.style.font = '13px/1.45 monospace';
+		overlay.style.letterSpacing = '0.02em';
+		overlay.style.pointerEvents = 'none';
+		overlay.style.backdropFilter = 'blur(9px)';
+		overlay.style.boxShadow = '0 0 28px rgba(70,180,255,0.18)';
+		overlay.style.display = 'none';
+
+		overlay.innerHTML =
+			`<div style="color:#8fe7ff;margin-bottom:10px;">SYSTEM LINK</div>` +
+			`<div data-loading-message>Com-Link wird bereitgestellt...</div>` +
+			`<div style="height:4px;margin-top:14px;background:rgba(143,231,255,0.15);overflow:hidden;border-radius:999px;">` +
+			`<div data-loading-bar style="width:24%;height:100%;background:rgba(143,231,255,0.72);border-radius:999px;transition:width 180ms ease;"></div>` +
+			`</div>`;
+
+		return overlay;
+	}
+
+	private showLoadingOverlay(
+		message?: string,
+		nodeId?: string,
+	): void {
+		this.loadingOverlayVisible = true;
+		this.loadingOverlayNodeId = nodeId ?? this.activeSystemNodeId;
+		this.loadingOverlayStep = 0;
+		this.loadingOverlayTimer = 0;
+		this.loadingOverlayVisibleSeconds = 0;
+		this.loadingOverlayMessage =
+			message ?? this.loadingOverlayMessages[0] ?? 'Com-Link wird bereitgestellt...';
+		this.loadingOverlay.style.display = 'block';
+		this.renderLoadingOverlay();
+		this.logLoadingOverlayDebug('show');
+	}
+
+	private hideLoadingOverlay(): void {
+		this.loadingOverlayVisible = false;
+		this.loadingOverlayNodeId = null;
+		this.loadingOverlay.style.display = 'none';
+		this.logLoadingOverlayDebug('hide');
+	}
+
+	private updateLoadingOverlay(deltaSeconds: number): void {
+		if (!this.loadingOverlayVisible) {
+			return;
+		}
+
+		this.loadingOverlayTimer += deltaSeconds;
+		this.loadingOverlayVisibleSeconds += deltaSeconds;
+
+		if (
+			this.isSystemViewBuildFinished() &&
+			this.loadingOverlayVisibleSeconds >= 0.85
+		) {
+			this.markSystemViewLoaded(
+				this.loadingOverlayNodeId ?? this.activeSystemNodeId,
+			);
+			this.logLoadingOverlayDebug('auto-hide-ready');
+			this.hideLoadingOverlay();
+			return;
+		}
+
+		if (this.loadingOverlayTimer < 0.62) {
+			return;
+		}
+
+		this.loadingOverlayTimer = 0;
+		this.loadingOverlayStep =
+			(this.loadingOverlayStep + 1) %
+			Math.max(1, this.loadingOverlayMessages.length);
+		this.loadingOverlayMessage =
+			this.loadingOverlayMessages[this.loadingOverlayStep] ??
+			this.loadingOverlayMessage;
+		this.renderLoadingOverlay();
+	}
+
+
+	private shouldShowLoadingOverlayForSystem(nodeId: string): boolean {
+		return !this.loadedSystemNodeIds.has(nodeId);
+	}
+
+	private markSystemViewLoaded(nodeId: string | null): void {
+		if (!nodeId) {
+			return;
+		}
+
+		this.loadedSystemNodeIds.add(nodeId);
+	}
+
+	private isSystemViewBuildFinished(): boolean {
+		return (
+			this.viewMode !== 'system' ||
+			(
+				this.pendingSystemPlanetBuilds.length === 0 &&
+				!this.isProcessingSystemPlanetBuild
+			)
+		);
+	}
+
+	private logLoadingOverlayDebug(reason: string): void {
+		if (
+			typeof window === 'undefined' ||
+			new URLSearchParams(window.location.search).get('loadingDebug') !== '1'
+		) {
+			return;
+		}
+
+		console.log('[SystemLinkOverlay]', {
+			reason,
+			visible: this.loadingOverlayVisible,
+			visibleSeconds: this.loadingOverlayVisibleSeconds,
+			messageTimer: this.loadingOverlayTimer,
+			pendingJobs: this.pendingSystemPlanetBuilds.length,
+			isProcessing: this.isProcessingSystemPlanetBuild,
+			viewMode: this.viewMode,
+			activeSystemNodeId: this.activeSystemNodeId,
+			loadingOverlayNodeId: this.loadingOverlayNodeId,
+			loadedSystemNodeIds: [...this.loadedSystemNodeIds],
+		});
+	}
+
+
+
+	private renderLoadingOverlay(): void {
+		const message = this.loadingOverlay.querySelector('[data-loading-message]');
+		const bar = this.loadingOverlay.querySelector('[data-loading-bar]');
+
+		if (message instanceof HTMLElement) {
+			message.textContent = this.loadingOverlayMessage;
+		}
+
+		if (bar instanceof HTMLElement) {
+			const progress =
+				      24 + (this.loadingOverlayStep % this.loadingOverlayMessages.length) *
+				      (70 / Math.max(1, this.loadingOverlayMessages.length - 1));
+
+			bar.style.width = `${Math.min(94, progress).toFixed(0)}%`;
+		}
 	}
 
 	private createFleetMenu(): void {
@@ -247,8 +427,31 @@ export class GamePrototypeScene {
 			return;
 		}
 
+		/**
+		 * Fleet-menu switch:
+		 * This is effectively a system change while already inside SystemView.
+		 *
+		 * Do not rely on the normal enterSystemView path only. Explicitly set up
+		 * the loading overlay for the target node before rebuildSystemView()
+		 * clears and recreates the system objects.
+		 */
+		const shouldShowSystemLoading =
+			      this.shouldShowLoadingOverlayForSystem(node.id);
+
 		this.selectedNodeId = node.id;
+		this.activeSystemNodeId = node.id;
 		this.navigation = cancelTacticalMoveDraft(this.navigation);
+		this.systemCameraMode = 'pan';
+		this.orbitFocusPlanet = null;
+
+		if (shouldShowSystemLoading) {
+			this.showLoadingOverlay(
+				`Com-Link zu ${node.name} wird bereitgestellt...`,
+				node.id,
+			);
+			this.logLoadingOverlayDebug('fleet-switch-show-loading');
+		}
+
 		this.rebuildSystemView(node);
 		this.configureCamera();
 	}
@@ -278,6 +481,11 @@ export class GamePrototypeScene {
 		this.updateKeyboardCamera(deltaSeconds);
 		this.syncPlanetOrbitCameraTarget();
 		this.recenterSystemViewIfNeeded();
+		this.systemNebulaBackdrop.update(
+			deltaSeconds,
+			this.options.camera.position,
+		);
+		this.updateLoadingOverlay(deltaSeconds);
 		this.updateSpaceBackdrop(deltaSeconds);
 		this.syncMoveMarker();
 		this.updateFleetMenu();
@@ -325,6 +533,8 @@ export class GamePrototypeScene {
 		);
 
 		this.options.scene.remove(this.group);
+		this.loadingOverlay.remove();
+		this.systemNebulaBackdrop.dispose();
 		this.fleetMenu?.remove();
 		this.fleetMenu = null;
 		this.clearSystemView();
@@ -336,6 +546,8 @@ export class GamePrototypeScene {
 		}
 
 		this.systemPlanetCache.clear();
+		this.wormholeSpriteTexture?.dispose();
+		this.wormholeSpriteTexture = null;
 
 		this.group.traverse((object) => {
 			if (
@@ -1048,6 +1260,23 @@ export class GamePrototypeScene {
 
 			mesh.name = node.name;
 			mesh.position.copy(this.nodeToVector(node, 0));
+
+			const wormholeSprite = this.createWormholeSprite(
+				`Wormhole ${node.name}`,
+				this.getNodeRadius(node) * 5.4,
+				node.owner === 'player'
+				? 0x8fe7ff
+				: node.owner === 'enemy'
+				  ? 0xff806a
+				  : 0xc8e6ff,
+			);
+
+			wormholeSprite.renderOrder = 18;
+			mesh.add(wormholeSprite);
+			mesh.material.transparent = true;
+			mesh.material.opacity = 0.28;
+			mesh.material.depthWrite = false;
+
 			this.nodeMeshes.set(node.id, mesh);
 			this.strategicGroup.add(mesh);
 		}
@@ -1311,6 +1540,119 @@ export class GamePrototypeScene {
 		group.add(stem);
 
 		return group;
+	}
+
+
+	private createWormholeSprite(
+		name: string,
+		size: number,
+		color: THREE.ColorRepresentation = 0x9feaff,
+	): THREE.Sprite {
+		const material = new THREE.SpriteMaterial({
+			                                          map: this.getWormholeSpriteTexture(),
+			                                          color,
+			                                          transparent: true,
+			                                          opacity: 0.88,
+			                                          depthWrite: false,
+			                                          depthTest: true,
+			                                          blending: THREE.AdditiveBlending,
+		                                          });
+
+		const sprite = new THREE.Sprite(material);
+
+		sprite.name = name;
+		sprite.scale.set(size, size, 1);
+
+		return sprite;
+	}
+
+	private getWormholeSpriteTexture(): THREE.CanvasTexture {
+		if (this.wormholeSpriteTexture) {
+			return this.wormholeSpriteTexture;
+		}
+
+		const canvas = document.createElement('canvas');
+
+		canvas.width = 256;
+		canvas.height = 256;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			this.wormholeSpriteTexture = new THREE.CanvasTexture(canvas);
+			return this.wormholeSpriteTexture;
+		}
+
+		context.clearRect(0, 0, canvas.width, canvas.height);
+
+		const centerX = canvas.width * 0.5;
+		const centerY = canvas.height * 0.5;
+
+		const outer = context.createRadialGradient(
+			centerX,
+			centerY,
+			0,
+			centerX,
+			centerY,
+			canvas.width * 0.48,
+		);
+
+		outer.addColorStop(0.00, 'rgba(230, 255, 255, 1.00)');
+		outer.addColorStop(0.08, 'rgba(125, 235, 255, 0.98)');
+		outer.addColorStop(0.22, 'rgba(42, 130, 255, 0.60)');
+		outer.addColorStop(0.46, 'rgba(34, 70, 190, 0.25)');
+		outer.addColorStop(0.72, 'rgba(18, 28, 110, 0.10)');
+		outer.addColorStop(1.00, 'rgba(0, 0, 0, 0.00)');
+
+		context.fillStyle = outer;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		for (let index = 0; index < 38; index++) {
+			const angle = index * 0.74;
+			const radius = 9 + index * 2.15;
+			const spread = 12 + index * 0.56;
+			const x = centerX + Math.cos(angle) * radius;
+			const y = centerY + Math.sin(angle) * radius * 0.72;
+
+			const puff = context.createRadialGradient(
+				x,
+				y,
+				0,
+				x,
+				y,
+				spread,
+			);
+
+			puff.addColorStop(0.00, 'rgba(190, 245, 255, 0.26)');
+			puff.addColorStop(0.52, 'rgba(64, 130, 255, 0.10)');
+			puff.addColorStop(1.00, 'rgba(0, 0, 0, 0.00)');
+
+			context.fillStyle = puff;
+			context.fillRect(x - spread, y - spread, spread * 2, spread * 2);
+		}
+
+		const core = context.createRadialGradient(
+			centerX,
+			centerY,
+			0,
+			centerX,
+			centerY,
+			canvas.width * 0.18,
+		);
+
+		core.addColorStop(0.00, 'rgba(255, 255, 255, 1.00)');
+		core.addColorStop(0.22, 'rgba(170, 245, 255, 0.95)');
+		core.addColorStop(0.60, 'rgba(70, 130, 255, 0.32)');
+		core.addColorStop(1.00, 'rgba(0, 0, 0, 0.00)');
+
+		context.fillStyle = core;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		this.wormholeSpriteTexture = new THREE.CanvasTexture(canvas);
+		this.wormholeSpriteTexture.colorSpace = THREE.SRGBColorSpace;
+		this.wormholeSpriteTexture.needsUpdate = true;
+
+		return this.wormholeSpriteTexture;
 	}
 
 	private bindInput(): void {
@@ -2087,11 +2429,17 @@ export class GamePrototypeScene {
 		this.navigation = cancelTacticalMoveDraft(this.navigation);
 		this.strategicGroup.visible = false;
 		this.systemGroup.visible = true;
+
+		if (this.shouldShowLoadingOverlayForSystem(node.id)) {
+			this.showLoadingOverlay(undefined, node.id);
+		}
+
 		this.rebuildSystemView(node);
 		this.configureCamera();
 	}
 
 	private exitSystemView(): void {
+		this.hideLoadingOverlay();
 		this.viewMode = 'strategic';
 		this.strategicGroup.visible = true;
 		this.systemGroup.visible = false;
@@ -2186,7 +2534,23 @@ export class GamePrototypeScene {
 	}
 
 	private rebuildSystemView(node: StrategicNode): void {
+		const shouldShowSystemLoading =
+			      this.shouldShowLoadingOverlayForSystem(node.id);
+
+		this.activeSystemNodeId = node.id;
 		this.clearSystemView();
+
+		if (
+			shouldShowSystemLoading &&
+			this.loadingOverlayNodeId !== node.id &&
+			!this.loadingOverlayVisible
+		) {
+			this.showLoadingOverlay(undefined, node.id);
+		}
+
+		this.systemNebulaBackdrop.reseed(
+			this.options.seed ^ this.hashString(node.id),
+		);
 		this.systemRenderOrigin.set(0, 0, 0);
 		this.systemRenderShift.set(0, 0, 0);
 		this.systemShipMeshes.clear();
@@ -2299,7 +2663,6 @@ export class GamePrototypeScene {
 		}
 
 		this.systemMoveMarker = null;
-		this.activeSystemNodeId = null;
 	}
 
 	private addSystemPlanets(node: StrategicNode): void {
@@ -2806,6 +3169,18 @@ export class GamePrototypeScene {
 		];
 
 		return palettes[Math.abs(Math.floor(seed)) % palettes.length];
+	}
+
+
+	private hashString(value: string): number {
+		let hash = 2166136261;
+
+		for (let index = 0; index < value.length; index++) {
+			hash ^= value.charCodeAt(index);
+			hash = Math.imul(hash, 16777619);
+		}
+
+		return hash >>> 0;
 	}
 
 	private hash01(seed: number, index: number, salt: number): number {
