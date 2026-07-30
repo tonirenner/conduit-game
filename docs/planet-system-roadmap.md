@@ -497,6 +497,7 @@ Fortschritt:
 - [x] Systemsonne rendert mit additiven transparenten Glow-Schalen als WebGPU-kompatibler volumetrischer Halo
 - [x] Systemsonnen-Glow von Kugelschalen auf Sprite-Halos umgestellt, um harte Glow-Schnittflaechen zu vermeiden
 - [x] Horizon-Culling fuer echte Systemplaneten deaktiviert, damit keine ganzen Terrainpatches aus sichtbaren Planeten ausbrechen
+- [x] Horizon-Culling-Deaktivierung fuer Systemplaneten persistent gemacht und Patch-Frustum-Culling deaktiviert, um WebGL/WebGPU-Patch-Ausbrueche in der taktischen Ansicht zu verhindern
 - [x] `StarSystemGenerator` verteilt Planetentypen zoniert und vermeidet direkte Wiederholungen gleichartiger Klassen
 - [x] Systemscale nachjustiert: Planeten/Stern/Orbits groesser, Schiffe und Stationen in taktischer Ansicht kleiner
 - [x] Planetentypen an plausible Orbit-Zonen relativ zur Stern-Luminositaet gebunden und Klassenfamilien pro System limitiert
@@ -508,6 +509,9 @@ Fortschritt:
 - [x] Systemausgaenge in der taktischen Ansicht als Sprungmarker anzeigen und Rechtsklick-Lane-Move anschliessen
 - [x] erstes Schiff-Asset (`capital_ship.obj/.mtl`) per OBJ/MTL-Loader mit Dummy-Fallback in die Flottenansicht einbauen
 - [x] WebGPU-Postprocessing auf Node-/TSL-Pipeline umgestellt, damit keine legacy `ShaderMaterial`-Passes im WebGPU-Pfad laufen
+- [x] Homeworld-inspirierter Game-Backdrop: prozeduraler Vertexcolor-Skydome, weiche Nebel-Billboards und separates Sternfeld ohne legacy ShaderMaterial
+- [x] taktische Spielkamera auf RTS-Pan/Dolly-Steuerung umgestellt: Orbit-Rotation deaktiviert, WASD pannt, Q/E zoomt und System-Orbits sind weiter auseinandergezogen
+- [x] Game-Kamera-Clip-Planes fuer strategische/Systemansicht enger gesetzt, um Depth-Precision-Artefakte bei echten Systemplaneten zu reduzieren
 - [ ] Ressourcen, Shipyard-Queue und einfache Gegnerlogik einfuehren
 - [ ] verbleibende Systemansicht-Grafikbugs pruefen: Orbitline-/Glow-Sortierung, transparente Halo-Ueberdeckung und dunkle Sonderfaelle
 

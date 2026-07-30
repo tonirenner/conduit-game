@@ -277,8 +277,17 @@ export class TerrainPatch extends THREE.Group {
 			this.createGeometry(),
 			this.material,
 		);
+		this.mesh.frustumCulled = false;
 
 		this.add(this.mesh);
+	}
+
+	setFrustumCullingEnabled(enabled: boolean): void {
+		this.mesh.frustumCulled = enabled;
+
+		for (const child of this.childrenPatches) {
+			child.setFrustumCullingEnabled(enabled);
+		}
 	}
 
 	updateLOD(

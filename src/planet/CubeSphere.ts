@@ -59,6 +59,7 @@ export class CubeSphere extends THREE.Group {
 		violations: 0,
 	};
 	private lodBalanceFrame = 0;
+	private horizonCullingOverride: boolean | null = null;
 
 	/**
 	 * Phase 5c.1 hotfix:
@@ -179,10 +180,13 @@ export class CubeSphere extends THREE.Group {
 			adaptiveDetail: this.getAdaptiveDetailOptions(nextProfile),
 		};
 
+		const profileHorizonCullingEnabled =
+		      nextProfile === 'far' ||
+		      nextProfile === 'orbit' ||
+		      nextProfile === 'approach';
+
 		this.horizonCulling.setEnabled(
-			nextProfile === 'far' ||
-			nextProfile === 'orbit' ||
-			nextProfile === 'approach',
+			this.horizonCullingOverride ?? profileHorizonCullingEnabled,
 		);
 
 		for (const patch of this.rootPatches) {
@@ -233,7 +237,14 @@ export class CubeSphere extends THREE.Group {
 	}
 
 	setHorizonCullingEnabled(enabled: boolean): void {
+		this.horizonCullingOverride = enabled;
 		this.horizonCulling.setEnabled(enabled);
+	}
+
+	setPatchFrustumCullingEnabled(enabled: boolean): void {
+		for (const patch of this.rootPatches) {
+			patch.setFrustumCullingEnabled(enabled);
+		}
 	}
 
 	setHorizonCullingDebug(debug: boolean): void {

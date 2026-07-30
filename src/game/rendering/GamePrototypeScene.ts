@@ -58,6 +58,14 @@ type SystemPlanetBuildJob = {
 	preview: THREE.Object3D;
 };
 
+type BackdropPalette = {
+	deep: THREE.Color;
+	mid: THREE.Color;
+	nebulaA: THREE.Color;
+	nebulaB: THREE.Color;
+	accent: THREE.Color;
+};
+
 const CAPITAL_SHIP_OBJ_LABEL = 'src/game/model/capital_ship.obj';
 const CAPITAL_SHIP_MTL_LABEL = 'src/game/model/capital_ship.mtl';
 
@@ -68,6 +76,7 @@ export class GamePrototypeScene {
 	private world: GameWorld;
 	private navigation: TacticalNavigationState;
 	private readonly group = new THREE.Group();
+	private readonly backdropGroup = new THREE.Group();
 	private readonly strategicGroup = new THREE.Group();
 	private readonly systemGroup = new THREE.Group();
 	private readonly nodeMeshes = new Map<string, THREE.Mesh>();
@@ -86,6 +95,7 @@ export class GamePrototypeScene {
 		new THREE.Quaternion().setFromEuler(
 			new THREE.Euler(Math.PI * 0.5, 0, 0),
 		);
+	private readonly pressedKeys = new Set<string>();
 	private readonly moveMarker: THREE.Group;
 	private systemMoveMarker: THREE.Group | null = null;
 	private fleetMenu: HTMLDivElement | null = null;
@@ -107,14 +117,17 @@ export class GamePrototypeScene {
 		this.navigation = createTacticalNavigationState();
 
 		this.group.name = 'GamePrototypeScene';
+		this.backdropGroup.name = 'HomeworldStyleBackdrop';
 		this.strategicGroup.name = 'StrategicMap';
 		this.systemGroup.name = 'SystemView';
 		this.systemGroup.visible = false;
 		this.moveMarker = this.createMoveMarker();
 		this.moveMarker.visible = false;
 
+		this.group.add(this.backdropGroup);
 		this.group.add(this.strategicGroup);
 		this.group.add(this.systemGroup);
+		this.createSpaceBackdrop();
 		this.strategicGroup.add(this.moveMarker);
 		this.createStrategicMap();
 		this.createShipMeshes();
@@ -249,6 +262,8 @@ export class GamePrototypeScene {
 		this.syncSystemShipMeshes();
 		this.processSystemPlanetBuildQueue();
 		this.updateSystemPlanets(deltaSeconds);
+		this.updateKeyboardCamera(deltaSeconds);
+		this.updateSpaceBackdrop(deltaSeconds);
 		this.syncMoveMarker();
 		this.updateFleetMenu();
 		this.updateHud();
@@ -285,6 +300,14 @@ export class GamePrototypeScene {
 			'keydown',
 			this.handleKeyDown,
 		);
+		window.removeEventListener(
+			'keyup',
+			this.handleKeyUp,
+		);
+		window.removeEventListener(
+			'blur',
+			this.handleWindowBlur,
+		);
 
 		this.options.scene.remove(this.group);
 		this.fleetMenu?.remove();
@@ -300,11 +323,24 @@ export class GamePrototypeScene {
 		this.systemPlanetCache.clear();
 
 		this.group.traverse((object) => {
-			if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) {
+			if (
+				!(
+					object instanceof THREE.Mesh ||
+					object instanceof THREE.Line ||
+					object instanceof THREE.Points ||
+					object instanceof THREE.Sprite
+				)
+			) {
 				return;
 			}
 
-			object.geometry.dispose();
+			if (
+				object instanceof THREE.Mesh ||
+				object instanceof THREE.Line ||
+				object instanceof THREE.Points
+			) {
+				object.geometry.dispose();
+			}
 
 			const material = object.material;
 
@@ -321,23 +357,370 @@ export class GamePrototypeScene {
 
 	private configureCamera(): void {
 		if (this.viewMode === 'system') {
-			this.options.camera.position.set(0, 55, 92);
+			this.options.camera.near = 0.8;
+			this.options.camera.far = 760;
+			this.options.camera.updateProjectionMatrix();
+			this.options.camera.position.set(0, 78, 116);
 			this.options.camera.lookAt(0, 0, 0);
 			this.options.controls.target.set(0, 0, 0);
 			this.options.controls.enablePan = true;
+			this.options.controls.enableRotate = false;
+			this.options.controls.enableZoom = false;
+			this.options.controls.screenSpacePanning = true;
+			this.options.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+			this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
 			this.options.controls.minDistance = 8;
-			this.options.controls.maxDistance = 260;
+			this.options.controls.maxDistance = 360;
 			this.options.controls.update();
 			return;
 		}
 
+		this.options.camera.near = 0.6;
+		this.options.camera.far = 520;
+		this.options.camera.updateProjectionMatrix();
 		this.options.camera.position.set(0, 58, 76);
 		this.options.camera.lookAt(0, 0, 0);
 		this.options.controls.target.set(0, 0, 0);
 		this.options.controls.enablePan = true;
+		this.options.controls.enableRotate = false;
+		this.options.controls.enableZoom = false;
+		this.options.controls.screenSpacePanning = true;
+		this.options.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+		this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
 		this.options.controls.minDistance = 10;
 		this.options.controls.maxDistance = 180;
 		this.options.controls.update();
+	}
+
+	private createSpaceBackdrop(): void {
+		const palette = this.getBackdropPalette(this.options.seed);
+
+		this.backdropGroup.add(this.createVertexColorSkydome(palette));
+		this.backdropGroup.add(this.createBackdropNebulaSprites(palette));
+		this.backdropGroup.add(this.createBackdropStarField(palette));
+		this.updateSpaceBackdrop(0);
+	}
+
+	private updateSpaceBackdrop(deltaSeconds: number): void {
+		this.backdropGroup.position.copy(this.options.camera.position);
+		this.backdropGroup.rotation.y += deltaSeconds * 0.0009;
+	}
+
+	private updateKeyboardCamera(deltaSeconds: number): void {
+		if (deltaSeconds <= 0) {
+			return;
+		}
+
+		this.updateKeyboardPan(deltaSeconds);
+		this.updateKeyboardZoom(deltaSeconds);
+	}
+
+	private updateKeyboardPan(deltaSeconds: number): void {
+		const forwardInput =
+		      (this.pressedKeys.has('KeyW') ? 1 : 0) -
+		      (this.pressedKeys.has('KeyS') ? 1 : 0);
+		const rightInput =
+		      (this.pressedKeys.has('KeyD') ? 1 : 0) -
+		      (this.pressedKeys.has('KeyA') ? 1 : 0);
+
+		if (forwardInput === 0 && rightInput === 0) {
+			return;
+		}
+
+		const forward = new THREE.Vector3();
+		const right = new THREE.Vector3();
+		const movement = new THREE.Vector3();
+
+		this.options.camera.getWorldDirection(forward);
+		forward.y = 0;
+
+		if (forward.lengthSq() <= 0.000001) {
+			forward.set(0, 0, -1);
+		}
+
+		forward.normalize();
+		right.crossVectors(forward, new THREE.Vector3(0, 1, 0))
+			.normalize();
+
+		movement.addScaledVector(forward, forwardInput);
+		movement.addScaledVector(right, rightInput);
+
+		if (movement.lengthSq() <= 0.000001) {
+			return;
+		}
+
+		const distance = this.options.camera.position.distanceTo(
+			this.options.controls.target,
+		);
+		const baseSpeed = this.viewMode === 'system' ? 42 : 30;
+		const distanceScale = THREE.MathUtils.clamp(distance / 100, 0.55, 2.6);
+		const speedMultiplier =
+		      this.pressedKeys.has('ShiftLeft') ||
+		      this.pressedKeys.has('ShiftRight')
+		      ? 2.4
+		      : 1.0;
+		const step = baseSpeed * distanceScale * speedMultiplier * deltaSeconds;
+
+		movement.normalize().multiplyScalar(step);
+		this.options.camera.position.add(movement);
+		this.options.controls.target.add(movement);
+		this.options.controls.update();
+	}
+
+	private updateKeyboardZoom(deltaSeconds: number): void {
+		const zoomInput =
+		      (this.pressedKeys.has('KeyQ') ? 1 : 0) -
+		      (this.pressedKeys.has('KeyE') ? 1 : 0);
+
+		if (zoomInput === 0) {
+			return;
+		}
+
+		const offset = new THREE.Vector3().subVectors(
+			this.options.camera.position,
+			this.options.controls.target,
+		);
+		const distance = offset.length();
+
+		if (distance <= 0.000001) {
+			return;
+		}
+
+		const minDistance = this.options.controls.minDistance;
+		const maxDistance = this.options.controls.maxDistance;
+		const zoomSpeed = this.viewMode === 'system' ? 74 : 52;
+		const nextDistance = THREE.MathUtils.clamp(
+			distance - zoomInput * zoomSpeed * deltaSeconds,
+			minDistance,
+			maxDistance,
+		);
+
+		offset.setLength(nextDistance);
+		this.options.camera.position.copy(this.options.controls.target)
+			.add(offset);
+		this.options.controls.update();
+	}
+
+	private createVertexColorSkydome(palette: BackdropPalette): THREE.Mesh {
+		const geometry = new THREE.SphereGeometry(420, 72, 36);
+		const positions = geometry.getAttribute('position');
+		const colors = new Float32Array(positions.count * 3);
+		const vertex = new THREE.Vector3();
+		const color = new THREE.Color();
+		const horizonColor = palette.mid.clone().lerp(palette.nebulaA, 0.26);
+		const accentColor = palette.nebulaB.clone().lerp(palette.accent, 0.32);
+
+		for (let index = 0; index < positions.count; index++) {
+			vertex.fromBufferAttribute(positions, index).normalize();
+
+			const vertical = vertex.y * 0.5 + 0.5;
+			const band = Math.exp(-Math.pow(vertex.y * 2.4, 2));
+			const diagonal = Math.sin(vertex.x * 2.1 + vertex.z * 3.0 + vertex.y * 1.6);
+			const swirl = Math.sin(vertex.x * 5.0 - vertex.z * 2.6 + vertex.y * 3.8);
+			const nebula = THREE.MathUtils.clamp(
+				band * (0.52 + diagonal * 0.26 + swirl * 0.12),
+				0,
+				1,
+			);
+			const accent = THREE.MathUtils.clamp(
+				Math.pow(Math.max(0, diagonal * 0.5 + 0.5), 4.2) * band,
+				0,
+				1,
+			);
+
+			color.copy(palette.deep)
+				.lerp(horizonColor, 0.22 + vertical * 0.18)
+				.lerp(palette.nebulaA, nebula * 0.46)
+				.lerp(accentColor, accent * 0.38);
+
+			colors[index * 3] = color.r;
+			colors[index * 3 + 1] = color.g;
+			colors[index * 3 + 2] = color.b;
+		}
+
+		geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+		const dome = new THREE.Mesh(
+			geometry,
+			new THREE.MeshBasicMaterial({
+				side: THREE.BackSide,
+				vertexColors: true,
+				depthWrite: false,
+				depthTest: false,
+			}),
+		);
+
+		dome.name = 'Vertex Color Skydome';
+		dome.renderOrder = -1000;
+
+		return dome;
+	}
+
+	private createBackdropNebulaSprites(palette: BackdropPalette): THREE.Group {
+		const group = new THREE.Group();
+		const layers = [
+			{
+				color: palette.nebulaA,
+				position: new THREE.Vector3(-150, 36, -270),
+				scale: new THREE.Vector2(260, 118),
+				opacity: 0.36,
+				rotation: -0.22,
+				seedOffset: 11,
+			},
+			{
+				color: palette.nebulaB,
+				position: new THREE.Vector3(190, -16, -230),
+				scale: new THREE.Vector2(220, 92),
+				opacity: 0.24,
+				rotation: 0.34,
+				seedOffset: 23,
+			},
+			{
+				color: palette.accent,
+				position: new THREE.Vector3(48, 82, -310),
+				scale: new THREE.Vector2(150, 64),
+				opacity: 0.18,
+				rotation: 0.08,
+				seedOffset: 37,
+			},
+		];
+
+		group.name = 'Backdrop Nebula Layers';
+
+		for (const layer of layers) {
+			const sprite = new THREE.Sprite(
+				new THREE.SpriteMaterial({
+					map: this.createNebulaTexture(layer.color, this.options.seed + layer.seedOffset),
+					color: layer.color,
+					transparent: true,
+					opacity: layer.opacity,
+					blending: THREE.AdditiveBlending,
+					depthWrite: false,
+					depthTest: true,
+				}),
+			);
+
+			sprite.name = 'Soft Nebula Billboard';
+			sprite.position.copy(layer.position);
+			sprite.scale.set(layer.scale.x, layer.scale.y, 1);
+			sprite.material.rotation = layer.rotation;
+			sprite.renderOrder = -900;
+			group.add(sprite);
+		}
+
+		return group;
+	}
+
+	private createBackdropStarField(palette: BackdropPalette): THREE.Points {
+		const starCount = 620;
+		const positions = new Float32Array(starCount * 3);
+		const colors = new Float32Array(starCount * 3);
+		const color = new THREE.Color();
+
+		for (let index = 0; index < starCount; index++) {
+			const u = this.hash01(this.options.seed, index, 17);
+			const v = this.hash01(this.options.seed, index, 29);
+			const radius = 360 + this.hash01(this.options.seed, index, 43) * 48;
+			const theta = u * Math.PI * 2;
+			const phi = Math.acos(2 * v - 1);
+			const sinPhi = Math.sin(phi);
+			const brightness = Math.pow(this.hash01(this.options.seed, index, 71), 2.6);
+			const warm = this.hash01(this.options.seed, index, 89);
+
+			positions[index * 3] = Math.cos(theta) * sinPhi * radius;
+			positions[index * 3 + 1] = Math.cos(phi) * radius;
+			positions[index * 3 + 2] = Math.sin(theta) * sinPhi * radius;
+
+			color.copy(
+				warm > 0.82
+				? palette.accent
+				: warm < 0.18
+				  ? palette.nebulaB
+				  : new THREE.Color(0xddeeff),
+			).lerp(new THREE.Color(0xffffff), 0.46 + brightness * 0.36);
+
+			colors[index * 3] = color.r * (0.28 + brightness * 0.72);
+			colors[index * 3 + 1] = color.g * (0.28 + brightness * 0.72);
+			colors[index * 3 + 2] = color.b * (0.28 + brightness * 0.72);
+		}
+
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+		geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+		const stars = new THREE.Points(
+			geometry,
+			new THREE.PointsMaterial({
+				size: 1.05,
+				sizeAttenuation: false,
+				vertexColors: true,
+				transparent: true,
+				opacity: 0.76,
+				depthWrite: false,
+				depthTest: true,
+			}),
+		);
+
+		stars.name = 'Backdrop Star Field';
+		stars.renderOrder = -800;
+
+		return stars;
+	}
+
+	private createNebulaTexture(
+		color: THREE.Color,
+		seed: number,
+	): THREE.CanvasTexture {
+		const canvas = document.createElement('canvas');
+		canvas.width = 512;
+		canvas.height = 256;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			return new THREE.CanvasTexture(canvas);
+		}
+
+		context.clearRect(0, 0, canvas.width, canvas.height);
+
+		const red = Math.round(color.r * 255);
+		const green = Math.round(color.g * 255);
+		const blue = Math.round(color.b * 255);
+		const gradient = context.createRadialGradient(
+			canvas.width * 0.48,
+			canvas.height * 0.50,
+			0,
+			canvas.width * 0.50,
+			canvas.height * 0.50,
+			canvas.width * 0.48,
+		);
+
+		gradient.addColorStop(0.00, `rgba(${red}, ${green}, ${blue}, 0.72)`);
+		gradient.addColorStop(0.32, `rgba(${red}, ${green}, ${blue}, 0.34)`);
+		gradient.addColorStop(0.68, `rgba(${red}, ${green}, ${blue}, 0.10)`);
+		gradient.addColorStop(1.00, 'rgba(0, 0, 0, 0)');
+
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		for (let index = 0; index < 72; index++) {
+			const x = this.hash01(seed, index, 3) * canvas.width;
+			const y = this.hash01(seed, index, 5) * canvas.height;
+			const radius = 12 + this.hash01(seed, index, 7) * 52;
+			const alpha = 0.025 + this.hash01(seed, index, 9) * 0.055;
+			const puff = context.createRadialGradient(x, y, 0, x, y, radius);
+
+			puff.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+			puff.addColorStop(1, 'rgba(255, 255, 255, 0)');
+			context.fillStyle = puff;
+			context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+		}
+
+		const texture = new THREE.CanvasTexture(canvas);
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.needsUpdate = true;
+
+		return texture;
 	}
 
 	private createStrategicMap(): void {
@@ -664,6 +1047,14 @@ export class GamePrototypeScene {
 			'keydown',
 			this.handleKeyDown,
 		);
+		window.addEventListener(
+			'keyup',
+			this.handleKeyUp,
+		);
+		window.addEventListener(
+			'blur',
+			this.handleWindowBlur,
+		);
 	}
 
 	private readonly handleContextMenu = (event: MouseEvent): void => {
@@ -736,6 +1127,16 @@ export class GamePrototypeScene {
 	};
 
 	private readonly handleKeyDown = (event: KeyboardEvent): void => {
+		if (this.isCameraKey(event.code)) {
+			if (!this.isKeyboardCameraInputAllowed(event)) {
+				return;
+			}
+
+			event.preventDefault();
+			this.pressedKeys.add(event.code);
+			return;
+		}
+
 		if (event.code === 'KeyB' && this.viewMode === 'system') {
 			this.buildShipyardInCurrentSystem();
 			return;
@@ -778,6 +1179,46 @@ export class GamePrototypeScene {
 			this.navigation = cancelTacticalMoveDraft(this.navigation);
 		}
 	};
+
+	private readonly handleKeyUp = (event: KeyboardEvent): void => {
+		if (this.isCameraKey(event.code)) {
+			this.pressedKeys.delete(event.code);
+		}
+	};
+
+	private readonly handleWindowBlur = (): void => {
+		this.pressedKeys.clear();
+	};
+
+	private isCameraKey(code: string): boolean {
+		return (
+			code === 'KeyW' ||
+			code === 'KeyA' ||
+			code === 'KeyS' ||
+			code === 'KeyD' ||
+			code === 'KeyQ' ||
+			code === 'KeyE'
+		);
+	}
+
+	private isKeyboardCameraInputAllowed(event: KeyboardEvent): boolean {
+		if (event.altKey || event.ctrlKey || event.metaKey) {
+			return false;
+		}
+
+		const target = event.target;
+
+		if (!(target instanceof HTMLElement)) {
+			return true;
+		}
+
+		return !(
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLSelectElement ||
+			target.isContentEditable
+		);
+	}
 
 	private selectNodeFromPointer(event: PointerEvent): boolean {
 		this.updatePointer(event);
@@ -1233,7 +1674,7 @@ export class GamePrototypeScene {
 					`height ${draft.heightOffset.toFixed(1)}\n`
 					: ''
 				) +
-				`left select | right enemy attack/exit/move | B shipyard | N fighter | Esc map`;
+				`WASD pan | Q/E zoom | left select | right enemy attack/exit/move | B shipyard | N fighter | Esc map`;
 			return;
 		}
 
@@ -1248,7 +1689,7 @@ export class GamePrototypeScene {
 				`height ${draft.heightOffset.toFixed(1)}\n`
 				: ''
 			) +
-			`mouse: left select | right enemy attack | right system lane move | Enter system`;
+			`WASD pan | Q/E zoom | left select | right enemy attack | right system lane move | Enter system`;
 	}
 
 	private updatePointer(event: PointerEvent): void {
@@ -1671,7 +2112,7 @@ export class GamePrototypeScene {
 			})
 			.filter((nodeId): nodeId is string => nodeId !== null);
 		const exitRadius =
-			20.0 + Math.max(0, node.system.planets.length - 1) * 9.5;
+			28.0 + Math.max(0, node.system.planets.length - 1) * 14.0;
 
 		for (let index = 0; index < connectedNodeIds.length; index++) {
 			const targetNodeId = connectedNodeIds[index];
@@ -1785,6 +2226,7 @@ export class GamePrototypeScene {
 		planet.group.name = planetDefinition.name;
 		planet.setRenderTuning(this.getSystemPlanetRenderTuning(planetDefinition));
 		planet.setHorizonCullingEnabled(false);
+		planet.setPatchFrustumCullingEnabled(false);
 		planet.setRenderQuality('moving');
 
 		return planet;
@@ -1957,7 +2399,11 @@ export class GamePrototypeScene {
 		const disposedTextures = new Set<THREE.Texture>();
 
 		object.traverse((item) => {
-			if (item instanceof THREE.Mesh || item instanceof THREE.Line) {
+			if (
+				item instanceof THREE.Mesh ||
+				item instanceof THREE.Line ||
+				item instanceof THREE.Points
+			) {
 				item.geometry.dispose();
 			}
 
@@ -1965,6 +2411,7 @@ export class GamePrototypeScene {
 				!(
 					item instanceof THREE.Mesh ||
 					item instanceof THREE.Line ||
+					item instanceof THREE.Points ||
 					item instanceof THREE.Sprite
 				)
 			) {
@@ -1989,6 +2436,44 @@ export class GamePrototypeScene {
 				entry.dispose();
 			}
 		});
+	}
+
+	private getBackdropPalette(seed: number): BackdropPalette {
+		const palettes: BackdropPalette[] = [
+			{
+				deep: new THREE.Color(0x030814),
+				mid: new THREE.Color(0x10243a),
+				nebulaA: new THREE.Color(0x2b6f86),
+				nebulaB: new THREE.Color(0x5a376f),
+				accent: new THREE.Color(0xd89b63),
+			},
+			{
+				deep: new THREE.Color(0x050712),
+				mid: new THREE.Color(0x18203a),
+				nebulaA: new THREE.Color(0x315b8f),
+				nebulaB: new THREE.Color(0x7b4056),
+				accent: new THREE.Color(0xe0c177),
+			},
+			{
+				deep: new THREE.Color(0x040911),
+				mid: new THREE.Color(0x12302f),
+				nebulaA: new THREE.Color(0x3f7765),
+				nebulaB: new THREE.Color(0x345681),
+				accent: new THREE.Color(0xd88458),
+			},
+		];
+
+		return palettes[Math.abs(Math.floor(seed)) % palettes.length];
+	}
+
+	private hash01(seed: number, index: number, salt: number): number {
+		const value = Math.sin(
+			seed * 12.9898 +
+			index * 78.233 +
+			salt * 37.719
+		) * 43758.5453;
+
+		return value - Math.floor(value);
 	}
 
 	private getSelectedFleet(): Fleet | null {
@@ -2056,7 +2541,7 @@ export class GamePrototypeScene {
 	}
 
 	private getPlanetOrbitRadius(index: number, semiMajorAxis: number): number {
-		return 13.0 + index * 9.5 + Math.log2(Math.max(1.1, semiMajorAxis)) * 1.20;
+		return 18.0 + index * 14.0 + Math.log2(Math.max(1.1, semiMajorAxis)) * 1.80;
 	}
 
 	private getSystemPlanetOrbitAngle(
@@ -2134,8 +2619,8 @@ export class GamePrototypeScene {
 		switch (planet.class) {
 			case 'ocean':
 				return {
-					ambient: 0.84,
-					exposureScale: 1.52,
+					ambient: 1.02,
+					exposureScale: 1.62,
 					horizonGlowScale: 1.14,
 					proceduralColorStrength: 1.04,
 					surfaceTextureStrength: 1.08,
@@ -2143,8 +2628,8 @@ export class GamePrototypeScene {
 
 			case 'terrestrial':
 				return {
-					ambient: 0.78,
-					exposureScale: 1.46,
+					ambient: 0.96,
+					exposureScale: 1.56,
 					horizonGlowScale: 1.08,
 					proceduralColorStrength: 1.02,
 					surfaceTextureStrength: 1.04,
@@ -2153,24 +2638,24 @@ export class GamePrototypeScene {
 			case 'ice':
 			case 'ice_giant':
 				return {
-					ambient: 0.88,
-					exposureScale: 1.52,
+					ambient: 1.04,
+					exposureScale: 1.62,
 					horizonGlowScale: 1.28,
 					proceduralColorStrength: 1.04,
 				};
 
 			case 'lava':
 				return {
-					ambient: 0.70,
-					exposureScale: 1.72,
+					ambient: 0.88,
+					exposureScale: 1.78,
 					horizonGlowScale: 1.52,
 					proceduralColorStrength: 1.12,
 				};
 
 			case 'toxic':
 				return {
-					ambient: 0.84,
-					exposureScale: 1.52,
+					ambient: 1.00,
+					exposureScale: 1.62,
 					horizonGlowScale: 1.34,
 					proceduralColorStrength: 1.12,
 					surfaceTextureStrength: 1.08,
@@ -2178,8 +2663,8 @@ export class GamePrototypeScene {
 
 			case 'desert':
 				return {
-					ambient: 0.78,
-					exposureScale: 1.50,
+					ambient: 0.96,
+					exposureScale: 1.60,
 					horizonGlowScale: 0.76,
 					proceduralColorStrength: 1.08,
 					surfaceTextureStrength: 1.12,
@@ -2187,8 +2672,8 @@ export class GamePrototypeScene {
 
 			case 'metal_rich':
 				return {
-					ambient: 0.78,
-					exposureScale: 1.50,
+					ambient: 0.94,
+					exposureScale: 1.60,
 					horizonGlowScale: 0.34,
 					proceduralColorStrength: 1.08,
 					surfaceTextureStrength: 1.14,
@@ -2196,8 +2681,8 @@ export class GamePrototypeScene {
 
 			case 'carbon':
 				return {
-					ambient: 0.80,
-					exposureScale: 1.64,
+					ambient: 0.98,
+					exposureScale: 1.72,
 					horizonGlowScale: 0.58,
 					proceduralColorStrength: 1.10,
 					surfaceTextureStrength: 1.12,
@@ -2205,8 +2690,8 @@ export class GamePrototypeScene {
 
 			case 'barren':
 				return {
-					ambient: 0.74,
-					exposureScale: 1.46,
+					ambient: 0.92,
+					exposureScale: 1.56,
 					horizonGlowScale: 0.50,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,
@@ -2214,8 +2699,8 @@ export class GamePrototypeScene {
 
 			case 'rocky':
 				return {
-					ambient: 0.74,
-					exposureScale: 1.46,
+					ambient: 0.92,
+					exposureScale: 1.56,
 					horizonGlowScale: 0.62,
 					proceduralColorStrength: 1.06,
 					surfaceTextureStrength: 1.16,

@@ -206,7 +206,7 @@ export class Planet {
 			this.renderTuning.ambient = THREE.MathUtils.clamp(
 				tuning.ambient,
 				0.12,
-				0.90,
+				1.18,
 			);
 		}
 
@@ -603,6 +603,10 @@ export class Planet {
 
 	setHorizonCullingEnabled(enabled: boolean): void {
 		this.planet?.setHorizonCullingEnabled(enabled);
+	}
+
+	setPatchFrustumCullingEnabled(enabled: boolean): void {
+		this.planet?.setPatchFrustumCullingEnabled(enabled);
 	}
 
 	private configureSurfaceRaymarching(): void {
