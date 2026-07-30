@@ -117,6 +117,9 @@ export class GamePrototypeScene {
 	private readonly systemSunDirection = new THREE.Vector3();
 	private readonly systemRenderOrigin = new THREE.Vector3();
 	private readonly systemRenderShift = new THREE.Vector3();
+	private readonly systemScale = 2.85;
+	private readonly systemPlanetScale = 1.95;
+	private readonly systemStarScale = 1.32;
 	private readonly selectionRingWorldQuaternion =
 		                 new THREE.Quaternion().setFromEuler(
 			                 new THREE.Euler(Math.PI * 0.5, 0, 0),
@@ -591,7 +594,7 @@ export class GamePrototypeScene {
 			this.systemCameraMode = 'pan';
 			this.orbitFocusPlanet = null;
 			this.options.camera.near = 0.8;
-			this.options.camera.far = 760;
+			this.options.camera.far = 3200;
 			this.options.camera.updateProjectionMatrix();
 			this.options.camera.position.set(0, 78, 116);
 			this.options.camera.lookAt(0, 0, 0);
@@ -819,7 +822,7 @@ export class GamePrototypeScene {
 			this.options.controls.target.z,
 		);
 
-		if (this.systemRenderShift.lengthSq() < 250000) {
+		if (this.systemRenderShift.lengthSq() < 2250000) {
 			return;
 		}
 
@@ -927,13 +930,13 @@ export class GamePrototypeScene {
 		this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
 		this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
 		this.options.controls.minDistance = radius * 1.12;
-		this.options.controls.maxDistance = radius * 10.0;
+		this.options.controls.maxDistance = radius * 18.0;
 
 		this.options.controls.target.copy(planet.group.position);
 		this.options.camera.position.copy(planet.group.position)
 			.addScaledVector(direction, radius * 2.25);
 		this.options.camera.near = Math.max(0.015, radius * 0.006);
-		this.options.camera.far = 760;
+		this.options.camera.far = 1800;
 		this.options.camera.fov = 46;
 		this.options.camera.updateProjectionMatrix();
 		this.options.controls.update();
@@ -965,7 +968,7 @@ export class GamePrototypeScene {
 		}
 
 		this.options.camera.near = 0.8;
-		this.options.camera.far = 760;
+		this.options.camera.far = 1800;
 		this.options.camera.updateProjectionMatrix();
 		this.options.controls.update();
 	}
@@ -2594,9 +2597,9 @@ export class GamePrototypeScene {
 		this.systemExitMeshes.clear();
 
 		const starRadius = THREE.MathUtils.clamp(
-			node.system.star.radius * 2.1,
-			3.8,
-			7.5,
+			node.system.star.radius * 2.1 * this.systemStarScale,
+			5.6,
+			12.4,
 		);
 		const star = new THREE.Mesh(
 			new THREE.SphereGeometry(starRadius, 48, 24),
@@ -2827,7 +2830,9 @@ export class GamePrototypeScene {
 			})
 			.filter((nodeId): nodeId is string => nodeId !== null);
 		const exitRadius =
-			      28.0 + Math.max(0, node.system.planets.length - 1) * 14.0;
+			      (
+				      34.0 + Math.max(0, node.system.planets.length - 1) * 18.0
+			      ) * this.systemScale;
 
 		for (let index = 0; index < connectedNodeIds.length; index++) {
 			const targetNodeId = connectedNodeIds[index];
@@ -2954,8 +2959,8 @@ export class GamePrototypeScene {
 			                                               : systemViewTuning.surfaceTextureStrength,
 		                       });
 
-		planet.setHorizonCullingEnabled(false);
-		planet.setPatchFrustumCullingEnabled(false);
+		planet.setHorizonCullingEnabled(true);
+		planet.setPatchFrustumCullingEnabled(true);
 		planet.setRenderQuality('idle');
 
 		planet.group.getObjectByName('PlanetDepthOccluder')?.removeFromParent();
@@ -3284,7 +3289,12 @@ export class GamePrototypeScene {
 	}
 
 	private getPlanetOrbitRadius(index: number, semiMajorAxis: number): number {
-		return 18.0 + index * 14.0 + Math.log2(Math.max(1.1, semiMajorAxis)) * 1.80;
+		const baseOrbit =
+			      18.0 +
+			      index * 14.0 +
+			      Math.log2(Math.max(1.1, semiMajorAxis)) * 1.80;
+
+		return baseOrbit * this.systemScale;
 	}
 
 	private getSystemPlanetOrbitAngle(
@@ -3300,60 +3310,22 @@ export class GamePrototypeScene {
 	private getSystemPlanetRenderRadius(
 		planet: StrategicNode['system']['planets'][number],
 	): number {
-		const solidRadius01 = THREE.MathUtils.clamp(
-			planet.physical.radius / 2.4,
-			0,
-			1,
-		);
-		const giantRadius01 = THREE.MathUtils.clamp(
-			(planet.physical.radius - 8.0) / 10.0,
-			0,
-			1,
+		const baseRadius = THREE.MathUtils.clamp(
+			planet.physical.radius / 2.2,
+			1.85,
+			5.8,
 		);
 
-		switch (planet.class) {
-			case 'gas_giant':
-				return THREE.MathUtils.lerp(
-					6.20,
-					11.80,
-					giantRadius01,
-				);
+		const classScale =
+			      planet.class === 'gas_giant'
+			      ? 1.95
+			      : planet.class === 'ice_giant'
+			        ? 1.68
+			        : planet.class === 'ocean'
+			          ? 1.34
+			          : 1.08;
 
-			case 'ice_giant':
-				return THREE.MathUtils.lerp(
-					5.20,
-					9.40,
-					giantRadius01,
-				);
-
-			case 'terrestrial':
-			case 'ocean':
-				return THREE.MathUtils.lerp(
-					3.10,
-					5.30,
-					solidRadius01,
-				);
-
-			case 'lava':
-			case 'toxic':
-			case 'desert':
-			case 'ice':
-				return THREE.MathUtils.lerp(
-					3.00,
-					4.80,
-					solidRadius01,
-				);
-
-			case 'metal_rich':
-			case 'carbon':
-			case 'rocky':
-			case 'barren':
-				return THREE.MathUtils.lerp(
-					3.00,
-					4.15,
-					solidRadius01,
-				);
-		}
+		return baseRadius * classScale * this.systemPlanetScale;
 	}
 
 	private getSystemPlanetRenderTuning(

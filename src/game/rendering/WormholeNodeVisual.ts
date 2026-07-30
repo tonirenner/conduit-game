@@ -1,97 +1,121 @@
 import * as THREE from 'three';
 
-export type WormholeNodeVisualOwner = 'player' | 'opponent' | 'neutral';
+export type WormholeOwner =
+	| 'player'
+	| 'opponent'
+	| 'enemy'
+	| 'neutral';
 
 export type WormholeNodeVisualOptions = {
 	name: string;
 	radius: number;
-	owner: WormholeNodeVisualOwner;
+	owner?: WormholeOwner;
 	selected?: boolean;
 };
 
 export class WormholeNodeVisual {
 	public readonly group = new THREE.Group();
 
-	private static sharedTexture: THREE.CanvasTexture | null = null;
-
-	private readonly haloSprite: THREE.Sprite;
-	private readonly mainSprite: THREE.Sprite;
-	private readonly coreSprite: THREE.Sprite;
-	private readonly ringSprite: THREE.Sprite;
-	private readonly baseRadius: number;
-	private readonly baseColor: THREE.Color;
-	private time = Math.random() * Math.PI * 2;
+	private readonly halo: THREE.Sprite;
+	private readonly core: THREE.Sprite;
+	private readonly swirl: THREE.Sprite;
+	private readonly baseScale: number;
 	private selected = false;
+	private time = 0;
+
+	private readonly materials: THREE.SpriteMaterial[] = [];
+	private readonly textures: THREE.Texture[] = [];
 
 	constructor(options: WormholeNodeVisualOptions) {
+		const color = this.getOwnerColor(options.owner);
+		const accent = this.getOwnerAccent(options.owner);
+
 		this.group.name = options.name;
-		this.group.renderOrder = 18;
-		this.baseRadius = Math.max(0.75, options.radius);
-		this.baseColor = this.resolveColor(options.owner);
+		this.baseScale = Math.max(2.0, options.radius * 5.8);
+		this.selected = options.selected ?? false;
 
-		this.haloSprite = this.createSprite(this.baseColor, 0.38, 0.55);
-		this.mainSprite = this.createSprite(this.baseColor, 0.92, 0.86);
-		this.coreSprite = this.createSprite(new THREE.Color(0xffffff), 0.44, 0.94);
-		this.ringSprite = this.createSprite(this.baseColor.clone().offsetHSL(0.02, 0.03, 0.08), 0.72, 0.32);
+		this.halo = this.createSprite(
+			this.createHaloTexture(color),
+			color,
+			0.42,
+			this.baseScale * 1.65,
+		);
+		this.halo.name = `${options.name} Halo`;
+		this.halo.renderOrder = 32;
 
-		this.group.add(this.haloSprite);
-		this.group.add(this.mainSprite);
-		this.group.add(this.ringSprite);
-		this.group.add(this.coreSprite);
+		this.swirl = this.createSprite(
+			this.createSwirlTexture(color, accent),
+			color,
+			0.92,
+			this.baseScale,
+		);
+		this.swirl.name = `${options.name} Swirl`;
+		this.swirl.renderOrder = 34;
 
-		this.haloSprite.material.rotation = Math.random() * Math.PI;
-		this.mainSprite.material.rotation = Math.random() * Math.PI;
-		this.ringSprite.material.rotation = Math.random() * Math.PI;
+		this.core = this.createSprite(
+			this.createCoreTexture(accent),
+			accent,
+			0.96,
+			this.baseScale * 0.46,
+		);
+		this.core.name = `${options.name} Core`;
+		this.core.renderOrder = 36;
 
-		this.setSelected(Boolean(options.selected));
-		this.update(0);
+		this.group.add(this.halo);
+		this.group.add(this.swirl);
+		this.group.add(this.core);
+		this.applySelectedState();
 	}
 
 	setSelected(selected: boolean): void {
-		this.selected = selected;
+		if (this.selected === selected) {
+			return;
+		}
 
-		this.haloSprite.material.opacity = selected ? 0.60 : 0.38;
-		this.mainSprite.material.opacity = selected ? 0.98 : 0.86;
-		this.ringSprite.material.opacity = selected ? 0.48 : 0.32;
-		this.coreSprite.material.opacity = selected ? 1.0 : 0.94;
+		this.selected = selected;
+		this.applySelectedState();
 	}
 
 	update(deltaSeconds: number): void {
 		this.time += deltaSeconds;
-		const pulse = 1.0 + Math.sin(this.time * 2.25) * 0.05;
-		const drift = 1.0 + Math.cos(this.time * 1.35) * 0.03;
-		const selectedBoost = this.selected ? 1.10 : 1.0;
-		const size = this.baseRadius * selectedBoost;
 
-		this.haloSprite.scale.setScalar(size * 7.8 * pulse);
-		this.mainSprite.scale.setScalar(size * 5.6 * drift);
-		this.ringSprite.scale.set(size * 6.8 * pulse, size * 4.7 * pulse, 1);
-		this.coreSprite.scale.setScalar(size * 2.1 * pulse);
+		const pulse =
+			      1.0 +
+			      Math.sin(this.time * 2.4) * (this.selected ? 0.085 : 0.045);
 
-		this.group.rotation.z += deltaSeconds * 0.08;
-		this.mainSprite.material.rotation += deltaSeconds * 0.16;
-		this.ringSprite.material.rotation -= deltaSeconds * 0.09;
+		this.halo.scale.setScalar(this.baseScale * 1.65 * pulse);
+		this.swirl.scale.setScalar(this.baseScale * (1.0 + Math.sin(this.time * 3.1) * 0.035));
+		this.core.scale.setScalar(this.baseScale * 0.46 * (1.0 + Math.sin(this.time * 4.7) * 0.065));
+
+		this.halo.material.rotation -= deltaSeconds * 0.16;
+		this.swirl.material.rotation += deltaSeconds * 0.38;
+		this.core.material.rotation -= deltaSeconds * 0.22;
 	}
 
 	dispose(): void {
-		for (const child of this.group.children) {
-			if (!(child instanceof THREE.Sprite)) {
-				continue;
-			}
-
-			child.material.dispose();
+		for (const material of this.materials) {
+			material.dispose();
 		}
 
-		this.group.clear();
+		for (const texture of this.textures) {
+			texture.dispose();
+		}
+	}
+
+	private applySelectedState(): void {
+		this.halo.material.opacity = this.selected ? 0.62 : 0.38;
+		this.swirl.material.opacity = this.selected ? 1.0 : 0.86;
+		this.core.material.opacity = this.selected ? 1.0 : 0.92;
 	}
 
 	private createSprite(
-		color: THREE.ColorRepresentation,
-		scale: number,
+		texture: THREE.Texture,
+		color: THREE.Color,
 		opacity: number,
+		scale: number,
 	): THREE.Sprite {
 		const material = new THREE.SpriteMaterial({
-			                                          map: WormholeNodeVisual.getSharedTexture(),
+			                                          map: texture,
 			                                          color,
 			                                          transparent: true,
 			                                          opacity,
@@ -101,29 +125,16 @@ export class WormholeNodeVisual {
 		                                          });
 
 		const sprite = new THREE.Sprite(material);
-		sprite.renderOrder = 18;
-		sprite.scale.setScalar(this.baseRadius * scale * 6.0);
+
+		sprite.scale.setScalar(scale);
+
+		this.materials.push(material);
+		this.textures.push(texture);
 
 		return sprite;
 	}
 
-	private resolveColor(owner: WormholeNodeVisualOwner): THREE.Color {
-		switch (owner) {
-			case 'player':
-				return new THREE.Color(0x7fe7ff);
-			case 'opponent':
-				return new THREE.Color(0xff8b75);
-			case 'neutral':
-			default:
-				return new THREE.Color(0xb9d8ff);
-		}
-	}
-
-	private static getSharedTexture(): THREE.CanvasTexture {
-		if (WormholeNodeVisual.sharedTexture) {
-			return WormholeNodeVisual.sharedTexture;
-		}
-
+	private createHaloTexture(color: THREE.Color): THREE.CanvasTexture {
 		const canvas = document.createElement('canvas');
 		canvas.width = 256;
 		canvas.height = 256;
@@ -131,52 +142,132 @@ export class WormholeNodeVisual {
 		const context = canvas.getContext('2d');
 
 		if (!context) {
-			WormholeNodeVisual.sharedTexture = new THREE.CanvasTexture(canvas);
-			return WormholeNodeVisual.sharedTexture;
+			return new THREE.CanvasTexture(canvas);
 		}
 
-		const cx = canvas.width * 0.5;
-		const cy = canvas.height * 0.5;
+		const r = Math.round(color.r * 255);
+		const g = Math.round(color.g * 255);
+		const b = Math.round(color.b * 255);
+		const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 126);
 
-		context.clearRect(0, 0, canvas.width, canvas.height);
+		gradient.addColorStop(0.00, `rgba(255,255,255,0.60)`);
+		gradient.addColorStop(0.18, `rgba(${r},${g},${b},0.42)`);
+		gradient.addColorStop(0.48, `rgba(${r},${g},${b},0.16)`);
+		gradient.addColorStop(1.00, `rgba(0,0,0,0)`);
 
-		const outer = context.createRadialGradient(cx, cy, 0, cx, cy, canvas.width * 0.48);
-		outer.addColorStop(0.00, 'rgba(255,255,255,0.98)');
-		outer.addColorStop(0.08, 'rgba(170,245,255,0.96)');
-		outer.addColorStop(0.22, 'rgba(96,190,255,0.66)');
-		outer.addColorStop(0.40, 'rgba(45,95,255,0.28)');
-		outer.addColorStop(0.64, 'rgba(32,45,165,0.12)');
-		outer.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, 256, 256);
+
+		return this.finishTexture(canvas);
+	}
+
+	private createCoreTexture(color: THREE.Color): THREE.CanvasTexture {
+		const canvas = document.createElement('canvas');
+		canvas.width = 256;
+		canvas.height = 256;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			return new THREE.CanvasTexture(canvas);
+		}
+
+		const r = Math.round(color.r * 255);
+		const g = Math.round(color.g * 255);
+		const b = Math.round(color.b * 255);
+		const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 92);
+
+		gradient.addColorStop(0.00, `rgba(255,255,255,1.0)`);
+		gradient.addColorStop(0.22, `rgba(${r},${g},${b},0.95)`);
+		gradient.addColorStop(0.58, `rgba(${r},${g},${b},0.34)`);
+		gradient.addColorStop(1.00, `rgba(0,0,0,0)`);
+
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, 256, 256);
+
+		return this.finishTexture(canvas);
+	}
+
+	private createSwirlTexture(
+		color: THREE.Color,
+		accent: THREE.Color,
+	): THREE.CanvasTexture {
+		const canvas = document.createElement('canvas');
+		canvas.width = 256;
+		canvas.height = 256;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			return new THREE.CanvasTexture(canvas);
+		}
+
+		const main = this.toRgb(color);
+		const bright = this.toRgb(accent);
+		const outer = context.createRadialGradient(128, 128, 0, 128, 128, 126);
+
+		outer.addColorStop(0.00, `rgba(255,255,255,0.92)`);
+		outer.addColorStop(0.16, `rgba(${bright},0.78)`);
+		outer.addColorStop(0.38, `rgba(${main},0.34)`);
+		outer.addColorStop(0.74, `rgba(${main},0.12)`);
+		outer.addColorStop(1.00, `rgba(0,0,0,0)`);
+
 		context.fillStyle = outer;
-		context.fillRect(0, 0, canvas.width, canvas.height);
+		context.fillRect(0, 0, 256, 256);
 
-		for (let index = 0; index < 34; index++) {
-			const angle = index * 0.82;
-			const radius = 10 + index * 2.0;
-			const spread = 10 + index * 0.50;
-			const x = cx + Math.cos(angle) * radius;
-			const y = cy + Math.sin(angle) * radius * 0.72;
-
+		for (let index = 0; index < 64; index++) {
+			const angle = index * 0.72;
+			const radius = 8 + index * 1.72;
+			const x = 128 + Math.cos(angle) * radius;
+			const y = 128 + Math.sin(angle) * radius * 0.74;
+			const spread = 9 + index * 0.38;
 			const puff = context.createRadialGradient(x, y, 0, x, y, spread);
-			puff.addColorStop(0.00, 'rgba(210,248,255,0.24)');
-			puff.addColorStop(0.52, 'rgba(90,145,255,0.10)');
-			puff.addColorStop(1.00, 'rgba(0,0,0,0.00)');
+
+			puff.addColorStop(0.00, `rgba(255,255,255,0.22)`);
+			puff.addColorStop(0.36, `rgba(${bright},0.18)`);
+			puff.addColorStop(1.00, `rgba(0,0,0,0)`);
+
 			context.fillStyle = puff;
 			context.fillRect(x - spread, y - spread, spread * 2, spread * 2);
 		}
 
-		const core = context.createRadialGradient(cx, cy, 0, cx, cy, canvas.width * 0.17);
-		core.addColorStop(0.00, 'rgba(255,255,255,1.00)');
-		core.addColorStop(0.22, 'rgba(192,248,255,0.96)');
-		core.addColorStop(0.58, 'rgba(84,132,255,0.34)');
-		core.addColorStop(1.00, 'rgba(0,0,0,0.00)');
-		context.fillStyle = core;
-		context.fillRect(0, 0, canvas.width, canvas.height);
+		return this.finishTexture(canvas);
+	}
 
-		WormholeNodeVisual.sharedTexture = new THREE.CanvasTexture(canvas);
-		WormholeNodeVisual.sharedTexture.colorSpace = THREE.SRGBColorSpace;
-		WormholeNodeVisual.sharedTexture.needsUpdate = true;
+	private finishTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+		const texture = new THREE.CanvasTexture(canvas);
 
-		return WormholeNodeVisual.sharedTexture;
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.needsUpdate = true;
+
+		return texture;
+	}
+
+	private getOwnerColor(owner?: WormholeOwner): THREE.Color {
+		if (owner === 'opponent' || owner === 'enemy') {
+			return new THREE.Color(0xff6f9a);
+		}
+
+		if (owner === 'neutral') {
+			return new THREE.Color(0xb9d8ff);
+		}
+
+		return new THREE.Color(0x65dfff);
+	}
+
+	private getOwnerAccent(owner?: WormholeOwner): THREE.Color {
+		if (owner === 'opponent' || owner === 'enemy') {
+			return new THREE.Color(0xffb071);
+		}
+
+		if (owner === 'neutral') {
+			return new THREE.Color(0xffffff);
+		}
+
+		return new THREE.Color(0xc8fbff);
+	}
+
+	private toRgb(color: THREE.Color): string {
+		return `${Math.round(color.r * 255)},${Math.round(color.g * 255)},${Math.round(color.b * 255)}`;
 	}
 }
