@@ -92,9 +92,9 @@ export class GamePrototypeScene {
 	private readonly intersection = new THREE.Vector3();
 	private readonly systemSunDirection = new THREE.Vector3();
 	private readonly selectionRingWorldQuaternion =
-		new THREE.Quaternion().setFromEuler(
-			new THREE.Euler(Math.PI * 0.5, 0, 0),
-		);
+		                 new THREE.Quaternion().setFromEuler(
+			                 new THREE.Euler(Math.PI * 0.5, 0, 0),
+		                 );
 	private readonly pressedKeys = new Set<string>();
 	private readonly moveMarker: THREE.Group;
 	private systemMoveMarker: THREE.Group | null = null;
@@ -417,11 +417,11 @@ export class GamePrototypeScene {
 
 	private updateKeyboardPan(deltaSeconds: number): void {
 		const forwardInput =
-		      (this.pressedKeys.has('KeyW') ? 1 : 0) -
-		      (this.pressedKeys.has('KeyS') ? 1 : 0);
+			      (this.pressedKeys.has('KeyW') ? 1 : 0) -
+			      (this.pressedKeys.has('KeyS') ? 1 : 0);
 		const rightInput =
-		      (this.pressedKeys.has('KeyD') ? 1 : 0) -
-		      (this.pressedKeys.has('KeyA') ? 1 : 0);
+			      (this.pressedKeys.has('KeyD') ? 1 : 0) -
+			      (this.pressedKeys.has('KeyA') ? 1 : 0);
 
 		if (forwardInput === 0 && rightInput === 0) {
 			return;
@@ -455,10 +455,10 @@ export class GamePrototypeScene {
 		const baseSpeed = this.viewMode === 'system' ? 42 : 30;
 		const distanceScale = THREE.MathUtils.clamp(distance / 100, 0.55, 2.6);
 		const speedMultiplier =
-		      this.pressedKeys.has('ShiftLeft') ||
-		      this.pressedKeys.has('ShiftRight')
-		      ? 2.4
-		      : 1.0;
+			      this.pressedKeys.has('ShiftLeft') ||
+			      this.pressedKeys.has('ShiftRight')
+			      ? 2.4
+			      : 1.0;
 		const step = baseSpeed * distanceScale * speedMultiplier * deltaSeconds;
 
 		movement.normalize().multiplyScalar(step);
@@ -469,8 +469,8 @@ export class GamePrototypeScene {
 
 	private updateKeyboardZoom(deltaSeconds: number): void {
 		const zoomInput =
-		      (this.pressedKeys.has('KeyQ') ? 1 : 0) -
-		      (this.pressedKeys.has('KeyE') ? 1 : 0);
+			      (this.pressedKeys.has('KeyQ') ? 1 : 0) -
+			      (this.pressedKeys.has('KeyE') ? 1 : 0);
 
 		if (zoomInput === 0) {
 			return;
@@ -543,11 +543,11 @@ export class GamePrototypeScene {
 		const dome = new THREE.Mesh(
 			geometry,
 			new THREE.MeshBasicMaterial({
-				side: THREE.BackSide,
-				vertexColors: true,
-				depthWrite: false,
-				depthTest: false,
-			}),
+				                            side: THREE.BackSide,
+				                            vertexColors: true,
+				                            depthWrite: false,
+				                            depthTest: false,
+			                            }),
 		);
 
 		dome.name = 'Vertex Color Skydome';
@@ -590,14 +590,14 @@ export class GamePrototypeScene {
 		for (const layer of layers) {
 			const sprite = new THREE.Sprite(
 				new THREE.SpriteMaterial({
-					map: this.createNebulaTexture(layer.color, this.options.seed + layer.seedOffset),
-					color: layer.color,
-					transparent: true,
-					opacity: layer.opacity,
-					blending: THREE.AdditiveBlending,
-					depthWrite: false,
-					depthTest: true,
-				}),
+					                         map: this.createNebulaTexture(layer.color, this.options.seed + layer.seedOffset),
+					                         color: layer.color,
+					                         transparent: true,
+					                         opacity: layer.opacity,
+					                         blending: THREE.AdditiveBlending,
+					                         depthWrite: false,
+					                         depthTest: true,
+				                         }),
 			);
 
 			sprite.name = 'Soft Nebula Billboard';
@@ -651,14 +651,14 @@ export class GamePrototypeScene {
 		const stars = new THREE.Points(
 			geometry,
 			new THREE.PointsMaterial({
-				size: 1.05,
-				sizeAttenuation: false,
-				vertexColors: true,
-				transparent: true,
-				opacity: 0.76,
-				depthWrite: false,
-				depthTest: true,
-			}),
+				                         size: 1.05,
+				                         sizeAttenuation: false,
+				                         vertexColors: true,
+				                         transparent: true,
+				                         opacity: 0.76,
+				                         depthWrite: false,
+				                         depthTest: true,
+			                         }),
 		);
 
 		stars.name = 'Backdrop Star Field';
@@ -725,10 +725,10 @@ export class GamePrototypeScene {
 
 	private createStrategicMap(): void {
 		const laneMaterial = new THREE.LineBasicMaterial({
-			color: 0x315b7c,
-			transparent: true,
-			opacity: 0.72,
-		});
+			                                                 color: 0x315b7c,
+			                                                 transparent: true,
+			                                                 opacity: 0.72,
+		                                                 });
 
 		for (const lane of this.world.lanes) {
 			const from = this.getNode(lane.fromNodeId);
@@ -739,9 +739,9 @@ export class GamePrototypeScene {
 			}
 
 			const geometry = new THREE.BufferGeometry().setFromPoints([
-				this.nodeToVector(from, -0.02),
-				this.nodeToVector(to, -0.02),
-			]);
+				                                                          this.nodeToVector(from, -0.02),
+				                                                          this.nodeToVector(to, -0.02),
+			                                                          ]);
 
 			const line = new THREE.Line(geometry, laneMaterial.clone());
 			line.name = `Lane ${lane.id}`;
@@ -752,12 +752,12 @@ export class GamePrototypeScene {
 			const mesh = new THREE.Mesh(
 				new THREE.SphereGeometry(this.getNodeRadius(node), 24, 16),
 				new THREE.MeshStandardMaterial({
-					color: this.getNodeColor(node),
-					emissive: this.getNodeColor(node),
-					emissiveIntensity: node.owner === 'neutral' ? 0.08 : 0.22,
-					roughness: 0.62,
-					metalness: 0.08,
-				}),
+					                               color: this.getNodeColor(node),
+					                               emissive: this.getNodeColor(node),
+					                               emissiveIntensity: node.owner === 'neutral' ? 0.08 : 0.22,
+					                               roughness: 0.62,
+					                               metalness: 0.08,
+				                               }),
 			);
 
 			mesh.name = node.name;
@@ -791,11 +791,11 @@ export class GamePrototypeScene {
 				4,
 			),
 			new THREE.MeshStandardMaterial({
-				color: ship.factionId === 'player' ? 0x7fd9ff : 0xff806a,
-				emissive: ship.factionId === 'player' ? 0x14384a : 0x4a1612,
-				roughness: 0.48,
-				metalness: 0.35,
-			}),
+				                               color: ship.factionId === 'player' ? 0x7fd9ff : 0xff806a,
+				                               emissive: ship.factionId === 'player' ? 0x14384a : 0x4a1612,
+				                               roughness: 0.48,
+				                               metalness: 0.35,
+			                               }),
 		);
 
 		hull.name = 'ShipFallbackHull';
@@ -811,10 +811,10 @@ export class GamePrototypeScene {
 		const selectionRing = new THREE.Mesh(
 			new THREE.TorusGeometry(0.72, 0.025, 6, 32),
 			new THREE.MeshBasicMaterial({
-				color: 0xffffff,
-				transparent: true,
-				opacity: 0.92,
-			}),
+				                            color: 0xffffff,
+				                            transparent: true,
+				                            opacity: 0.92,
+			                            }),
 		);
 
 		selectionRing.name = 'FleetSelectionRing';
@@ -952,14 +952,14 @@ export class GamePrototypeScene {
 			const engineMaterial = item.name.toLowerCase().includes('engine');
 
 			item.material = new THREE.MeshStandardMaterial({
-				color,
-				emissive: engineMaterial
-				          ? factionTint.clone().multiplyScalar(0.55)
-				          : new THREE.Color(0x000000),
-				emissiveIntensity: engineMaterial ? 0.95 : 0.0,
-				roughness: engineMaterial ? 0.36 : 0.58,
-				metalness: engineMaterial ? 0.46 : 0.34,
-			});
+				                                               color,
+				                                               emissive: engineMaterial
+				                                                         ? factionTint.clone().multiplyScalar(0.55)
+				                                                         : new THREE.Color(0x000000),
+				                                               emissiveIntensity: engineMaterial ? 0.95 : 0.0,
+				                                               roughness: engineMaterial ? 0.36 : 0.58,
+				                                               metalness: engineMaterial ? 0.46 : 0.34,
+			                                               });
 		});
 
 		return clone;
@@ -970,19 +970,19 @@ export class GamePrototypeScene {
 		const core = new THREE.Mesh(
 			new THREE.BoxGeometry(0.9, 0.55, 0.9),
 			new THREE.MeshStandardMaterial({
-				color: station.factionId === 'player' ? 0x83d9ff : 0xff8a72,
-				emissive: station.factionId === 'player' ? 0x123447 : 0x45140f,
-				roughness: 0.52,
-				metalness: 0.42,
-			}),
+				                               color: station.factionId === 'player' ? 0x83d9ff : 0xff8a72,
+				                               emissive: station.factionId === 'player' ? 0x123447 : 0x45140f,
+				                               roughness: 0.52,
+				                               metalness: 0.42,
+			                               }),
 		);
 		const ring = new THREE.Mesh(
 			new THREE.TorusGeometry(0.92, 0.055, 8, 32),
 			new THREE.MeshStandardMaterial({
-				color: 0xaeb8bd,
-				roughness: 0.48,
-				metalness: 0.55,
-			}),
+				                               color: 0xaeb8bd,
+				                               roughness: 0.48,
+				                               metalness: 0.55,
+			                               }),
 		);
 
 		ring.rotation.x = Math.PI * 0.5;
@@ -1003,21 +1003,21 @@ export class GamePrototypeScene {
 		const ring = new THREE.Mesh(
 			new THREE.TorusGeometry(1.35, 0.035, 8, 48),
 			new THREE.MeshBasicMaterial({
-				color: 0x8fe7ff,
-				transparent: true,
-				opacity: 0.88,
-			}),
+				                            color: 0x8fe7ff,
+				                            transparent: true,
+				                            opacity: 0.88,
+			                            }),
 		);
 		const stem = new THREE.Line(
 			new THREE.BufferGeometry().setFromPoints([
-				new THREE.Vector3(0, 0, 0),
-				new THREE.Vector3(0, 1, 0),
-			]),
+				                                         new THREE.Vector3(0, 0, 0),
+				                                         new THREE.Vector3(0, 1, 0),
+			                                         ]),
 			new THREE.LineBasicMaterial({
-				color: 0x8fe7ff,
-				transparent: true,
-				opacity: 0.62,
-			}),
+				                            color: 0x8fe7ff,
+				                            transparent: true,
+				                            opacity: 0.62,
+			                            }),
 		);
 
 		ring.rotation.x = Math.PI * 0.5;
@@ -1237,8 +1237,8 @@ export class GamePrototypeScene {
 
 		const now = performance.now();
 		const isDoubleClick =
-			nodeId === this.lastNodeClickId &&
-			now - this.lastNodeClickTime < 360;
+			      nodeId === this.lastNodeClickId &&
+			      now - this.lastNodeClickTime < 360;
 
 		this.selectedNodeId = nodeId;
 		this.lastNodeClickId = nodeId;
@@ -1428,17 +1428,17 @@ export class GamePrototypeScene {
 		this.raycaster.setFromCamera(this.pointer, this.options.camera);
 
 		const meshes = system
-			? [...this.systemShipMeshes.values()]
-			: [...this.shipMeshes.values()];
+		               ? [...this.systemShipMeshes.values()]
+		               : [...this.shipMeshes.values()];
 		const intersections = this.raycaster.intersectObjects(meshes, true);
 		const object = intersections[0]?.object;
 		const shipId = object
-			? (
-				system
-				? this.findSystemShipIdForObject(object)
-				: this.findShipIdForObject(object)
-			)
-			: null;
+		               ? (
+			               system
+			               ? this.findSystemShipIdForObject(object)
+			               : this.findShipIdForObject(object)
+		               )
+		               : null;
 
 		if (!shipId) {
 			return null;
@@ -1643,8 +1643,8 @@ export class GamePrototypeScene {
 	private updateHud(): void {
 		const selectedFleet = this.getSelectedFleet();
 		const selectedNode = this.selectedNodeId
-			? this.getNode(this.selectedNodeId)
-			: null;
+		                     ? this.getNode(this.selectedNodeId)
+		                     : null;
 		const order = selectedFleet?.order.type ?? 'none';
 		const draft = this.navigation.moveDraft;
 
@@ -1657,10 +1657,10 @@ export class GamePrototypeScene {
 				(station) => station.nodeId === node.id,
 			).length;
 			const selectedStation = this.selectedStationId
-				? this.world.stations.find(
+			                        ? this.world.stations.find(
 					(station) => station.id === this.selectedStationId,
 				)
-				: null;
+			                        : null;
 
 			this.options.hud.textContent =
 				`GAME MODE | SYSTEM | ${node.name}\n` +
@@ -1670,8 +1670,8 @@ export class GamePrototypeScene {
 				(
 					draft
 					? `move draft: x ${draft.anchor.x.toFixed(1)} | ` +
-					`z ${draft.anchor.z.toFixed(1)} | ` +
-					`height ${draft.heightOffset.toFixed(1)}\n`
+				`z ${draft.anchor.z.toFixed(1)} | ` +
+				`height ${draft.heightOffset.toFixed(1)}\n`
 					: ''
 				) +
 				`WASD pan | Q/E zoom | left select | right enemy attack/exit/move | B shipyard | N fighter | Esc map`;
@@ -1685,8 +1685,8 @@ export class GamePrototypeScene {
 			(
 				draft
 				? `move draft: x ${draft.anchor.x.toFixed(1)} | ` +
-				`z ${draft.anchor.z.toFixed(1)} | ` +
-				`height ${draft.heightOffset.toFixed(1)}\n`
+			`z ${draft.anchor.z.toFixed(1)} | ` +
+			`height ${draft.heightOffset.toFixed(1)}\n`
 				: ''
 			) +
 			`WASD pan | Q/E zoom | left select | right enemy attack | right system lane move | Enter system`;
@@ -1826,18 +1826,18 @@ export class GamePrototypeScene {
 		}
 
 		const station =
-			(
-				this.selectedStationId
-				? this.world.stations.find(
-					(item) =>
-						item.id === this.selectedStationId &&
-						item.nodeId === nodeId,
-				)
-				: null
-			) ??
-			this.world.stations.find(
-				(item) => item.nodeId === nodeId && item.type === 'shipyard',
-			);
+			      (
+				      this.selectedStationId
+				      ? this.world.stations.find(
+					      (item) =>
+						      item.id === this.selectedStationId &&
+						      item.nodeId === nodeId,
+				      )
+				      : null
+			      ) ??
+			      this.world.stations.find(
+				      (item) => item.nodeId === nodeId && item.type === 'shipyard',
+			      );
 
 		if (!station) {
 			return;
@@ -1897,8 +1897,8 @@ export class GamePrototypeScene {
 		const star = new THREE.Mesh(
 			new THREE.SphereGeometry(starRadius, 48, 24),
 			new THREE.MeshBasicMaterial({
-				color: new THREE.Color(node.system.star.color),
-			}),
+				                            color: new THREE.Color(node.system.star.color),
+			                            }),
 		);
 
 		star.name = `${node.system.star.name} Star`;
@@ -2047,12 +2047,12 @@ export class GamePrototypeScene {
 				preview.position.copy(position);
 				this.systemGroup.add(preview);
 				this.pendingSystemPlanetBuilds.push({
-					nodeId: node.id,
-					planet: planetDefinition,
-					radius: planetRadius,
-					position,
-					preview,
-				});
+					                                    nodeId: node.id,
+					                                    planet: planetDefinition,
+					                                    radius: planetRadius,
+					                                    position,
+					                                    preview,
+				                                    });
 			}
 			return;
 		}
@@ -2088,12 +2088,12 @@ export class GamePrototypeScene {
 			preview.position.copy(position);
 			this.systemGroup.add(preview);
 			this.pendingSystemPlanetBuilds.push({
-				nodeId: node.id,
-				planet: planetDefinition,
-				radius: planetRadius,
-				position,
-				preview,
-			});
+				                                    nodeId: node.id,
+				                                    planet: planetDefinition,
+				                                    radius: planetRadius,
+				                                    position,
+				                                    preview,
+			                                    });
 		}
 	}
 
@@ -2112,7 +2112,7 @@ export class GamePrototypeScene {
 			})
 			.filter((nodeId): nodeId is string => nodeId !== null);
 		const exitRadius =
-			28.0 + Math.max(0, node.system.planets.length - 1) * 14.0;
+			      28.0 + Math.max(0, node.system.planets.length - 1) * 14.0;
 
 		for (let index = 0; index < connectedNodeIds.length; index++) {
 			const targetNodeId = connectedNodeIds[index];
@@ -2139,28 +2139,28 @@ export class GamePrototypeScene {
 	private createSystemExitMesh(owner: StrategicNode['owner']): THREE.Object3D {
 		const group = new THREE.Group();
 		const color =
-			owner === 'player'
-			? 0x7fd9ff
-			: owner === 'opponent'
-			  ? 0xff806a
-			  : 0xd4c06a;
+			      owner === 'player'
+			      ? 0x7fd9ff
+			      : owner === 'opponent'
+			        ? 0xff806a
+			        : 0xd4c06a;
 		const ring = new THREE.Mesh(
 			new THREE.TorusGeometry(0.88, 0.045, 8, 40),
 			new THREE.MeshBasicMaterial({
-				color,
-				transparent: true,
-				opacity: 0.86,
-			}),
+				                            color,
+				                            transparent: true,
+				                            opacity: 0.86,
+			                            }),
 		);
 		const core = new THREE.Mesh(
 			new THREE.OctahedronGeometry(0.28, 0),
 			new THREE.MeshStandardMaterial({
-				color,
-				emissive: color,
-				emissiveIntensity: 0.36,
-				roughness: 0.42,
-				metalness: 0.2,
-			}),
+				                               color,
+				                               emissive: color,
+				                               emissiveIntensity: 0.36,
+				                               roughness: 0.42,
+				                               metalness: 0.2,
+			                               }),
 		);
 
 		ring.rotation.x = Math.PI * 0.5;
@@ -2207,16 +2207,16 @@ export class GamePrototypeScene {
 				nearSurfaceTerrain: false,
 				gasCloudParticles: false,
 				cloudSteps: {
-					moving: 4,
-					idle: 8,
+					moving: 8,
+					idle: 16,
 				},
 				atmosphereSteps: {
-					moving: 4,
-					idle: 8,
+					moving: 6,
+					idle: 12,
 				},
 				surfaceSteps: {
-					moving: 1,
-					idle: 3,
+					moving: 2,
+					idle: 6,
 				},
 			},
 			planetDefinition,
@@ -2227,7 +2227,19 @@ export class GamePrototypeScene {
 		planet.setRenderTuning(this.getSystemPlanetRenderTuning(planetDefinition));
 		planet.setHorizonCullingEnabled(false);
 		planet.setPatchFrustumCullingEnabled(false);
-		planet.setRenderQuality('moving');
+		planet.setRenderQuality('idle');
+
+		/**
+		 * SystemView fix:
+		 *
+		 * The depth occluder sits very close to the actual solid-surface
+		 * CubeSphere. In the Game/SystemView this can cause visible raster /
+		 * dotted depth artifacts on some solid planets.
+		 *
+		 * PlanetViewer can keep using the depth occluder. The Game/SystemView
+		 * does not need it, so we remove it only for system planets.
+		 */
+		planet.group.getObjectByName('PlanetDepthOccluder')?.removeFromParent();
 
 		return planet;
 	}
@@ -2241,12 +2253,12 @@ export class GamePrototypeScene {
 		const body = new THREE.Mesh(
 			new THREE.SphereGeometry(radius, 32, 16),
 			new THREE.MeshStandardMaterial({
-				color: previewStyle.color,
-				emissive: previewStyle.emissive,
-				emissiveIntensity: previewStyle.emissiveIntensity,
-				roughness: previewStyle.roughness,
-				metalness: previewStyle.metalness,
-			}),
+				                               color: previewStyle.color,
+				                               emissive: previewStyle.emissive,
+				                               emissiveIntensity: previewStyle.emissiveIntensity,
+				                               roughness: previewStyle.roughness,
+				                               metalness: previewStyle.metalness,
+			                               }),
 		);
 
 		group.name = `${planet.name} Preview`;
@@ -2256,11 +2268,11 @@ export class GamePrototypeScene {
 			const ring = new THREE.Mesh(
 				new THREE.RingGeometry(radius * 1.35, radius * 2.15, 48),
 				new THREE.MeshBasicMaterial({
-					color: 0xb7b1a2,
-					side: THREE.DoubleSide,
-					transparent: true,
-					opacity: 0.34,
-				}),
+					                            color: 0xb7b1a2,
+					                            side: THREE.DoubleSide,
+					                            transparent: true,
+					                            opacity: 0.34,
+				                            }),
 			);
 
 			ring.rotation.x = Math.PI * 0.5;
@@ -2302,14 +2314,14 @@ export class GamePrototypeScene {
 			const size = starRadius * layer.scale;
 			const glow = new THREE.Sprite(
 				new THREE.SpriteMaterial({
-					map: texture,
-					color,
-					transparent: true,
-					opacity: layer.opacity,
-					blending: THREE.AdditiveBlending,
-					depthWrite: false,
-					depthTest: false,
-				}),
+					                         map: texture,
+					                         color,
+					                         transparent: true,
+					                         opacity: layer.opacity,
+					                         blending: THREE.AdditiveBlending,
+					                         depthWrite: false,
+					                         depthTest: false,
+				                         }),
 			);
 
 			glow.name = 'System Star Glow Layer';
@@ -2388,10 +2400,10 @@ export class GamePrototypeScene {
 		return new THREE.Line(
 			new THREE.BufferGeometry().setFromPoints(points),
 			new THREE.LineBasicMaterial({
-				color,
-				transparent: true,
-				opacity,
-			}),
+				                            color,
+				                            transparent: true,
+				                            opacity,
+			                            }),
 		);
 	}
 
@@ -2848,45 +2860,5 @@ export class GamePrototypeScene {
 		}
 
 		return 0x8fa1ad;
-	}
-
-	private getPlanetPreviewColor(
-		planetClass: StrategicNode['system']['planets'][number]['class'],
-	): number {
-		switch (planetClass) {
-			case 'ocean':
-				return 0x2e8eb8;
-
-			case 'terrestrial':
-				return 0x5aa86b;
-
-			case 'desert':
-				return 0xd1a35f;
-
-			case 'ice':
-			case 'ice_giant':
-				return 0xb7d9ef;
-
-			case 'lava':
-				return 0xd85a2d;
-
-			case 'toxic':
-				return 0x9fb85a;
-
-			case 'carbon':
-				return 0x4e4d58;
-
-			case 'metal_rich':
-				return 0x9d9a8f;
-
-			case 'gas_giant':
-				return 0xc19a72;
-
-			case 'rocky':
-				return 0x8b8378;
-
-			case 'barren':
-				return 0x716b63;
-		}
 	}
 }
