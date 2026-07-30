@@ -77,6 +77,7 @@ export class CubeSphere extends THREE.Group {
 	private readonly terrainSource: TerrainSource;
 
 	private currentLodProfile: TerrainLodProfile = 'orbit';
+	private lastLodDebugLogTime = 0;
 
 	private readonly lodProfiles: Record<TerrainLodProfile, LodOptions> = {
 		far: {
@@ -153,7 +154,24 @@ export class CubeSphere extends THREE.Group {
 	}
 
 	updateLOD(cameraPosition: THREE.Vector3): void {
-		this.updateMatrixWorld(true);
+		/**
+		 * Contract:
+		 * cameraPosition is planet-local, i.e. relative to Planet.group.
+		 *
+		 * PlanetView worked before because Planet.group is located at 0/0/0,
+		 * so planet-local and world-space were effectively identical.
+		 *
+		 * In Game/SystemView the planet group is placed somewhere inside the
+		 * system. TerrainPatch.getCenterWorld() returns world-space centers.
+		 * Passing the planet-local camera directly to TerrainPatch.updateLOD()
+		 * mixes coordinate spaces and keeps the automatic LOD too coarse.
+		 */
+		if (this.parent) {
+			this.parent.updateMatrixWorld(true);
+		} else {
+			this.updateMatrixWorld(true);
+		}
+
 		this.horizonCulling.resetFrameStats();
 
 		const cameraDistance = cameraPosition.length();
@@ -163,7 +181,17 @@ export class CubeSphere extends THREE.Group {
 			cameraDistance - this.radius,
 		);
 
-		const nextProfile = this.selectLodProfile(heightAboveSurface);
+		const normalizedHeight =
+			      this.radius > 0
+			      ? heightAboveSurface / this.radius
+			      : heightAboveSurface;
+
+		const cameraWorldPosition =
+			      this.parent
+			      ? this.parent.localToWorld(cameraPosition.clone())
+			      : cameraPosition.clone();
+
+		const nextProfile = this.selectLodProfile(normalizedHeight);
 
 		this.currentLodProfile = nextProfile;
 
@@ -180,10 +208,17 @@ export class CubeSphere extends THREE.Group {
 			adaptiveDetail: this.getAdaptiveDetailOptions(nextProfile),
 		};
 
+		this.logLodDebug(
+			cameraDistance,
+			heightAboveSurface,
+			normalizedHeight,
+			nextProfile,
+		);
+
 		const profileHorizonCullingEnabled =
-		      nextProfile === 'far' ||
-		      nextProfile === 'orbit' ||
-		      nextProfile === 'approach';
+			      nextProfile === 'far' ||
+			      nextProfile === 'orbit' ||
+			      nextProfile === 'approach';
 
 		this.horizonCulling.setEnabled(
 			this.horizonCullingOverride ?? profileHorizonCullingEnabled,
@@ -191,7 +226,7 @@ export class CubeSphere extends THREE.Group {
 
 		for (const patch of this.rootPatches) {
 			patch.updateLOD(
-				cameraPosition,
+				cameraWorldPosition,
 				lodOptions,
 				this.horizonCulling,
 			);
@@ -530,11 +565,11 @@ export class CubeSphere extends THREE.Group {
 				const edges = edgesByKey.get(edge.key) ?? [];
 
 				edges.push({
-					leaf,
-					key: edge.key,
-					min: edge.min,
-					max: edge.max,
-				});
+					           leaf,
+					           key: edge.key,
+					           min: edge.min,
+					           max: edge.max,
+				           });
 				edgesByKey.set(edge.key, edges);
 			}
 		}
@@ -739,25 +774,57 @@ export class CubeSphere extends THREE.Group {
 	}
 
 	private selectLodProfile(
-		heightAboveSurface: number,
+		normalizedHeightAboveSurface: number,
 	): TerrainLodProfile {
-		if (heightAboveSurface > this.radius * 4.0) {
+		if (normalizedHeightAboveSurface > 4.0) {
 			return 'far';
 		}
 
-		if (heightAboveSurface > this.radius * 1.25) {
+		if (normalizedHeightAboveSurface > 1.25) {
 			return 'orbit';
 		}
 
-		if (heightAboveSurface > this.radius * 0.34) {
+		if (normalizedHeightAboveSurface > 0.34) {
 			return 'approach';
 		}
 
-		if (heightAboveSurface > this.radius * 0.10) {
+		if (normalizedHeightAboveSurface > 0.10) {
 			return 'near';
 		}
 
 		return 'surface';
+	}
+
+	private logLodDebug(
+		cameraDistance: number,
+		heightAboveSurface: number,
+		normalizedHeight: number,
+		profile: TerrainLodProfile,
+	): void {
+		if (
+			typeof window === 'undefined' ||
+			new URLSearchParams(window.location.search).get('lodDebug') !== '1'
+		) {
+			return;
+		}
+
+		const now = performance.now();
+
+		if (now - this.lastLodDebugLogTime < 750) {
+			return;
+		}
+
+		this.lastLodDebugLogTime = now;
+
+		console.log('[CubeSphere LOD]', {
+			name: this.name,
+			radius: this.radius,
+			cameraDistance,
+			heightAboveSurface,
+			normalizedHeight,
+			profile,
+			stats: this.getStats(),
+		});
 	}
 
 	private createFaces(): CubeFace[] {

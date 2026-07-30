@@ -660,7 +660,7 @@ if (gameMode) {
 		                                             domElement: renderer.domElement,
 		                                             hud,
 		                                             seed: currentPlanetSeed,
-		                                             rendererMode
+		                                             rendererMode,
 	                                             });
 
 	function animateGame(timestamp?: number): void {
@@ -697,7 +697,6 @@ if (gameMode) {
 	let isChangingPlanetSeed = false;
 
 	type PlanetRuntimeDefinition = ReturnType<typeof generatePlanetDefinition>;
-	type PlanetRuntimeProfile = ReturnType<typeof createPlanetRenderProfile>;
 
 	function createPlanetDefinitionForSeed(
 		seed: number,

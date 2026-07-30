@@ -50,6 +50,10 @@ type GameViewMode =
 	| 'strategic'
 	| 'system';
 
+type SystemCameraMode =
+	| 'pan'
+	| 'orbitPlanet';
+
 type SystemPlanetBuildJob = {
 	nodeId: string;
 	planet: StrategicNode['system']['planets'][number];
@@ -91,6 +95,8 @@ export class GamePrototypeScene {
 	private readonly movePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 	private readonly intersection = new THREE.Vector3();
 	private readonly systemSunDirection = new THREE.Vector3();
+	private readonly systemRenderOrigin = new THREE.Vector3();
+	private readonly systemRenderShift = new THREE.Vector3();
 	private readonly selectionRingWorldQuaternion =
 		                 new THREE.Quaternion().setFromEuler(
 			                 new THREE.Euler(Math.PI * 0.5, 0, 0),
@@ -103,6 +109,14 @@ export class GamePrototypeScene {
 	private activeSystemNodeId: string | null = null;
 	private pendingSystemPlanetBuilds: SystemPlanetBuildJob[] = [];
 	private viewMode: GameViewMode = 'strategic';
+	private systemCameraMode: SystemCameraMode = 'pan';
+	private orbitFocusPlanet: Planet | null = null;
+	private lastSystemPlanetClickName: string | null = null;
+	private lastSystemPlanetClickTime = 0;
+	private readonly savedSystemPanCameraPosition = new THREE.Vector3();
+	private readonly savedSystemPanControlsTarget = new THREE.Vector3();
+	private savedSystemPanCameraFov = 58;
+	private hasSavedSystemPanCamera = false;
 	private selectedNodeId: string | null = null;
 	private selectedStationId: string | null = null;
 	private lastNodeClickId: string | null = null;
@@ -115,7 +129,6 @@ export class GamePrototypeScene {
 			nodeCount: 7,
 		});
 		this.navigation = createTacticalNavigationState();
-
 		this.group.name = 'GamePrototypeScene';
 		this.backdropGroup.name = 'HomeworldStyleBackdrop';
 		this.strategicGroup.name = 'StrategicMap';
@@ -263,6 +276,8 @@ export class GamePrototypeScene {
 		this.processSystemPlanetBuildQueue();
 		this.updateSystemPlanets(deltaSeconds);
 		this.updateKeyboardCamera(deltaSeconds);
+		this.syncPlanetOrbitCameraTarget();
+		this.recenterSystemViewIfNeeded();
 		this.updateSpaceBackdrop(deltaSeconds);
 		this.syncMoveMarker();
 		this.updateFleetMenu();
@@ -357,6 +372,8 @@ export class GamePrototypeScene {
 
 	private configureCamera(): void {
 		if (this.viewMode === 'system') {
+			this.systemCameraMode = 'pan';
+			this.orbitFocusPlanet = null;
 			this.options.camera.near = 0.8;
 			this.options.camera.far = 760;
 			this.options.camera.updateProjectionMatrix();
@@ -408,6 +425,13 @@ export class GamePrototypeScene {
 
 	private updateKeyboardCamera(deltaSeconds: number): void {
 		if (deltaSeconds <= 0) {
+			return;
+		}
+
+		if (
+			this.viewMode === 'system' &&
+			this.systemCameraMode === 'orbitPlanet'
+		) {
 			return;
 		}
 
@@ -499,6 +523,268 @@ export class GamePrototypeScene {
 		this.options.camera.position.copy(this.options.controls.target)
 			.add(offset);
 		this.options.controls.update();
+	}
+
+	private systemToRenderPosition(
+		position: {
+			x: number;
+			y: number;
+			z: number;
+		},
+	): THREE.Vector3 {
+		return new THREE.Vector3(
+			position.x,
+			position.y,
+			position.z,
+		).sub(this.systemRenderOrigin);
+	}
+
+	private systemVectorToRenderPosition(
+		position: THREE.Vector3,
+	): THREE.Vector3 {
+		return position.clone().sub(this.systemRenderOrigin);
+	}
+
+	private renderToSystemPosition(
+		position: THREE.Vector3,
+	): {
+		x: number;
+		y: number;
+		z: number;
+	} {
+		return {
+			x: position.x + this.systemRenderOrigin.x,
+			y: position.y + this.systemRenderOrigin.y,
+			z: position.z + this.systemRenderOrigin.z,
+		};
+	}
+
+	private rememberSystemObjectPosition(
+		object: THREE.Object3D,
+		position: THREE.Vector3,
+	): void {
+		object.userData.systemPosition = [
+			position.x,
+			position.y,
+			position.z,
+		];
+	}
+
+	private getRememberedSystemObjectPosition(
+		object: THREE.Object3D,
+	): THREE.Vector3 | null {
+		const position = object.userData.systemPosition;
+
+		if (
+			!Array.isArray(position) ||
+			position.length < 3 ||
+			typeof position[0] !== 'number' ||
+			typeof position[1] !== 'number' ||
+			typeof position[2] !== 'number'
+		) {
+			return null;
+		}
+
+		return new THREE.Vector3(
+			position[0],
+			position[1],
+			position[2],
+		);
+	}
+
+	private recenterSystemViewIfNeeded(): void {
+		if (this.viewMode !== 'system') {
+			return;
+		}
+
+		this.systemRenderShift.set(
+			this.options.controls.target.x,
+			0,
+			this.options.controls.target.z,
+		);
+
+		if (this.systemRenderShift.lengthSq() < 250000) {
+			return;
+		}
+
+		this.systemRenderOrigin.add(this.systemRenderShift);
+
+		for (const object of this.systemGroup.children) {
+			object.position.sub(this.systemRenderShift);
+		}
+
+		this.options.camera.position.sub(this.systemRenderShift);
+		this.options.controls.target.sub(this.systemRenderShift);
+
+		if (this.hasSavedSystemPanCamera) {
+			this.savedSystemPanCameraPosition.sub(this.systemRenderShift);
+			this.savedSystemPanControlsTarget.sub(this.systemRenderShift);
+		}
+
+		this.options.controls.update();
+	}
+
+	private selectSystemPlanetFromPointer(event: PointerEvent): boolean {
+		this.updatePointer(event);
+		this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+		const intersections = this.raycaster.intersectObjects(
+			this.systemPlanets.map((planet) => planet.group),
+			true,
+		);
+
+		const object = intersections[0]?.object;
+
+		if (!object) {
+			return false;
+		}
+
+		const planet = this.findSystemPlanetForObject(object);
+
+		if (!planet) {
+			return false;
+		}
+
+		const now = performance.now();
+		const planetName = planet.group.name;
+		const isDoubleClick =
+			      planetName === this.lastSystemPlanetClickName &&
+			      now - this.lastSystemPlanetClickTime < 360;
+
+		this.lastSystemPlanetClickName = planetName;
+		this.lastSystemPlanetClickTime = now;
+
+		if (!isDoubleClick) {
+			return true;
+		}
+
+		if (
+			this.systemCameraMode === 'orbitPlanet' &&
+			this.orbitFocusPlanet === planet
+		) {
+			this.exitPlanetOrbitView();
+			return true;
+		}
+
+		this.enterPlanetOrbitView(planet);
+
+		return true;
+	}
+
+	private findSystemPlanetForObject(
+		object: THREE.Object3D,
+	): Planet | null {
+		for (const planet of this.systemPlanets) {
+			let current: THREE.Object3D | null = object;
+
+			while (current) {
+				if (current === planet.group) {
+					return planet;
+				}
+
+				current = current.parent;
+			}
+		}
+
+		return null;
+	}
+
+	private enterPlanetOrbitView(planet: Planet): void {
+		if (this.systemCameraMode !== 'orbitPlanet') {
+			this.savedSystemPanCameraPosition.copy(this.options.camera.position);
+			this.savedSystemPanControlsTarget.copy(this.options.controls.target);
+			this.savedSystemPanCameraFov = this.options.camera.fov;
+			this.hasSavedSystemPanCamera = true;
+		}
+
+		this.systemCameraMode = 'orbitPlanet';
+		this.orbitFocusPlanet = planet;
+
+		const radius = this.getSystemPlanetOrbitCameraRadius(planet);
+		const direction = new THREE.Vector3(0.64, 0.32, 1.0).normalize();
+
+		this.options.controls.enabled = true;
+		this.options.controls.enablePan = false;
+		this.options.controls.enableRotate = true;
+		this.options.controls.enableZoom = true;
+		this.options.controls.screenSpacePanning = true;
+		this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+		this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+		this.options.controls.minDistance = radius * 1.12;
+		this.options.controls.maxDistance = radius * 10.0;
+
+		this.options.controls.target.copy(planet.group.position);
+		this.options.camera.position.copy(planet.group.position)
+			.addScaledVector(direction, radius * 2.25);
+		this.options.camera.near = Math.max(0.015, radius * 0.006);
+		this.options.camera.far = 760;
+		this.options.camera.fov = 46;
+		this.options.camera.updateProjectionMatrix();
+		this.options.controls.update();
+
+		planet.setRenderQuality('idle');
+	}
+
+	private exitPlanetOrbitView(): void {
+		this.systemCameraMode = 'pan';
+		this.orbitFocusPlanet = null;
+
+		this.options.controls.enablePan = true;
+		this.options.controls.enableRotate = false;
+		this.options.controls.enableZoom = false;
+		this.options.controls.screenSpacePanning = true;
+		this.options.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+		this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+		this.options.controls.minDistance = 8;
+		this.options.controls.maxDistance = 360;
+
+		if (this.hasSavedSystemPanCamera) {
+			this.options.camera.position.copy(this.savedSystemPanCameraPosition);
+			this.options.controls.target.copy(this.savedSystemPanControlsTarget);
+			this.options.camera.fov = this.savedSystemPanCameraFov;
+		} else {
+			this.options.camera.position.set(0, 78, 116);
+			this.options.controls.target.set(0, 0, 0);
+			this.options.camera.fov = 58;
+		}
+
+		this.options.camera.near = 0.8;
+		this.options.camera.far = 760;
+		this.options.camera.updateProjectionMatrix();
+		this.options.controls.update();
+	}
+
+	private syncPlanetOrbitCameraTarget(): void {
+		if (
+			this.viewMode !== 'system' ||
+			this.systemCameraMode !== 'orbitPlanet' ||
+			!this.orbitFocusPlanet
+		) {
+			return;
+		}
+
+		this.orbitFocusPlanet.setRenderQuality('idle');
+		this.options.controls.target.copy(this.orbitFocusPlanet.group.position);
+		this.options.controls.update();
+	}
+
+	private getSystemPlanetOrbitCameraRadius(planet: Planet): number {
+		const radius = planet.group.userData.systemRenderRadius;
+
+		if (typeof radius === 'number' && Number.isFinite(radius) && radius > 0) {
+			return radius;
+		}
+
+		const box = new THREE.Box3().setFromObject(planet.group);
+		const sphere = new THREE.Sphere();
+
+		box.getBoundingSphere(sphere);
+
+		if (Number.isFinite(sphere.radius) && sphere.radius > 0) {
+			return sphere.radius;
+		}
+
+		return 6;
 	}
 
 	private createVertexColorSkydome(palette: BackdropPalette): THREE.Mesh {
@@ -1068,6 +1354,10 @@ export class GamePrototypeScene {
 					return;
 				}
 
+				if (this.selectSystemPlanetFromPointer(event)) {
+					return;
+				}
+
 				this.selectSystemFleetFromPointer(event);
 				return;
 			}
@@ -1172,6 +1462,11 @@ export class GamePrototypeScene {
 
 		if (event.code === 'Escape' || event.code === 'Backspace') {
 			if (this.viewMode === 'system') {
+				if (this.systemCameraMode === 'orbitPlanet') {
+					this.exitPlanetOrbitView();
+					return;
+				}
+
 				this.exitSystemView();
 				return;
 			}
@@ -1469,13 +1764,20 @@ export class GamePrototypeScene {
 			return;
 		}
 
+		const target =
+			      this.viewMode === 'system'
+			      ? this.renderToSystemPosition(this.intersection)
+			      : {
+					      x: this.intersection.x,
+					      y: 0,
+					      z: this.intersection.z,
+				      };
+
+		target.y = 0;
+
 		this.navigation = startTacticalMoveDraft(
 			this.navigation,
-			{
-				x: this.intersection.x,
-				y: 0,
-				z: this.intersection.z,
-			},
+			target,
 		);
 	}
 
@@ -1534,11 +1836,7 @@ export class GamePrototypeScene {
 
 			mesh.visible = ship.nodeId === this.selectedNodeId;
 
-			mesh.position.set(
-				ship.systemPosition.x,
-				ship.systemPosition.y,
-				ship.systemPosition.z,
-			);
+			mesh.position.copy(this.systemToRenderPosition(ship.systemPosition));
 			if (
 				Math.abs(ship.systemVelocity.x) > 0.001 ||
 				Math.abs(ship.systemVelocity.y) > 0.001 ||
@@ -1635,7 +1933,7 @@ export class GamePrototypeScene {
 		this.moveMarker.scale.setScalar(1 + Math.abs(target.y) * 0.025);
 
 		if (this.systemMoveMarker) {
-			this.systemMoveMarker.position.set(target.x, target.y, target.z);
+			this.systemMoveMarker.position.copy(this.systemToRenderPosition(target));
 			this.systemMoveMarker.scale.setScalar(0.72 + Math.abs(target.y) * 0.025);
 		}
 	}
@@ -1674,7 +1972,11 @@ export class GamePrototypeScene {
 				`height ${draft.heightOffset.toFixed(1)}\n`
 					: ''
 				) +
-				`WASD pan | Q/E zoom | left select | right enemy attack/exit/move | B shipyard | N fighter | Esc map`;
+				(
+					this.systemCameraMode === 'orbitPlanet'
+					? `planet focus | Esc return pan | mouse orbit/zoom`
+					: `WASD pan | Q/E zoom | double-click planet orbit | left select | right enemy attack/exit/move | B shipyard | N fighter | Esc map`
+				);
 			return;
 		}
 
@@ -1885,6 +2187,8 @@ export class GamePrototypeScene {
 
 	private rebuildSystemView(node: StrategicNode): void {
 		this.clearSystemView();
+		this.systemRenderOrigin.set(0, 0, 0);
+		this.systemRenderShift.set(0, 0, 0);
 		this.systemShipMeshes.clear();
 		this.stationMeshes.clear();
 		this.systemExitMeshes.clear();
@@ -1966,6 +2270,7 @@ export class GamePrototypeScene {
 			}
 
 			const mesh = this.createStationMesh(station);
+			mesh.position.copy(this.systemToRenderPosition(station.position));
 			mesh.scale.setScalar(0.58);
 			this.stationMeshes.set(station.id, mesh);
 			this.systemGroup.add(mesh);
@@ -2011,6 +2316,15 @@ export class GamePrototypeScene {
 			}
 
 			for (const planet of cachedPlanets) {
+				const rememberedPosition =
+					      this.getRememberedSystemObjectPosition(planet.group);
+
+				if (rememberedPosition) {
+					planet.group.position.copy(
+						this.systemVectorToRenderPosition(rememberedPosition),
+					);
+				}
+
 				this.systemPlanets.push(planet);
 				this.systemGroup.add(planet.group);
 			}
@@ -2044,7 +2358,8 @@ export class GamePrototypeScene {
 					planetRadius,
 				);
 
-				preview.position.copy(position);
+				preview.position.copy(this.systemVectorToRenderPosition(position));
+				this.rememberSystemObjectPosition(preview, position);
 				this.systemGroup.add(preview);
 				this.pendingSystemPlanetBuilds.push({
 					                                    nodeId: node.id,
@@ -2183,7 +2498,8 @@ export class GamePrototypeScene {
 
 		const planet = this.createSystemPlanet(job.planet, job.radius);
 
-		planet.group.position.copy(job.position);
+		planet.group.position.copy(this.systemVectorToRenderPosition(job.position));
+		this.rememberSystemObjectPosition(planet.group, job.position);
 		this.systemGroup.remove(job.preview);
 		this.disposeObject(job.preview);
 		this.systemGroup.add(planet.group);
@@ -2208,15 +2524,15 @@ export class GamePrototypeScene {
 				gasCloudParticles: false,
 				cloudSteps: {
 					moving: 8,
-					idle: 16,
+					idle: 20,
 				},
 				atmosphereSteps: {
-					moving: 6,
-					idle: 12,
+					moving: 8,
+					idle: 16,
 				},
 				surfaceSteps: {
-					moving: 2,
-					idle: 6,
+					moving: 4,
+					idle: 10,
 				},
 			},
 			planetDefinition,
@@ -2224,21 +2540,35 @@ export class GamePrototypeScene {
 		);
 
 		planet.group.name = planetDefinition.name;
-		planet.setRenderTuning(this.getSystemPlanetRenderTuning(planetDefinition));
+		planet.group.userData.systemRenderRadius = radius;
+		const systemViewTuning = this.getSystemPlanetRenderTuning(planetDefinition);
+		const isSolidSystemPlanet =
+			      planetDefinition.class !== 'gas_giant' &&
+			      planetDefinition.class !== 'ice_giant';
+
+		planet.setRenderTuning({
+			                       ...systemViewTuning,
+			                       ambient: isSolidSystemPlanet
+			                                ? Math.max(systemViewTuning.ambient ?? 0.68, 0.96)
+			                                : systemViewTuning.ambient,
+			                       exposureScale: isSolidSystemPlanet
+			                                      ? Math.max(systemViewTuning.exposureScale ?? 1.16, 1.42)
+			                                      : systemViewTuning.exposureScale,
+			                       horizonGlowScale: isSolidSystemPlanet
+			                                         ? Math.max(systemViewTuning.horizonGlowScale ?? 1.0, 1.18)
+			                                         : systemViewTuning.horizonGlowScale,
+			                       proceduralColorStrength: isSolidSystemPlanet
+			                                                ? Math.max(systemViewTuning.proceduralColorStrength ?? 0.65, 0.92)
+			                                                : systemViewTuning.proceduralColorStrength,
+			                       surfaceTextureStrength: isSolidSystemPlanet
+			                                               ? Math.max(systemViewTuning.surfaceTextureStrength ?? 1.0, 1.20)
+			                                               : systemViewTuning.surfaceTextureStrength,
+		                       });
+
 		planet.setHorizonCullingEnabled(false);
 		planet.setPatchFrustumCullingEnabled(false);
 		planet.setRenderQuality('idle');
 
-		/**
-		 * SystemView fix:
-		 *
-		 * The depth occluder sits very close to the actual solid-surface
-		 * CubeSphere. In the Game/SystemView this can cause visible raster /
-		 * dotted depth artifacts on some solid planets.
-		 *
-		 * PlanetViewer can keep using the depth occluder. The Game/SystemView
-		 * does not need it, so we remove it only for system planets.
-		 */
 		planet.group.getObjectByName('PlanetDepthOccluder')?.removeFromParent();
 
 		return planet;

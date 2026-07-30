@@ -148,7 +148,7 @@ export class Planet {
 			                                       radius,
 			                                       seed: this.definition?.seed ?? 1,
 			                                       enableCloudParticles:
-				                                       this.features.gasCloudParticles,
+			                                       this.features.gasCloudParticles,
 		                                       });
 
 		this.group.add(this.gasGiantLayer.group);
@@ -363,8 +363,8 @@ export class Planet {
 		}
 
 		this.toxicHazeLayer = new ToxicHazeLayer({
-			radius: this.radius,
-		});
+			                                         radius: this.radius,
+		                                         });
 
 		this.group.add(this.toxicHazeLayer.mesh);
 	}
@@ -713,10 +713,10 @@ export class Planet {
 		}
 
 		this.nearSurfaceTerrainLayer = new NearSurfaceTerrainLayer({
-			radius: this.radius,
-			terrainSeedConfig: this.terrainSeedConfig,
-			surfaceProfile: this.surfaceProfile,
-		});
+			                                                           radius: this.radius,
+			                                                           terrainSeedConfig: this.terrainSeedConfig,
+			                                                           surfaceProfile: this.surfaceProfile,
+		                                                           });
 
 		this.group.add(this.nearSurfaceTerrainLayer.group);
 	}
@@ -726,11 +726,11 @@ export class Planet {
 		atmosphereRadius: number,
 	): PlanetSurfaceRuntimeMaterial {
 		return createPlanetSurfaceRuntimeMaterial({
-			rendererMode: this.rendererMode,
-			radius,
-			atmosphereRadius,
-			terrainTextureSet: this.terrainTextureSet,
-		});
+			                                          rendererMode: this.rendererMode,
+			                                          radius,
+			                                          atmosphereRadius,
+			                                          terrainTextureSet: this.terrainTextureSet,
+		                                          });
 	}
 
 	private updateSurfaceCameraUniform(cameraPosition: THREE.Vector3): void {
@@ -819,9 +819,9 @@ export class Planet {
 			);
 
 			this.surfaceMaterial?.setRenderTuning?.({
-				ambient: surfaceAmbient,
-				exposure: surfaceExposure * this.renderTuning.exposureScale,
-			});
+				                                        ambient: surfaceAmbient,
+				                                        exposure: surfaceExposure * this.renderTuning.exposureScale,
+			                                        });
 		}
 	}
 
