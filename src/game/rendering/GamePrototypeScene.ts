@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import capitalShipMtlText from '../model/capital_ship.mtl' with { type: 'text' };
-import capitalShipObjText from '../model/capital_ship.obj' with { type: 'text' };
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 import {
 	Planet,
@@ -72,11 +71,18 @@ type BackdropPalette = {
 	accent: THREE.Color;
 };
 
-const CAPITAL_SHIP_OBJ_LABEL = 'src/game/model/capital_ship.obj';
-const CAPITAL_SHIP_MTL_LABEL = 'src/game/model/capital_ship.mtl';
+const CAPITAL_SHIP_OBJ_URL =
+	      `/models/capital_ship.obj`;
+const CAPITAL_SHIP_MTL_URL =
+	      `/models/capital_ship.mtl`;
+
+const ORBITAL_HANGER_GLB_URL = `/models/orbital_hanger.glb`;
 
 let capitalShipModelPromise: Promise<THREE.Object3D> | null = null;
 let capitalShipModelWarningShown = false;
+
+let orbitalHangerModelPromise: Promise<THREE.Object3D> | null = null;
+let orbitalHangerModelWarningShown = false;
 
 export class GamePrototypeScene {
 	private world: GameWorld;
@@ -288,8 +294,7 @@ export class GamePrototypeScene {
 		return (
 			this.viewMode !== 'system' ||
 			(
-				this.pendingSystemPlanetBuilds.length === 0 &&
-				!this.isProcessingSystemPlanetBuild
+				this.pendingSystemPlanetBuilds.length === 0
 			)
 		);
 	}
@@ -307,9 +312,7 @@ export class GamePrototypeScene {
 			visible: this.loadingOverlayVisible,
 			visibleSeconds: this.loadingOverlayVisibleSeconds,
 			messageTimer: this.loadingOverlayTimer,
-			pendingJobs: this.pendingSystemPlanetBuilds.length,
-			isProcessing: this.isProcessingSystemPlanetBuild,
-			viewMode: this.viewMode,
+			pendingJobs: this.pendingSystemPlanetBuilds.length,			viewMode: this.viewMode,
 			activeSystemNodeId: this.activeSystemNodeId,
 			loadingOverlayNodeId: this.loadingOverlayNodeId,
 			loadedSystemNodeIds: [...this.loadedSystemNodeIds],
@@ -1392,7 +1395,7 @@ export class GamePrototypeScene {
 
 				capitalShipModelWarningShown = true;
 				console.warn(
-					`Capital ship model could not be parsed from ${CAPITAL_SHIP_OBJ_LABEL} / ${CAPITAL_SHIP_MTL_LABEL}. ` +
+					`Capital ship model could not be parsed from ${CAPITAL_SHIP_OBJ_URL} / ${CAPITAL_SHIP_MTL_URL}. ` +
 					'Using fallback ship mesh.',
 					error,
 				);
@@ -1400,35 +1403,64 @@ export class GamePrototypeScene {
 	}
 
 	private loadCapitalShipModel(): Promise<THREE.Object3D> {
-		if (capitalShipModelPromise) {
-			return capitalShipModelPromise;
+		if (!capitalShipModelPromise) {
+			const mtlLoader = new MTLLoader();
+			const objLoader = new OBJLoader();
+
+			capitalShipModelPromise = mtlLoader
+				.loadAsync(CAPITAL_SHIP_MTL_URL)
+				.then((materials) => {
+					materials.preload();
+					objLoader.setMaterials(materials);
+
+					return objLoader.loadAsync(CAPITAL_SHIP_OBJ_URL);
+				})
+				.then((model) => {
+					model.name = 'Capital Ship OBJ Source';
+
+					model.traverse((object) => {
+						if (!(object instanceof THREE.Mesh)) {
+							return;
+						}
+
+						object.castShadow = false;
+						object.receiveShadow = false;
+						object.frustumCulled = false;
+
+						const material = object.material;
+
+						if (Array.isArray(material)) {
+							for (const entry of material) {
+								entry.depthWrite = true;
+								entry.depthTest = true;
+							}
+							return;
+						}
+
+						material.depthWrite = true;
+						material.depthTest = true;
+					});
+
+					this.normalizeImportedModel(model, 1.0);
+
+					return model;
+				})
+				.catch((error) => {
+					if (!capitalShipModelWarningShown) {
+						console.warn(
+							`Failed to load capital ship model from ${CAPITAL_SHIP_OBJ_URL}. Falling back to dummy ship.`,
+							error,
+						);
+						capitalShipModelWarningShown = true;
+					}
+
+					throw error;
+				});
 		}
 
-		capitalShipModelPromise = new Promise((resolve, reject) => {
-			try {
-				const materials = new MTLLoader().parse(
-					capitalShipMtlText,
-					'',
-				);
-				const object = new OBJLoader()
-					.setMaterials(materials)
-					.parse(capitalShipObjText);
-
-				materials.preload();
-				this.prepareCapitalShipTemplate(object);
-				capitalShipModelWarningShown = false;
-				resolve(object);
-			} catch (error) {
-				reject(error);
-			}
-		});
-
-		capitalShipModelPromise.catch(() => {
-			capitalShipModelPromise = null;
-		});
-
-		return capitalShipModelPromise;
+		return capitalShipModelPromise.then((model) => model.clone(true));
 	}
+
 
 	private prepareCapitalShipTemplate(object: THREE.Object3D): void {
 		object.traverse((item) => {
@@ -1485,7 +1517,143 @@ export class GamePrototypeScene {
 		return clone;
 	}
 
+	private loadOrbitalHangerModel(): Promise<THREE.Object3D> {
+		if (!orbitalHangerModelPromise) {
+			const loader = new GLTFLoader();
+
+			orbitalHangerModelPromise = loader
+				.loadAsync(ORBITAL_HANGER_GLB_URL)
+				.then((gltf) => {
+					const model = gltf.scene;
+
+					model.name = 'Orbital Hanger GLB Source';
+
+					model.traverse((object) => {
+						if (!(object instanceof THREE.Mesh)) {
+							return;
+						}
+
+						object.castShadow = false;
+						object.receiveShadow = false;
+						object.frustumCulled = false;
+
+						const material = object.material;
+
+						if (Array.isArray(material)) {
+							for (const entry of material) {
+								entry.depthWrite = true;
+								entry.depthTest = true;
+							}
+							return;
+						}
+
+						material.depthWrite = true;
+						material.depthTest = true;
+					});
+
+					this.normalizeImportedModel(model, 1.0);
+
+					return model;
+				})
+				.catch((error) => {
+					if (!orbitalHangerModelWarningShown) {
+						console.warn(
+							`Failed to load ${ORBITAL_HANGER_GLB_URL}. Falling back to dummy station.`,
+							error,
+						);
+						orbitalHangerModelWarningShown = true;
+					}
+
+					throw error;
+				});
+		}
+
+		return orbitalHangerModelPromise.then((model) => model.clone(true));
+	}
+
+	private normalizeImportedModel(
+		model: THREE.Object3D,
+		targetSize: number,
+	): void {
+		const box = new THREE.Box3().setFromObject(model);
+		const size = new THREE.Vector3();
+
+		box.getSize(size);
+
+		const maxSize = Math.max(size.x, size.y, size.z);
+
+		if (maxSize > 0.0001) {
+			model.scale.multiplyScalar(targetSize / maxSize);
+		}
+
+		const normalizedBox = new THREE.Box3().setFromObject(model);
+		const center = new THREE.Vector3();
+
+		normalizedBox.getCenter(center);
+		model.position.sub(center);
+	}
+
+	private createOrbitalHangerFallback(): THREE.Object3D {
+		const group = new THREE.Group();
+
+		group.name = 'Orbital Hanger Fallback';
+
+		const body = new THREE.Mesh(
+			new THREE.BoxGeometry(1.8, 0.42, 0.82),
+			new THREE.MeshStandardMaterial({
+				                               color: 0x8fe7ff,
+				                               emissive: 0x12384a,
+				                               emissiveIntensity: 0.24,
+				                               roughness: 0.42,
+				                               metalness: 0.55,
+			                               }),
+		);
+
+		const ring = new THREE.Mesh(
+			new THREE.TorusGeometry(0.92, 0.045, 10, 48),
+			new THREE.MeshBasicMaterial({
+				                            color: 0x8fe7ff,
+				                            transparent: true,
+				                            opacity: 0.56,
+				                            depthWrite: false,
+			                            }),
+		);
+
+		ring.rotation.y = Math.PI * 0.5;
+		group.add(body);
+		group.add(ring);
+
+		return group;
+	}
+
+	private createOrbitalHangerStationMesh(): THREE.Object3D {
+		const group = new THREE.Group();
+
+		group.name = 'Orbital Hanger Station';
+		group.add(this.createOrbitalHangerFallback());
+
+		void this.loadOrbitalHangerModel()
+			.then((model) => {
+				group.clear();
+
+				model.name = 'Orbital Hanger GLB';
+				model.scale.multiplyScalar(2.8);
+				model.rotation.y = Math.PI * 0.15;
+
+				group.add(model);
+			})
+			.catch(() => {
+				// Fallback bleibt sichtbar.
+			});
+
+		return group;
+	}
+
 	private createStationMesh(station: OrbitalStationDefinition): THREE.Object3D {
+		if (station.type === 'shipyard') {
+			return this.createOrbitalHangerStationMesh();
+		}
+
 		const group = new THREE.Group();
 		const core = new THREE.Mesh(
 			new THREE.BoxGeometry(0.9, 0.55, 0.9),
@@ -2910,11 +3078,11 @@ export class GamePrototypeScene {
 			this.options.rendererMode,
 			null,
 			{
-				raymarchedClouds: this.options.rendererMode === 'webgpu',
-				raymarchedAtmosphere: this.options.rendererMode === 'webgpu',
-				raymarchedSurface: this.options.rendererMode === 'webgpu',
-				moonSystem: false,
-				nearSurfaceTerrain: false,
+				raymarchedClouds: true,
+				raymarchedAtmosphere: true,
+				raymarchedSurface: true,
+				moonSystem: true,
+				nearSurfaceTerrain: true,
 				gasCloudParticles: false,
 				cloudSteps: {
 					moving: 8,
@@ -2959,8 +3127,8 @@ export class GamePrototypeScene {
 			                                               : systemViewTuning.surfaceTextureStrength,
 		                       });
 
-		planet.setHorizonCullingEnabled(true);
-		planet.setPatchFrustumCullingEnabled(true);
+		planet.setHorizonCullingEnabled(false);
+		planet.setPatchFrustumCullingEnabled(false);
 		planet.setRenderQuality('idle');
 
 		planet.group.getObjectByName('PlanetDepthOccluder')?.removeFromParent();

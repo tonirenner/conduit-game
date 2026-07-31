@@ -783,12 +783,12 @@ function generateAtmosphere(
 
 	if (planetClass === 'lava') {
 		return {
-			type: random.chance(0.50) ? 'dense' : 'toxic',
-			density: random.range(0.38, 1.28),
-			pressure: random.range(0.22, 2.80),
-			cloudCoverage: random.range(0.18, 0.50),
-			haze: random.range(0.42, 0.92),
-			color: '#b66f48',
+			type: random.chance(0.42) ? 'dense' : 'toxic',
+			density: random.range(0.18, 0.72),
+			pressure: random.range(0.12, 1.55),
+			cloudCoverage: random.range(0.10, 0.34),
+			haze: random.range(0.22, 0.58),
+			color: '#d65a32',
 		};
 	}
 

@@ -29,12 +29,17 @@ export class WebGPUAtmosphereLayer {
 	private readonly atmosphereAlpha: any;
 	private readonly scatteringBoost: any;
 	private readonly atmosphereStepCount: any;
+	private readonly atmosphereTint: any;
+	private readonly lavaAtmosphereMix: any;
 	private readonly sunDirection: any;
+	private readonly planetWorldPosition: any;
+	private readonly worldCenter = new THREE.Vector3();
 
 	private profileSunIntensity = 46.0;
 	private profileAtmosphereAlpha = 0.86;
 	private profileScatteringBoost = 1.0;
 	private profileOpacity = 0.58;
+	private profileLavaAtmosphereMix = 0.0;
 
 	private currentRenderQuality: WebGPUAtmosphereQuality = 'idle';
 
@@ -51,9 +56,12 @@ export class WebGPUAtmosphereLayer {
 		this.atmosphereAlpha = uniform(0.86);
 		this.scatteringBoost = uniform(1.0);
 		this.atmosphereStepCount = uniform(16.0);
+		this.atmosphereTint = uniform(new THREE.Color(0x8ec5ff));
+		this.lavaAtmosphereMix = uniform(0.0);
 		this.sunDirection = uniform(
 			SUN_DIRECTION.clone().normalize(),
 		);
+		this.planetWorldPosition = uniform(this.worldCenter.clone());
 
 		this.material = this.createMaterial(
 			radius,
@@ -71,7 +79,8 @@ export class WebGPUAtmosphereLayer {
 	}
 
 	update(): void {
-		// Static for now.
+		this.mesh.getWorldPosition(this.worldCenter);
+		this.planetWorldPosition.value.copy(this.worldCenter);
 	}
 
 	setSunDirection(direction: THREE.Vector3): void {
@@ -81,6 +90,8 @@ export class WebGPUAtmosphereLayer {
 	setAtmosphereProfile(
 		density: number,
 		haze: number,
+		atmosphereColor = '#8ec5ff',
+		atmospherePalette = '',
 	): void {
 		const normalizedDensity = THREE.MathUtils.clamp(
 			density / 2.5,
@@ -98,6 +109,21 @@ export class WebGPUAtmosphereLayer {
 			normalizedDensity,
 			normalizedHaze,
 		);
+
+		const isLavaAtmosphere =
+			      atmospherePalette === 'lava' ||
+			      atmospherePalette === 'ash_clouds' ||
+			      atmosphereColor.toLowerCase() === '#d65a32' ||
+			      atmosphereColor.toLowerCase() === '#b66f48';
+
+		const colorValue = new THREE.Color(
+			isLavaAtmosphere ? '#ef3a1f' : atmosphereColor,
+		);
+
+		this.atmosphereTint.value.copy(colorValue);
+		this.profileLavaAtmosphereMix = isLavaAtmosphere ? 1.0 : 0.0;
+		this.lavaAtmosphereMix.value = this.profileLavaAtmosphereMix;
+
 
 		this.profileSunIntensity = THREE.MathUtils.lerp(
 			30.0,
@@ -122,6 +148,13 @@ export class WebGPUAtmosphereLayer {
 			0.64,
 			atmosphereStrength,
 		);
+
+		if (isLavaAtmosphere) {
+			this.profileSunIntensity *= 0.86;
+			this.profileAtmosphereAlpha *= 0.64;
+			this.profileScatteringBoost *= 0.72;
+			this.profileOpacity *= 0.58;
+		}
 
 		this.sunIntensity.value = this.profileSunIntensity;
 		this.atmosphereAlpha.value = this.profileAtmosphereAlpha;
@@ -191,6 +224,7 @@ fn atmosphere_raymarch(
 	surfacePosition: vec3<f32>,
 	camPos: vec3<f32>,
 	sunDirInput: vec3<f32>,
+	planetWorldPosition: vec3<f32>,
 	planetRadius: f32,
 	atmosphereRadius: f32,
 	sunIntensity: f32,
@@ -199,10 +233,13 @@ fn atmosphere_raymarch(
 	mieG: f32,
 	atmosphereAlpha: f32,
 	scatteringBoost: f32,
+	atmosphereTint: vec3<f32>,
+	lavaAtmosphereMix: f32,
 	atmosphereStepCount: f32
 ) -> vec4<f32> {
-	let rayOrigin = camPos;
-	let rayDirection = normalize(surfacePosition - camPos);
+	let surfacePositionLocal = surfacePosition - planetWorldPosition;
+	let rayOrigin = camPos - planetWorldPosition;
+	let rayDirection = normalize(surfacePositionLocal - rayOrigin);
 	let sunDirection = normalize(sunDirInput);
 
 	var tNear = atmosphere_sphere_near(
@@ -353,8 +390,8 @@ fn atmosphere_raymarch(
 			phaseMie
 		);
 
-	let normal = normalize(surfacePosition);
-	let viewDirection = normalize(camPos - surfacePosition);
+	let normal = normalize(surfacePositionLocal);
+	let viewDirection = normalize(rayOrigin - surfacePositionLocal);
 
 	let viewDot = clamp(dot(normal, viewDirection), 0.0, 1.0);
 	let limb = 1.0 - viewDot;
@@ -400,50 +437,103 @@ fn atmosphere_raymarch(
 		dayDisc *
 		(0.68 + forwardMie * 0.45);
 
+	let cyanRimColor =
+		mix(
+			vec3<f32>(0.10, 0.82, 1.0),
+			vec3<f32>(1.0, 0.22, 0.08),
+			lavaAtmosphereMix
+		);
+
+	let deepRimColor =
+		mix(
+			vec3<f32>(0.04, 0.22, 1.0),
+			vec3<f32>(0.95, 0.10, 0.035),
+			lavaAtmosphereMix
+		);
+
+	let horizonLineColor =
+		mix(
+			vec3<f32>(0.86, 0.98, 1.0),
+			vec3<f32>(1.0, 0.46, 0.20),
+			lavaAtmosphereMix
+		);
+
 	color = color +
-		vec3<f32>(0.10, 0.82, 1.0) *
+		cyanRimColor *
 		cinematicRim *
-		0.82 *
+		mix(0.82, 0.42, lavaAtmosphereMix) *
 		scatteringBoost;
 
 	color = color +
-		vec3<f32>(0.04, 0.22, 1.0) *
+		deepRimColor *
 		limbSoft *
-		0.26 *
+		mix(0.26, 0.13, lavaAtmosphereMix) *
 		dayDisc *
 		scatteringBoost;
 
 	let whiteHorizonLine =
-		vec3<f32>(0.86, 0.98, 1.0) *
+		horizonLineColor *
 		limbUltra *
-		0.64 *
+		mix(0.64, 0.30, lavaAtmosphereMix) *
 		dayDisc *
 		scatteringBoost;
 
 	color = color + whiteHorizonLine;
 
 	color = color +
-		vec3<f32>(1.0, 0.62, 0.30) *
+		mix(
+			vec3<f32>(1.0, 0.62, 0.30),
+			vec3<f32>(1.0, 0.28, 0.08),
+			lavaAtmosphereMix
+		) *
 		horizonSunGlow *
 		mieStrength *
-		0.38 *
+		mix(0.38, 0.30, lavaAtmosphereMix) *
 		scatteringBoost;
 
 	color = color +
-		vec3<f32>(1.0, 0.76, 0.46) *
+		mix(
+			vec3<f32>(1.0, 0.76, 0.46),
+			vec3<f32>(1.0, 0.34, 0.12),
+			lavaAtmosphereMix
+		) *
 		backLit *
 		limbSharp *
 		dayDisc *
 		mieStrength *
-		0.16 *
+		mix(0.16, 0.13, lavaAtmosphereMix) *
 		scatteringBoost;
 
 	color = color +
-		vec3<f32>(1.0, 0.82, 0.56) *
+		mix(
+			vec3<f32>(1.0, 0.82, 0.56),
+			vec3<f32>(1.0, 0.30, 0.10),
+			lavaAtmosphereMix
+		) *
 		mieDisc *
 		mieStrength *
 		scatteringBoost *
-		0.28;
+		mix(0.28, 0.22, lavaAtmosphereMix);
+
+	let paletteTintedColor =
+		color *
+		mix(
+			vec3<f32>(1.0, 1.0, 1.0),
+			atmosphereTint,
+			0.44 + lavaAtmosphereMix * 0.46
+		);
+
+	let lavaRim =
+		vec3<f32>(1.0, 0.16, 0.035) *
+		lavaAtmosphereMix *
+		limbSharp *
+		dayDisc *
+		0.34 *
+		scatteringBoost;
+
+	color =
+		paletteTintedColor +
+		lavaRim;
 
 	let luminance = dot(
 		color,
@@ -477,6 +567,7 @@ fn atmosphere_raymarch(
 
 	alpha = alpha * outerFade;
 	alpha = alpha * mix(0.22, 1.0, nightFade);
+	alpha = alpha * mix(1.0, 0.58, lavaAtmosphereMix);
 
 	alpha = clamp(alpha, 0.0, 0.62);
 
@@ -596,6 +687,7 @@ fn atmosphere_optical_depth(
 			                                            surfacePosition: positionWorld,
 			                                            camPos: cameraPosition,
 			                                            sunDirInput: this.sunDirection,
+			                                            planetWorldPosition: this.planetWorldPosition,
 			                                            planetRadius,
 			                                            atmosphereRadius,
 			                                            sunIntensity: this.sunIntensity,
@@ -604,6 +696,8 @@ fn atmosphere_optical_depth(
 			                                            mieG,
 			                                            atmosphereAlpha: this.atmosphereAlpha,
 			                                            scatteringBoost: this.scatteringBoost,
+			                                            atmosphereTint: this.atmosphereTint,
+			                                            lavaAtmosphereMix: this.lavaAtmosphereMix,
 			                                            atmosphereStepCount: this.atmosphereStepCount,
 		                                            });
 

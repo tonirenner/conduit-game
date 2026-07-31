@@ -7,6 +7,7 @@ export class CloudLayer {
 	public readonly group: THREE.Group;
 
 	private readonly material: THREE.ShaderMaterial;
+	private readonly worldCenter = new THREE.Vector3();
 
 	private profileCloudCoverage = 0.505;
 	private profileCloudDensity = 2.25;
@@ -34,6 +35,7 @@ export class CloudLayer {
 				                                         uInnerRadius: { value: innerRadius },
 				                                         uOuterRadius: { value: outerRadius },
 				                                         uSunDirection: { value: SUN_DIRECTION.clone() },
+				                                         uPlanetWorldPosition: { value: this.worldCenter.clone() },
 				                                         uCoverage: { value: 0.505 },
 				                                         uDensity: { value: 2.25 },
 				                                         uClimateInfluence: { value: 0.25 },
@@ -63,6 +65,7 @@ export class CloudLayer {
 				uniform float uInnerRadius;
 				uniform float uOuterRadius;
 				uniform vec3 uSunDirection;
+				uniform vec3 uPlanetWorldPosition;
 				uniform float uCoverage;
 				uniform float uDensity;
 				uniform float uClimateInfluence;
@@ -562,8 +565,9 @@ export class CloudLayer {
 				}
 
 				void main() {
-					vec3 rayOrigin = cameraPosition;
-					vec3 rayDirection = normalize(vWorldPosition - cameraPosition);
+					vec3 surfacePosition = vWorldPosition - uPlanetWorldPosition;
+					vec3 rayOrigin = cameraPosition - uPlanetWorldPosition;
+					vec3 rayDirection = normalize(surfacePosition - rayOrigin);
 					vec3 sunDirection = normalize(uSunDirection);
 
 					float tNear = sphereIntersectionNear(
@@ -727,6 +731,8 @@ export class CloudLayer {
 	}
 
 	update(deltaSeconds: number): void {
+		this.group.getWorldPosition(this.worldCenter);
+		this.material.uniforms.uPlanetWorldPosition.value.copy(this.worldCenter);
 		this.material.uniforms.uTime.value += deltaSeconds * 0.14;
 	}
 

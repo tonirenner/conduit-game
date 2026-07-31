@@ -36,6 +36,8 @@ export class WebGPUCloudLayer {
 	private readonly cloudDetailStrength: any;
 	private readonly cloudStepCount: any;
 	private readonly sunDirection: any;
+	private readonly planetWorldPosition: any;
+	private readonly worldCenter = new THREE.Vector3();
 
 	private profileCloudCoverage = 0.505;
 	private profileCloudDensity = 2.25;
@@ -64,6 +66,7 @@ export class WebGPUCloudLayer {
 		this.sunDirection = uniform(
 			SUN_DIRECTION.clone().normalize(),
 		);
+		this.planetWorldPosition = uniform(this.worldCenter.clone());
 
 		this.material = this.createMaterial(
 			radius,
@@ -84,6 +87,9 @@ export class WebGPUCloudLayer {
 	}
 
 	update(deltaSeconds: number): void {
+		this.group.getWorldPosition(this.worldCenter);
+		this.planetWorldPosition.value.copy(this.worldCenter);
+
 		/**
 		 * Cheap weather drift for now.
 		 * Later we can pass real time into the WGSL function.
@@ -230,6 +236,7 @@ fn cloud_raymarch(
 	surfacePosition: vec3<f32>,
 	camPos: vec3<f32>,
 	sunDir: vec3<f32>,
+	planetWorldPosition: vec3<f32>,
 	planetRadius: f32,
 	innerRadius: f32,
 	outerRadius: f32,
@@ -239,8 +246,9 @@ fn cloud_raymarch(
 	cloudDetailStrength: f32,
 	cloudStepCount: f32
 ) -> vec4<f32> {
-	let rayOrigin = camPos;
-	let rayDirection = normalize(surfacePosition - camPos);
+	let surfacePositionLocal = surfacePosition - planetWorldPosition;
+	let rayOrigin = camPos - planetWorldPosition;
+	let rayDirection = normalize(surfacePositionLocal - rayOrigin);
 
 	var tNear = cloud_sphere_near(
 		rayOrigin,
@@ -548,6 +556,7 @@ fn cloud_density(
 			                                  surfacePosition: positionWorld,
 			                                  camPos: cameraPosition,
 			                                  sunDir: this.sunDirection,
+			                                  planetWorldPosition: this.planetWorldPosition,
 			                                  planetRadius,
 			                                  innerRadius,
 			                                  outerRadius,

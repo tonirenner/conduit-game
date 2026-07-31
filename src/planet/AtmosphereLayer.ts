@@ -7,6 +7,7 @@ export class AtmosphereLayer {
 	public readonly mesh: THREE.Mesh;
 
 	private readonly material: THREE.ShaderMaterial;
+	private readonly worldCenter = new THREE.Vector3();
 
 	private profileSunIntensity = 46.0;
 	private profileAtmosphereAlpha = 0.86;
@@ -36,6 +37,9 @@ export class AtmosphereLayer {
 				                                         uSunDirection: {
 					                                         value: SUN_DIRECTION.clone(),
 				                                         },
+				                                         uPlanetWorldPosition: {
+					                                         value: this.worldCenter,
+				                                         },
 				                                         uSunIntensity: {
 					                                         value: 46.0,
 				                                         },
@@ -53,6 +57,12 @@ export class AtmosphereLayer {
 				                                         },
 				                                         uScatteringBoost: {
 					                                         value: 1.0,
+				                                         },
+				                                         uAtmosphereTint: {
+					                                         value: new THREE.Color(0x8ec5ff),
+				                                         },
+				                                         uLavaAtmosphereMix: {
+					                                         value: 0.0,
 				                                         },
 			                                         },
 			                                         vertexShader: `
@@ -74,6 +84,7 @@ export class AtmosphereLayer {
 				uniform float uPlanetRadius;
 				uniform float uAtmosphereRadius;
 				uniform vec3 uSunDirection;
+				uniform vec3 uPlanetWorldPosition;
 
 				uniform float uSunIntensity;
 				uniform float uRayleighStrength;
@@ -81,6 +92,8 @@ export class AtmosphereLayer {
 				uniform float uMieG;
 				uniform float uAtmosphereAlpha;
 				uniform float uScatteringBoost;
+				uniform vec3 uAtmosphereTint;
+				uniform float uLavaAtmosphereMix;
 
 				const int VIEW_STEPS = 8;
 				const int LIGHT_STEPS = 3;
@@ -185,8 +198,9 @@ export class AtmosphereLayer {
 				}
 
 				void main() {
-					vec3 rayOrigin = cameraPosition;
-					vec3 rayDirection = normalize(vWorldPosition - cameraPosition);
+					vec3 surfacePosition = vWorldPosition - uPlanetWorldPosition;
+					vec3 rayOrigin = cameraPosition - uPlanetWorldPosition;
+					vec3 rayDirection = normalize(surfacePosition - rayOrigin);
 					vec3 sunDirection = normalize(uSunDirection);
 
 					float tNear = sphereIntersectionNear(
@@ -327,8 +341,8 @@ export class AtmosphereLayer {
 							phaseMie
 						);
 
-					vec3 normal = normalize(vWorldPosition);
-					vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+					vec3 normal = normalize(surfacePosition);
+					vec3 viewDirection = normalize(rayOrigin - surfacePosition);
 
 					float viewDot = clamp(dot(normal, viewDirection), 0.0, 1.0);
 					float limb = 1.0 - viewDot;
@@ -374,40 +388,69 @@ export class AtmosphereLayer {
 						dayDisc *
 						(0.68 + forwardMie * 0.45);
 
+					vec3 cyanRimColor =
+						mix(
+							vec3(0.10, 0.82, 1.0),
+							vec3(1.0, 0.22, 0.08),
+							uLavaAtmosphereMix
+						);
+
+					vec3 deepRimColor =
+						mix(
+							vec3(0.04, 0.22, 1.0),
+							vec3(0.95, 0.10, 0.035),
+							uLavaAtmosphereMix
+						);
+
+					vec3 horizonLineColor =
+						mix(
+							vec3(0.86, 0.98, 1.0),
+							vec3(1.0, 0.46, 0.20),
+							uLavaAtmosphereMix
+						);
+
 					vec3 cyanRim =
-						vec3(0.10, 0.82, 1.0) *
+						cyanRimColor *
 						cinematicRim *
-						0.82 *
+						mix(0.82, 0.42, uLavaAtmosphereMix) *
 						uScatteringBoost;
 
 					vec3 deepBlueRim =
-						vec3(0.04, 0.22, 1.0) *
+						deepRimColor *
 						limbSoft *
-						0.26 *
+						mix(0.26, 0.13, uLavaAtmosphereMix) *
 						dayDisc *
 						uScatteringBoost;
 
 					vec3 whiteHorizonLine =
-						vec3(0.86, 0.98, 1.0) *
+						horizonLineColor *
 						limbUltra *
-						0.64 *
+						mix(0.64, 0.30, uLavaAtmosphereMix) *
 						dayDisc *
 						uScatteringBoost;
 
 					vec3 warmSunHaze =
-						vec3(1.0, 0.62, 0.30) *
+						mix(
+							vec3(1.0, 0.62, 0.30),
+							vec3(1.0, 0.28, 0.08),
+							uLavaAtmosphereMix
+						) *
 						horizonSunGlow *
 						uMieStrength *
-						0.38 *
+						mix(0.38, 0.30, uLavaAtmosphereMix) *
 						uScatteringBoost;
 
 					vec3 goldenBackScatter =
-						vec3(1.0, 0.76, 0.46) *
+						mix(
+							vec3(1.0, 0.76, 0.46),
+							vec3(1.0, 0.34, 0.12),
+							uLavaAtmosphereMix
+						) *
 						backLit *
 						limbSharp *
 						dayDisc *
 						uMieStrength *
-						0.16 *
+						mix(0.16, 0.13, uLavaAtmosphereMix) *
 						uScatteringBoost;
 
 					color += cyanRim;
@@ -417,11 +460,35 @@ export class AtmosphereLayer {
 					color += goldenBackScatter;
 
 					color +=
-						vec3(1.0, 0.82, 0.56) *
+						mix(
+							vec3(1.0, 0.82, 0.56),
+							vec3(1.0, 0.30, 0.10),
+							uLavaAtmosphereMix
+						) *
 						mieDisc *
 						uMieStrength *
 						uScatteringBoost *
-						0.28;
+						mix(0.28, 0.22, uLavaAtmosphereMix);
+
+					vec3 paletteTintedColor =
+						color *
+						mix(
+							vec3(1.0),
+							uAtmosphereTint,
+							0.44 + uLavaAtmosphereMix * 0.46
+						);
+
+					vec3 lavaRim =
+						vec3(1.0, 0.16, 0.035) *
+						uLavaAtmosphereMix *
+						limbSharp *
+						dayDisc *
+						0.34 *
+						uScatteringBoost;
+
+					color =
+						paletteTintedColor +
+						lavaRim;
 
 					float luminance = dot(
 						color,
@@ -456,6 +523,7 @@ export class AtmosphereLayer {
 
 					alpha *= outerFade;
 					alpha *= mix(0.22, 1.0, nightFade);
+					alpha *= mix(1.0, 0.58, uLavaAtmosphereMix);
 
 					alpha = clamp(alpha, 0.0, 0.62);
 
@@ -474,7 +542,8 @@ export class AtmosphereLayer {
 	}
 
 	update(): void {
-		// statisch
+		this.mesh.getWorldPosition(this.worldCenter);
+		this.material.uniforms.uPlanetWorldPosition.value.copy(this.worldCenter);
 	}
 
 	setSunDirection(direction: THREE.Vector3): void {
@@ -484,6 +553,8 @@ export class AtmosphereLayer {
 	setAtmosphereProfile(
 		density: number,
 		haze: number,
+		atmosphereColor = '#8ec5ff',
+		atmospherePalette = '',
 	): void {
 		const normalizedDensity = THREE.MathUtils.clamp(
 			density / 2.5,
@@ -501,6 +572,21 @@ export class AtmosphereLayer {
 			normalizedDensity,
 			normalizedHaze,
 		);
+
+		const isLavaAtmosphere =
+			      atmospherePalette === 'lava' ||
+			      atmospherePalette === 'ash_clouds' ||
+			      atmosphereColor.toLowerCase() === '#d65a32' ||
+			      atmosphereColor.toLowerCase() === '#b66f48';
+
+		const colorValue = new THREE.Color(
+			isLavaAtmosphere ? '#ef3a1f' : atmosphereColor,
+		);
+
+		this.material.uniforms.uAtmosphereTint.value.copy(colorValue);
+		this.material.uniforms.uLavaAtmosphereMix.value =
+			isLavaAtmosphere ? 1.0 : 0.0;
+
 
 		this.profileSunIntensity = THREE.MathUtils.lerp(
 			30.0,
@@ -525,6 +611,13 @@ export class AtmosphereLayer {
 			0.64,
 			atmosphereStrength,
 		);
+
+		if (isLavaAtmosphere) {
+			this.profileSunIntensity *= 0.86;
+			this.profileAtmosphereAlpha *= 0.64;
+			this.profileScatteringBoost *= 0.72;
+			this.profileOpacity *= 0.58;
+		}
 
 		this.material.uniforms.uSunIntensity.value = this.profileSunIntensity;
 		this.material.uniforms.uAtmosphereAlpha.value = this.profileAtmosphereAlpha;

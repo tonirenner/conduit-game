@@ -105,7 +105,7 @@ export function createPlanetSurfaceNodeMaterial(
 	const forcedLavaSurface = uniform(initialForcedLavaSurface);
 	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
 
-	const nightTint = color(0x102845);
+	const nightTint = color(0x18395c);
 	const twilightTint = color(0x4f8bc2);
 	const rimTint = color(0xa8d8ff);
 	const fakeAtmosphereTint = color(0x7fc2ff);
@@ -1136,8 +1136,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const rockyLand = mix(
-		color(0x343331),
-		color(0xa08d73),
+		color(0x4a4640),
+		color(0xc1aa87),
 		smoothstep(
 			0.00,
 			0.22,
@@ -1146,8 +1146,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const rockyWater = mix(
-		color(0x24211f),
-		color(0x5f5245),
+		color(0x37322e),
+		color(0x7d6c5a),
 		waterHint,
 	);
 
@@ -1646,10 +1646,35 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
+	const baseLuminance = dot(
+		baseColor,
+		color(0x36b612),
+	);
+
+	const darkSurfaceLift = oneMinus(
+		smoothstep(
+			0.055,
+			0.32,
+			baseLuminance,
+		),
+	);
+
+	const nightLift = color(0x102845)
+		.mul(darkSurfaceLift)
+		.mul(0.24);
+
 	const nightColor = nightTint
+		.mul(1.04)
 		.add(
-			baseColor.mul(0.30),
+			baseColor.mul(
+				mix(
+					float(0.30),
+					float(0.42),
+					darkSurfaceLift,
+				),
+			),
 		)
+		.add(nightLift)
 		.add(
 			mountainLightTint.mul(mountainPeak).mul(0.020),
 		)

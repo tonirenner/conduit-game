@@ -1,4 +1,4 @@
-import type { StarSystemDefinition } from '../../system/model/StarSystemDefinition';
+import type {StarSystemDefinition} from '../../system/model/StarSystemDefinition';
 
 export type FactionId =
 	| 'player'
@@ -74,28 +74,28 @@ export type ShipDefinition = {
 
 export type FleetOrder =
 	| {
-		type: 'hold';
-	}
+	type: 'hold';
+}
 	| {
-		type: 'move_tactical';
-		space: 'strategic' | 'system';
-		nodeId?: string;
-		target: {
-			x: number;
-			y: number;
-			z: number;
-		};
-	}
-	| {
-		type: 'move_strategic';
-		targetNodeId: string;
-		progress: number;
-		durationSeconds: number;
-	}
-	| {
-		type: 'attack_fleet';
-		targetFleetId: string;
+	type: 'move_tactical';
+	space: 'strategic' | 'system';
+	nodeId?: string;
+	target: {
+		x: number;
+		y: number;
+		z: number;
 	};
+}
+	| {
+	type: 'move_strategic';
+	targetNodeId: string;
+	progress: number;
+	durationSeconds: number;
+}
+	| {
+	type: 'attack_fleet';
+	targetFleetId: string;
+};
 
 export type Fleet = {
 	id: string;

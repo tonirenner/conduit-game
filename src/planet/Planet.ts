@@ -334,7 +334,17 @@ export class Planet {
 
 		if (this.rendererMode === 'webgpu') {
 			this.webGPUClouds = new WebGPUCloudLayer(this.radius);
-			this.group.add(this.webGPUClouds.mesh);
+
+			/**
+			 * Important:
+			 * WebGPUCloudLayer owns a group that contains the mesh.
+			 *
+			 * The origin-fix cloud shader reads the layer world position from
+			 * webGPUClouds.group. If only webGPUClouds.mesh is attached to the
+			 * planet, the group stays at world origin and SystemView clouds raymarch
+			 * around 0/0/0 instead of around the moved planet.
+			 */
+			this.group.add(this.webGPUClouds.group);
 			return;
 		}
 
