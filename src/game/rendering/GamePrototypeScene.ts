@@ -11,6 +11,7 @@ import {
 import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
 import { SystemNebulaBackdrop } from './SystemNebulaBackdrop';
 import { WormholeNodeVisual } from './WormholeNodeVisual';
+import { DynamicEnvironmentProbe } from './DynamicEnvironmentProbe';
 import { generateGameWorld } from '../generation/GameWorldGenerator';
 import type {
 	Fleet,
@@ -45,6 +46,14 @@ export type GamePrototypeSceneOptions = {
 	hud: HTMLDivElement;
 	seed: number;
 	rendererMode: PlanetRendererMode;
+
+	/*
+	 * Optional for dynamic backdrop -> environment cubemap capture.
+	 *
+	 * Kept as unknown so both WebGLRenderer and experimental WebGPURenderer
+	 * callsites can pass their renderer without fighting TS types here.
+	 */
+	renderer?: unknown;
 };
 
 type GameViewMode =
@@ -77,6 +86,7 @@ const CAPITAL_SHIP_MTL_URL =
 	      `/models/capital_ship.mtl`;
 
 const ORBITAL_HANGER_GLB_URL = `/models/orbital_hanger.glb`;
+const FRIGATE_GLB_URL = `/models/frigate.glb`;
 
 let capitalShipModelPromise: Promise<THREE.Object3D> | null = null;
 let capitalShipModelWarningShown = false;
@@ -84,14 +94,19 @@ let capitalShipModelWarningShown = false;
 let orbitalHangerModelPromise: Promise<THREE.Object3D> | null = null;
 let orbitalHangerModelWarningShown = false;
 
+let frigateModelPromise: Promise<THREE.Object3D> | null = null;
+let frigateModelWarningShown = false;
+
 export class GamePrototypeScene {
 	private world: GameWorld;
 	private navigation: TacticalNavigationState;
 	private readonly group = new THREE.Group();
 	private readonly backdropGroup = new THREE.Group();
+	private readonly environmentHdrPeakGroup = new THREE.Group();
 	private readonly strategicGroup = new THREE.Group();
 	private readonly systemGroup = new THREE.Group();
 	private readonly systemNebulaBackdrop: SystemNebulaBackdrop;
+	private environmentProbe: DynamicEnvironmentProbe | null = null;
 	private readonly loadingOverlay: HTMLDivElement;
 	private loadingOverlayVisible = false;
 	private loadingOverlayStep = 0;
@@ -186,7 +201,40 @@ export class GamePrototypeScene {
 		this.bindInput();
 
 		options.scene.add(this.group);
+		this.createDynamicEnvironmentProbe();
 	}
+
+
+	private createDynamicEnvironmentProbe(): void {
+		if (!this.options.renderer) {
+			return;
+		}
+
+		this.environmentProbe = new DynamicEnvironmentProbe({
+			                                                    scene: this.options.scene,
+			                                                    renderer: this.options.renderer,
+			                                                    sourceGroup: this.backdropGroup,
+			                                                    excludedObjects: [
+				                                                    this.strategicGroup,
+				                                                    this.systemGroup,
+			                                                    ],
+			                                                    captureOnlyObjects: [
+				                                                    this.environmentHdrPeakGroup,
+			                                                    ],
+			                                                    resolution: 1024,
+			                                                    near: 0.1,
+			                                                    far: 5200,
+			                                                    updateIntervalSeconds: 4.0,
+			                                                    environmentIntensity: 3,
+			                                                    debug:
+				                                                    typeof window !== 'undefined' &&
+				                                                    new URLSearchParams(window.location.search)
+					                                                    .get('envProbeDebug') === '1',
+		                                                    });
+
+		this.environmentProbe.forceUpdate(this.options.camera.position);
+	}
+
 
 
 	private createLoadingOverlay(): HTMLDivElement {
@@ -461,6 +509,7 @@ export class GamePrototypeScene {
 
 		this.rebuildSystemView(node);
 		this.configureCamera();
+		this.environmentProbe?.forceUpdate(this.options.camera.position);
 	}
 
 	private getFleetMenuSignature(): string {
@@ -495,6 +544,10 @@ export class GamePrototypeScene {
 		);
 		this.updateLoadingOverlay(deltaSeconds);
 		this.updateSpaceBackdrop(deltaSeconds);
+		this.environmentProbe?.update(
+			deltaSeconds,
+			this.options.camera.position,
+		);
 		this.syncMoveMarker();
 		this.updateFleetMenu();
 		this.updateHud();
@@ -541,6 +594,8 @@ export class GamePrototypeScene {
 		);
 
 		this.options.scene.remove(this.group);
+		this.environmentProbe?.dispose();
+		this.environmentProbe = null;
 		this.loadingOverlay.remove();
 		this.systemNebulaBackdrop.dispose();
 		this.fleetMenu?.remove();
@@ -611,6 +666,7 @@ export class GamePrototypeScene {
 			this.options.controls.minDistance = 8;
 			this.options.controls.maxDistance = 360;
 			this.options.controls.update();
+			this.environmentProbe?.forceUpdate(this.options.camera.position);
 			return;
 		}
 
@@ -629,6 +685,7 @@ export class GamePrototypeScene {
 		this.options.controls.minDistance = 10;
 		this.options.controls.maxDistance = 180;
 		this.options.controls.update();
+		this.environmentProbe?.forceUpdate(this.options.camera.position);
 	}
 
 	private createSpaceBackdrop(): void {
@@ -637,6 +694,7 @@ export class GamePrototypeScene {
 		this.backdropGroup.add(this.createVertexColorSkydome(palette));
 		this.backdropGroup.add(this.createBackdropNebulaSprites(palette));
 		this.backdropGroup.add(this.createBackdropStarField(palette));
+		this.backdropGroup.add(this.createEnvironmentHdrPeaks(palette));
 		this.updateSpaceBackdrop(0);
 	}
 
@@ -1009,6 +1067,123 @@ export class GamePrototypeScene {
 		return 6;
 	}
 
+	private createEnvironmentHdrPeaks(palette: BackdropPalette): THREE.Group {
+		this.environmentHdrPeakGroup.name = 'Environment HDR Peaks Capture Only';
+		this.environmentHdrPeakGroup.visible = false;
+		this.environmentHdrPeakGroup.clear();
+
+		const hotspotTexture = this.createEnvironmentHotspotTexture();
+
+		const hotspots = [
+			{
+				name: 'HDR Cyan Key',
+				position: new THREE.Vector3(-210, 62, -260),
+				scale: 118,
+				color: new THREE.Color(0x7feaff),
+				intensity: 6.8,
+				opacity: 0.92,
+			},
+			{
+				name: 'HDR Red Nebula Peak',
+				position: new THREE.Vector3(165, 86, -250),
+				scale: 92,
+				color: palette.accent.clone().lerp(new THREE.Color(0xff4058), 0.75),
+				intensity: 5.4,
+				opacity: 0.72,
+			},
+			{
+				name: 'HDR Blue Rim Peak',
+				position: new THREE.Vector3(260, -32, -220),
+				scale: 80,
+				color: new THREE.Color(0x5aa8ff),
+				intensity: 4.2,
+				opacity: 0.54,
+			},
+			{
+				name: 'HDR Soft White Star Peak',
+				position: new THREE.Vector3(-52, -18, -330),
+				scale: 42,
+				color: new THREE.Color(0xffffff),
+				intensity: 8.5,
+				opacity: 0.46,
+			},
+		];
+
+		for (const hotspot of hotspots) {
+			const material = new THREE.SpriteMaterial({
+				                                          map: hotspotTexture,
+				                                          color: hotspot.color.clone().multiplyScalar(hotspot.intensity),
+				                                          transparent: true,
+				                                          opacity: hotspot.opacity,
+				                                          blending: THREE.AdditiveBlending,
+				                                          depthWrite: false,
+				                                          depthTest: false,
+			                                          });
+
+			material.toneMapped = false;
+
+			const sprite = new THREE.Sprite(material);
+
+			sprite.name = hotspot.name;
+			sprite.position.copy(hotspot.position);
+			sprite.scale.set(
+				hotspot.scale,
+				hotspot.scale,
+				1,
+			);
+			sprite.renderOrder = -850;
+
+			this.environmentHdrPeakGroup.add(sprite);
+		}
+
+		return this.environmentHdrPeakGroup;
+	}
+
+	private createEnvironmentHotspotTexture(): THREE.CanvasTexture {
+		const canvas = document.createElement('canvas');
+
+		canvas.width = 256;
+		canvas.height = 256;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			return new THREE.CanvasTexture(canvas);
+		}
+
+		const center = canvas.width * 0.5;
+		const gradient = context.createRadialGradient(
+			center,
+			center,
+			0,
+			center,
+			center,
+			center,
+		);
+
+		gradient.addColorStop(0.00, 'rgba(255,255,255,1.00)');
+		gradient.addColorStop(0.06, 'rgba(255,255,255,0.92)');
+		gradient.addColorStop(0.18, 'rgba(255,255,255,0.36)');
+		gradient.addColorStop(0.42, 'rgba(255,255,255,0.10)');
+		gradient.addColorStop(1.00, 'rgba(255,255,255,0.00)');
+
+		context.fillStyle = gradient;
+		context.fillRect(
+			0,
+			0,
+			canvas.width,
+			canvas.height,
+		);
+
+		const texture = new THREE.CanvasTexture(canvas);
+
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.needsUpdate = true;
+
+		return texture;
+	}
+
+
 	private createVertexColorSkydome(palette: BackdropPalette): THREE.Mesh {
 		const geometry = new THREE.SphereGeometry(420, 72, 36);
 		const positions = geometry.getAttribute('position');
@@ -1236,6 +1411,8 @@ export class GamePrototypeScene {
 			                                                 color: 0x315b7c,
 			                                                 transparent: true,
 			                                                 opacity: 0.72,
+			                                                 depthWrite: false,
+			                                                 depthTest: true,
 		                                                 });
 
 		for (const lane of this.world.lanes) {
@@ -1290,6 +1467,7 @@ export class GamePrototypeScene {
 				                            transparent: true,
 				                            opacity: 0.001,
 				                            depthWrite: false,
+				                            depthTest: false,
 			                            }),
 		);
 	}
@@ -1344,13 +1522,126 @@ export class GamePrototypeScene {
 		selectionRing.rotation.x = Math.PI * 0.5;
 		selectionRing.visible = false;
 		group.add(selectionRing);
-		this.attachCapitalShipModel(
-			group,
-			ship,
-			hull,
-		);
+		if (ship.role === 'frigate') {
+			this.attachFrigateShipModel(
+				group,
+				ship,
+				hull,
+			);
+		} else {
+			this.attachCapitalShipModel(
+				group,
+				ship,
+				hull,
+			);
+		}
 
 		return group;
+	}
+
+	private cloneFrigateModelForInstance(
+		template: THREE.Object3D,
+	): THREE.Object3D {
+		const clone = template.clone(true);
+
+		clone.traverse((item) => {
+			if (!(item instanceof THREE.Mesh)) {
+				return;
+			}
+
+			item.geometry = item.geometry.clone();
+			item.castShadow = false;
+			item.receiveShadow = false;
+			item.frustumCulled = false;
+
+			if (
+				!item.geometry.getAttribute('uv2') &&
+				item.geometry.getAttribute('uv')
+			) {
+				item.geometry.setAttribute(
+					'uv2',
+					item.geometry.getAttribute('uv').clone(),
+				);
+			}
+
+			if (Array.isArray(item.material)) {
+				item.material = item.material.map((material) => {
+					const clonedMaterial = material.clone();
+
+					clonedMaterial.depthWrite = true;
+					clonedMaterial.depthTest = true;
+
+					if ('envMapIntensity' in clonedMaterial) {
+						clonedMaterial.envMapIntensity = 1.45;
+					}
+
+					clonedMaterial.needsUpdate = true;
+
+					return clonedMaterial;
+				});
+				return;
+			}
+
+			item.material = item.material.clone();
+			item.material.depthWrite = true;
+			item.material.depthTest = true;
+
+			if ('envMapIntensity' in item.material) {
+				item.material.envMapIntensity = 1.45;
+			}
+
+			item.material.needsUpdate = true;
+		});
+
+		return clone;
+	}
+
+
+	private attachFrigateShipModel(
+		group: THREE.Group,
+		ship: ShipDefinition,
+		fallbackHull: THREE.Mesh,
+	): void {
+		this.loadFrigateModel()
+			.then((template) => {
+				if (!this.group.parent) {
+					return;
+				}
+
+				const model = this.cloneFrigateModelForInstance(template);
+
+				model.name = 'FrigateShipModel';
+
+				/*
+				 * Frigate GLB is Y-up.
+				 * It was flying backwards with rotation.y = Math.PI,
+				 * so keep yaw at 0.
+				 */
+				model.rotation.set(
+					0,
+					0,
+					0,
+				);
+
+				const modelScale = 0.5;
+
+				model.scale.setScalar(modelScale);
+
+				fallbackHull.visible = false;
+				group.add(model);
+			})
+			.catch((error) => {
+				if (frigateModelWarningShown) {
+					return;
+				}
+
+				frigateModelWarningShown = true;
+				console.warn(
+					`Frigate model could not be loaded from ${FRIGATE_GLB_URL}. ` +
+					'Using fallback frigate mesh.',
+					error,
+				);
+			});
 	}
 
 	private attachCapitalShipModel(
@@ -1401,6 +1692,85 @@ export class GamePrototypeScene {
 				);
 			});
 	}
+
+	private loadFrigateModel(): Promise<THREE.Object3D> {
+		if (!frigateModelPromise) {
+			const loader = new GLTFLoader();
+
+			frigateModelPromise = loader
+				.loadAsync(FRIGATE_GLB_URL)
+				.then((gltf) => {
+					const model = gltf.scene;
+
+					model.name = 'Frigate GLB Source';
+
+					model.traverse((object) => {
+						if (!(object instanceof THREE.Mesh)) {
+							return;
+						}
+
+						object.castShadow = false;
+						object.receiveShadow = false;
+						object.frustumCulled = false;
+
+						if (object.geometry) {
+							object.geometry.computeVertexNormals();
+
+							/*
+							 * AO maps in glTF usually use TEXCOORD_1.
+							 * If the export only has uv, duplicate it as uv2
+							 * so embedded occlusion maps can still work.
+							 */
+							if (
+								!object.geometry.getAttribute('uv2') &&
+								object.geometry.getAttribute('uv')
+							) {
+								object.geometry.setAttribute(
+									'uv2',
+									object.geometry.getAttribute('uv').clone(),
+								);
+							}
+						}
+
+						const materials = Array.isArray(object.material)
+						                  ? object.material
+						                  : [object.material];
+
+						for (const material of materials) {
+							if (!material) {
+								continue;
+							}
+
+							/*
+							 * Keep embedded GLB material + embedded maps.
+							 * Do not replace material, do not assign external textures.
+							 */
+							material.depthWrite = true;
+							material.depthTest = true;
+							material.needsUpdate = true;
+						}
+					});
+
+					this.normalizeImportedModel(model, 1.0);
+
+					return model;
+				})
+				.catch((error) => {
+					if (!frigateModelWarningShown) {
+						console.warn(
+							`Failed to load frigate model from ${FRIGATE_GLB_URL}. Falling back to dummy ship.`,
+							error,
+						);
+						frigateModelWarningShown = true;
+					}
+
+					throw error;
+				});
+		}
+
+		return frigateModelPromise.then((model) => model.clone(true));
+	}
+
 
 	private loadCapitalShipModel(): Promise<THREE.Object3D> {
 		if (!capitalShipModelPromise) {
@@ -1511,6 +1881,7 @@ export class GamePrototypeScene {
 				                                               emissiveIntensity: engineMaterial ? 0.95 : 0.0,
 				                                               roughness: engineMaterial ? 0.36 : 0.58,
 				                                               metalness: engineMaterial ? 0.46 : 0.34,
+				                                               envMapIntensity: engineMaterial ? 1.45 : 1.05,
 			                                               });
 		});
 
@@ -1694,6 +2065,8 @@ export class GamePrototypeScene {
 				                            color: 0x8fe7ff,
 				                            transparent: true,
 				                            opacity: 0.88,
+				                            depthWrite: false,
+				                            depthTest: true,
 			                            }),
 		);
 		const stem = new THREE.Line(
@@ -1705,6 +2078,8 @@ export class GamePrototypeScene {
 				                            color: 0x8fe7ff,
 				                            transparent: true,
 				                            opacity: 0.62,
+				                            depthWrite: false,
+				                            depthTest: true,
 			                            }),
 		);
 
@@ -3043,6 +3418,7 @@ export class GamePrototypeScene {
 				                            transparent: true,
 				                            opacity: 0.001,
 				                            depthWrite: false,
+				                            depthTest: false,
 			                            }),
 		);
 	}
@@ -3164,6 +3540,8 @@ export class GamePrototypeScene {
 					                            side: THREE.DoubleSide,
 					                            transparent: true,
 					                            opacity: 0.34,
+					                            depthWrite: false,
+					                            depthTest: true,
 				                            }),
 			);
 
@@ -3180,7 +3558,7 @@ export class GamePrototypeScene {
 	): THREE.Group {
 		const group = new THREE.Group();
 		group.name = 'System Star Volumetric Glow';
-		group.renderOrder = 8;
+		group.renderOrder = 4;
 		const texture = this.createSystemStarGlowTexture(color);
 
 		const glowLayers = [
@@ -3289,7 +3667,7 @@ export class GamePrototypeScene {
 			);
 		}
 
-		 const line = new THREE.Line(
+		const line = new THREE.Line(
 			new THREE.BufferGeometry().setFromPoints(points),
 			new THREE.LineBasicMaterial({
 				                            color,
@@ -3300,7 +3678,7 @@ export class GamePrototypeScene {
 			                            }),
 		);
 
-		line.renderOrder = -4;
+		line.renderOrder = -20;
 
 		return line;
 	}
@@ -3721,21 +4099,5 @@ export class GamePrototypeScene {
 					metalness: 0.03,
 				};
 		}
-	}
-
-	private getNodeColor(node: StrategicNode): number {
-		if (node.owner === 'player') {
-			return 0x4fc3ff;
-		}
-
-		if (node.owner === 'opponent') {
-			return 0xff6e58;
-		}
-
-		if (node.kind === 'resource') {
-			return 0xd4c06a;
-		}
-
-		return 0x8fa1ad;
 	}
 }

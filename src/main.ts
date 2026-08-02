@@ -661,6 +661,7 @@ if (gameMode) {
 		                                             hud,
 		                                             seed: currentPlanetSeed,
 		                                             rendererMode,
+		                                             renderer
 	                                             });
 
 	function animateGame(timestamp?: number): void {

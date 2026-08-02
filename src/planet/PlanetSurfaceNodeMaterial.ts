@@ -112,6 +112,18 @@ export function createPlanetSurfaceNodeMaterial(
 	const horizonHazeTint = color(0x9ed4ff);
 	const lowSunHazeTint = color(0xffe6c2);
 
+	/*
+	 * Fake dynamic environment reflection.
+	 *
+	 * This does not sample scene.environment directly.
+	 * It mirrors the visual idea of the skydome probe:
+	 * cool blue/cyan from the main space field plus a warm nebula peak.
+	 */
+	const environmentSkyTint = color(0x6ccfff);
+	const environmentNebulaTint = color(0xff5a7a);
+	const environmentDeepTint = color(0x102b4c);
+	const environmentMetalTint = color(0xcddcff);
+
 	const oceanFresnelTint = color(0x36a7c8);
 	const oceanDeepTint = color(0x0a344a);
 	const oceanNightTint = color(0x08243a);
@@ -1810,6 +1822,113 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	const nonIceSurface = oneMinus(paletteIce);
 	const iceRim = paletteIce.mul(rim).mul(day.mul(0.65).add(0.12));
 
+	const environmentViewRim = pow(
+		grazingView,
+		2.35,
+	);
+
+	const environmentNebulaMix = pow(
+		max(
+			dot(
+				viewDirection,
+				normalize(
+					color(0xff8870),
+				),
+			),
+			0.0,
+		),
+		2.0,
+	);
+
+	const environmentTint = mix(
+		environmentSkyTint,
+		environmentNebulaTint,
+		environmentNebulaMix.mul(0.72),
+	);
+
+	const waterEnvironmentStrength = waterHint
+		.mul(oneMinus(paletteIce))
+		.mul(
+			max(
+				paletteOceanic,
+				max(
+					paletteEarthlike.mul(0.68),
+					profileWaterInfluence.mul(0.84),
+				),
+			),
+		);
+
+	const iceEnvironmentStrength = paletteIce.mul(0.42);
+
+	const metallicEnvironmentStrength = max(
+		paletteMetallic,
+		profileMetalInfluence.mul(0.84),
+	);
+
+	const carbonEnvironmentStrength = paletteCarbon.mul(0.16);
+	const rockyEnvironmentStrength = paletteRocky.mul(0.10);
+	const barrenEnvironmentStrength = paletteBarren.mul(0.07);
+
+	const lavaEnvironmentSuppress = oneMinus(
+		max(
+			paletteLava,
+			max(
+				profileLavaInfluence,
+				forcedLavaSurface,
+			),
+		).mul(0.94),
+	);
+
+	const solidEnvironmentStrength = max(
+		max(
+			metallicEnvironmentStrength.mul(0.72),
+			iceEnvironmentStrength,
+		),
+		max(
+			carbonEnvironmentStrength,
+			max(
+				rockyEnvironmentStrength,
+				barrenEnvironmentStrength,
+			),
+		),
+	).mul(lavaEnvironmentSuppress);
+
+	const waterEnvironmentReflection = environmentTint
+		.mul(environmentViewRim)
+		.mul(waterEnvironmentStrength)
+		.mul(day.mul(0.38).add(0.16));
+
+	const waterEnvironmentPeak = environmentMetalTint
+		.mul(
+			pow(
+				specDot,
+				34.0,
+			),
+		)
+		.mul(waterEnvironmentStrength)
+		.mul(day)
+		.mul(0.34);
+
+	const solidEnvironmentReflection = mix(
+		environmentDeepTint,
+		environmentTint,
+		0.72,
+	)
+		.mul(environmentViewRim)
+		.mul(solidEnvironmentStrength)
+		.mul(day.mul(0.26).add(0.08));
+
+	const metallicEnvironmentPeak = environmentMetalTint
+		.mul(
+			pow(
+				specDot,
+				22.0,
+			),
+		)
+		.mul(metallicEnvironmentStrength)
+		.mul(day)
+		.mul(0.26);
+
 	surfaceColor = surfaceColor
 		.add(
 			oceanFresnelTint
@@ -1920,6 +2039,18 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 				.mul(0.10),
 		)
 		.add(
+			waterEnvironmentReflection,
+		)
+		.add(
+			waterEnvironmentPeak,
+		)
+		.add(
+			solidEnvironmentReflection,
+		)
+		.add(
+			metallicEnvironmentPeak,
+		)
+		.add(
 			lavaGlowColor
 				.mul(lavaCracks.mul(1.35).add(lavaHotspots.mul(1.75)))
 				.mul(lavaSurfaceStrength)
@@ -1942,6 +2073,10 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		color(0x86dfff)
 			.mul(rim)
 			.mul(day.mul(0.18).add(0.040)),
+	).add(
+		waterEnvironmentReflection.mul(0.72),
+	).add(
+		waterEnvironmentPeak.mul(0.86),
 	).mul(exposure.mul(1.05));
 
 	const desertTypeColor = mix(
@@ -1973,6 +2108,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			.add(mountainLightTint.mul(mountainPeak).mul(day).mul(0.20))
 			.add(color(0xa68d70).mul(rim).mul(day.mul(0.06).add(0.015))),
 		day,
+	).add(
+		solidEnvironmentReflection.mul(0.18),
 	).mul(exposure.mul(1.06));
 
 	const toxicTypeColor = mix(
@@ -2002,6 +2139,10 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			.add(color(0xb99a55).mul(mountainMask).mul(day).mul(0.08))
 			.add(color(0x9ea8af).mul(rim).mul(day.mul(0.04).add(0.010))),
 		day,
+	).add(
+		solidEnvironmentReflection.mul(0.62),
+	).add(
+		metallicEnvironmentPeak.mul(1.18),
 	).mul(exposure.mul(1.14));
 
 	const carbonTypeColor = mix(
@@ -2012,6 +2153,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			.add(color(0x92735d).mul(mountainMask).mul(day).mul(0.10))
 			.add(color(0x9f9488).mul(rim).mul(day.mul(0.04).add(0.010))),
 		day,
+	).add(
+		solidEnvironmentReflection.mul(0.22),
 	).mul(exposure.mul(1.24));
 
 	const lavaCrustColor = mix(
@@ -2126,6 +2269,9 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 			color(0x143e58)
 				.mul(iceCrackMask)
 				.mul(oneMinus(day).mul(0.28).add(day.mul(0.12))),
+		)
+		.add(
+			solidEnvironmentReflection.mul(0.26),
 		)
 		.mul(exposure);
 
