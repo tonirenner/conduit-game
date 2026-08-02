@@ -868,7 +868,7 @@ export class Planet {
 		);
 
 		cubeSphere.name        = 'PlanetTerrain';
-		cubeSphere.renderOrder = 1;
+		cubeSphere.renderOrder = 0;
 
 		return cubeSphere;
 	}
@@ -887,7 +887,7 @@ export class Planet {
 		const mesh = new THREE.Mesh(geometry, material);
 
 		mesh.name        = 'PlanetBody';
-		mesh.renderOrder = 0;
+		mesh.renderOrder = -10;
 
 		return mesh;
 	}
@@ -899,12 +899,13 @@ export class Planet {
 			                                             colorWrite: false,
 			                                             depthWrite: true,
 			                                             depthTest: true,
+			                                             side: THREE.FrontSide,
 		                                             });
 
 		const mesh = new THREE.Mesh(geometry, material);
 
 		mesh.name        = 'PlanetDepthOccluder';
-		mesh.renderOrder = -1000;
+		mesh.renderOrder = -50;
 
 		return mesh;
 	}

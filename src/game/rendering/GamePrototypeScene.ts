@@ -3131,7 +3131,7 @@ export class GamePrototypeScene {
 		planet.setPatchFrustumCullingEnabled(false);
 		planet.setRenderQuality('idle');
 
-		planet.group.getObjectByName('PlanetDepthOccluder')?.removeFromParent();
+		//planet.group.getObjectByName('PlanetDepthOccluder')?.removeFromParent();
 
 		return planet;
 	}
@@ -3180,7 +3180,7 @@ export class GamePrototypeScene {
 	): THREE.Group {
 		const group = new THREE.Group();
 		group.name = 'System Star Volumetric Glow';
-		group.renderOrder = 6;
+		group.renderOrder = 8;
 		const texture = this.createSystemStarGlowTexture(color);
 
 		const glowLayers = [
@@ -3212,7 +3212,7 @@ export class GamePrototypeScene {
 					                         opacity: layer.opacity,
 					                         blending: THREE.AdditiveBlending,
 					                         depthWrite: false,
-					                         depthTest: false,
+					                         depthTest: true,
 				                         }),
 			);
 
@@ -3289,14 +3289,20 @@ export class GamePrototypeScene {
 			);
 		}
 
-		return new THREE.Line(
+		 const line = new THREE.Line(
 			new THREE.BufferGeometry().setFromPoints(points),
 			new THREE.LineBasicMaterial({
 				                            color,
 				                            transparent: true,
 				                            opacity,
+				                            depthWrite: false,
+				                            depthTest: true,
 			                            }),
 		);
+
+		line.renderOrder = -4;
+
+		return line;
 	}
 
 	private disposeObject(object: THREE.Object3D): void {
