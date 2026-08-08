@@ -14,6 +14,7 @@ import { WormholeNodeVisual } from './WormholeNodeVisual';
 import { DynamicEnvironmentProbe } from './DynamicEnvironmentProbe';
 import {
     createDummyStationModel,
+    createDummyTurret,
     makePlacementGhost,
     setPlacementGhostValidity,
 } from './DummyAssetFactory';
@@ -33,6 +34,13 @@ import {
     getProductionQueueProgress,
     updateProductionSystem,
 } from '../simulation/ProductionSystem';
+import { CombatVfxSystem } from './CombatVfxSystem';
+import {
+    createOrReplaceControlGroup,
+    dissolveControlGroup,
+    getControlGroup,
+    setShipOrderOverrides,
+} from '../simulation/FleetGroupSystem';
 import { generateGameWorld } from '../generation/GameWorldGenerator';
 import type {
     Fleet,
@@ -202,6 +210,12 @@ export class GamePrototypeScene {
     private hasSavedSystemPanCamera = false;
     private selectedNodeId: string | null = null;
     private selectedStationId: string | null = null;
+    private hudHelpVisible = false;
+    private readonly selectedShipIds = new Set<string>();
+    private readonly selectionBox: HTMLDivElement;
+    private selectionDragStart: { x: number; y: number } | null = null;
+    private selectionDragCurrent: { x: number; y: number } | null = null;
+    private readonly combatVfx: CombatVfxSystem;
     private readonly buildMenu: BuildMenu;
     private placementBuildableId: StationBuildableId | null = null;
     private placementGhost: THREE.Object3D | null = null;
@@ -240,6 +254,12 @@ export class GamePrototypeScene {
        this.createStrategicMap();
        this.createFleetMenu();
        document.body.appendChild(this.loadingOverlay);
+       this.selectionBox = this.createSelectionBox();
+       document.body.appendChild(this.selectionBox);
+       this.combatVfx = new CombatVfxSystem({
+          parent: this.systemGroup,
+          getShipObject: (shipId) => this.systemShipMeshes.get(shipId) ?? null,
+       });
        this.buildMenu = new BuildMenu({
           onBuild: (buildableId) => this.handleBuildMenuChoice(buildableId),
        });
@@ -482,7 +502,7 @@ export class GamePrototypeScene {
                 `text-align:left;border:1px solid ${selected ? '#8fe7ff' : 'rgba(143,231,255,0.22)'};` +
                 `background:${selected ? 'rgba(64,176,220,0.28)' : 'rgba(8,20,32,0.74)'};` +
                 `color:#d7f4ff;font:12px/1.35 monospace;cursor:pointer;">` +
-                `${fleet.name}<br>` +
+                `${fleet.hotkey ? `[${fleet.hotkey}] ` : ''}${fleet.name}<br>` +
                 `${node?.name ?? 'unknown'} | ${order} | ${hull}` +
                 `</button>`
              );
@@ -505,6 +525,9 @@ export class GamePrototypeScene {
                 ...this.world,
                 selectedFleetId: fleetId,
              };
+             this.selectShipsFromFleet(
+                this.world.fleets.find((fleet) => fleet.id === fleetId) ?? null,
+             );
              this.showSelectedFleetSystem();
              this.fleetMenuSignature = '';
              this.updateFleetMenu();
@@ -566,6 +589,7 @@ export class GamePrototypeScene {
           ...this.world.fleets.map((fleet) => (
              [
                 fleet.id,
+                fleet.hotkey ?? 0,
                 fleet.nodeId,
                 this.getFleetOrderLabel(fleet),
                 this.getFleetHullText(fleet),
@@ -580,6 +604,9 @@ export class GamePrototypeScene {
        this.world = updateProductionSystem(this.world, deltaSeconds);
        this.ensureSelectedFleetExists();
        this.syncSystemShipMeshes();
+       this.combatVfx.trackTargets(this.world.ships, deltaSeconds);
+       this.combatVfx.consume(this.world.combatEvents ?? []);
+       this.combatVfx.update(deltaSeconds);
        this.processSystemPlanetBuildQueue();
        this.updateSystemPlanets(deltaSeconds);
        this.updateWormholeVisuals(deltaSeconds);
@@ -625,6 +652,10 @@ export class GamePrototypeScene {
           'pointermove',
           this.handlePointerMove,
        );
+       window.removeEventListener(
+          'pointerup',
+          this.handlePointerUp,
+       );
        this.options.domElement.removeEventListener(
           'contextmenu',
           this.handleContextMenu,
@@ -651,6 +682,8 @@ export class GamePrototypeScene {
        this.environmentProbe = null;
        this.loadingOverlay.remove();
        this.buildMenu.dispose();
+       this.selectionBox.remove();
+       this.combatVfx.dispose();
        this.systemNebulaBackdrop.dispose();
        this.fleetMenu?.remove();
        this.fleetMenu = null;
@@ -706,6 +739,7 @@ export class GamePrototypeScene {
           this.systemCameraMode = 'pan';
           this.orbitFocusPlanet = null;
           this.orbitFocusShipId = null;
+          this.hasSavedSystemPanCamera = false;
           this.options.camera.near = 0.8;
           this.options.camera.far = 3200;
           this.options.camera.updateProjectionMatrix();
@@ -962,11 +996,10 @@ export class GamePrototypeScene {
        this.options.camera.position.sub(this.systemRenderShift);
        this.options.controls.target.sub(this.systemRenderShift);
 
-       if (this.hasSavedSystemPanCamera) {
-          this.savedSystemPanCameraPosition.sub(this.systemRenderShift);
-          this.savedSystemPanControlsTarget.sub(this.systemRenderShift);
-       }
-
+       /*
+        * savedSystemPanCameraPosition / Target are absolute coordinates.
+        * Do not shift them here when the floating origin changes.
+        */
        this.options.controls.update();
     }
 
@@ -1036,11 +1069,8 @@ export class GamePrototypeScene {
     }
 
     private enterPlanetOrbitView(planet: Planet): void {
-       if (this.systemCameraMode !== 'orbitPlanet') {
-          this.savedSystemPanCameraPosition.copy(this.options.camera.position);
-          this.savedSystemPanControlsTarget.copy(this.options.controls.target);
-          this.savedSystemPanCameraFov = this.options.camera.fov;
-          this.hasSavedSystemPanCamera = true;
+       if (this.systemCameraMode === 'pan') {
+          this.saveSystemPanCameraForOrbit();
        }
 
        this.systemCameraMode = 'orbitPlanet';
@@ -1081,10 +1111,7 @@ export class GamePrototypeScene {
        }
 
        if (this.systemCameraMode === 'pan') {
-          this.savedSystemPanCameraPosition.copy(this.options.camera.position);
-          this.savedSystemPanControlsTarget.copy(this.options.controls.target);
-          this.savedSystemPanCameraFov = this.options.camera.fov;
-          this.hasSavedSystemPanCamera = true;
+          this.saveSystemPanCameraForOrbit();
        }
 
        this.systemCameraMode = 'orbitShip';
@@ -1115,6 +1142,27 @@ export class GamePrototypeScene {
        this.options.controls.update();
     }
 
+    /**
+     * Store the pan camera in absolute SystemView render coordinates.
+     *
+     * camera.position / controls.target are floating-origin relative.
+     * systemRenderOrigin is the offset currently removed from the scene.
+     * Saving position + origin makes the snapshot independent from any
+     * recentering that happens while following a moving ship.
+     */
+    private saveSystemPanCameraForOrbit(): void {
+       this.savedSystemPanCameraPosition
+          .copy(this.options.camera.position)
+          .add(this.systemRenderOrigin);
+
+       this.savedSystemPanControlsTarget
+          .copy(this.options.controls.target)
+          .add(this.systemRenderOrigin);
+
+       this.savedSystemPanCameraFov = this.options.camera.fov;
+       this.hasSavedSystemPanCamera = true;
+    }
+
     private exitSystemOrbitView(): void {
        this.systemCameraMode = 'pan';
        this.orbitFocusPlanet = null;
@@ -1129,9 +1177,17 @@ export class GamePrototypeScene {
        this.options.controls.minDistance = 8;
        this.options.controls.maxDistance = 360;
 
+       this.options.controls.enabled = true;
+
        if (this.hasSavedSystemPanCamera) {
-          this.options.camera.position.copy(this.savedSystemPanCameraPosition);
-          this.options.controls.target.copy(this.savedSystemPanControlsTarget);
+          this.options.camera.position
+             .copy(this.savedSystemPanCameraPosition)
+             .sub(this.systemRenderOrigin);
+
+          this.options.controls.target
+             .copy(this.savedSystemPanControlsTarget)
+             .sub(this.systemRenderOrigin);
+
           this.options.camera.fov = this.savedSystemPanCameraFov;
        } else {
           this.options.camera.position.set(0, 78, 116);
@@ -1140,8 +1196,15 @@ export class GamePrototypeScene {
        }
 
        this.options.camera.near = 0.8;
-       this.options.camera.far = 1800;
+       this.options.camera.far = 3200;
        this.options.camera.updateProjectionMatrix();
+
+       /*
+        * OrbitControls derives its internal spherical state from camera +
+        * target on update(). Calling update after all properties are restored
+        * prevents the previous ship-orbit angle/distance from leaking back
+        * into pan mode.
+        */
        this.options.controls.update();
     }
 
@@ -1693,6 +1756,14 @@ export class GamePrototypeScene {
              ship,
              hull,
           );
+       }
+
+       if (ship.role === 'frigate' || ship.role === 'carrier') {
+          const turret = createDummyTurret(ship.factionId);
+          turret.name = 'turret_yaw';
+          turret.position.set(0, 0.42, -0.25);
+          turret.scale.setScalar(ship.role === 'carrier' ? 0.72 : 0.46);
+          group.add(turret);
        }
 
        return group;
@@ -2392,6 +2463,10 @@ export class GamePrototypeScene {
           'pointermove',
           this.handlePointerMove,
        );
+       window.addEventListener(
+          'pointerup',
+          this.handlePointerUp,
+       );
        this.options.domElement.addEventListener(
           'contextmenu',
           this.handleContextMenu,
@@ -2437,14 +2512,20 @@ export class GamePrototypeScene {
 
           if (event.button === 0) {
              if (this.selectStationFromPointer(event)) {
+                this.clearShipSelection();
                 return;
              }
 
              if (this.selectSystemPlanetFromPointer(event)) {
+                this.clearShipSelection();
                 return;
              }
 
-             this.selectSystemFleetFromPointer(event);
+             if (this.selectSystemShipFromPointer(event)) {
+                return;
+             }
+
+             this.beginSelectionDrag(event);
              return;
           }
 
@@ -2515,6 +2596,51 @@ export class GamePrototypeScene {
           return;
        }
 
+       if (this.viewMode === 'system' && /^Digit[1-9]$/.test(event.code)) {
+          const hotkey = Number(event.code.slice(-1));
+
+          if (event.ctrlKey && event.shiftKey) {
+             event.preventDefault();
+             this.world = dissolveControlGroup(this.world, hotkey);
+             this.selectShipsFromFleet(this.getSelectedFleet());
+             this.fleetMenuSignature = '';
+             return;
+          }
+
+          if (event.ctrlKey) {
+             event.preventDefault();
+             this.world = createOrReplaceControlGroup(
+                this.world,
+                [...this.selectedShipIds],
+                hotkey,
+             );
+             this.selectShipsFromFleet(this.getSelectedFleet());
+             this.fleetMenuSignature = '';
+             return;
+          }
+
+          const group = getControlGroup(this.world, hotkey);
+
+          if (group) {
+             event.preventDefault();
+             this.world = {
+                ...this.world,
+                selectedFleetId: group.id,
+             };
+             this.selectShipsFromFleet(group);
+             this.showSelectedFleetSystem();
+             this.fleetMenuSignature = '';
+             return;
+          }
+       }
+
+       if (event.code === 'KeyH') {
+          event.preventDefault();
+          this.hudHelpVisible = !this.hudHelpVisible;
+          this.updateHud();
+          return;
+       }
+
        if (event.code === 'KeyB' && this.viewMode === 'system') {
           event.preventDefault();
           this.refreshBuildMenuContext();
@@ -2541,12 +2667,41 @@ export class GamePrototypeScene {
           this.navigation = result.state;
 
           if (result.target && this.world.selectedFleetId) {
-             this.world = setFleetTacticalMoveOrder(
-                this.world,
-                this.world.selectedFleetId,
-                result.target,
-                this.viewMode,
-             );
+             if (this.viewMode === 'system' && this.selectedShipIds.size > 0) {
+                const selectedFleet = this.getSelectedFleet();
+                const selectionMatchesFleet = Boolean(
+                   selectedFleet &&
+                   selectedFleet.shipIds.length === this.selectedShipIds.size &&
+                   selectedFleet.shipIds.every((shipId) => this.selectedShipIds.has(shipId)),
+                );
+
+                if (selectionMatchesFleet && selectedFleet) {
+                   this.world = setFleetTacticalMoveOrder(
+                      this.world,
+                      selectedFleet.id,
+                      result.target,
+                      'system',
+                   );
+                } else {
+                   this.world = setShipOrderOverrides(
+                      this.world,
+                      [...this.selectedShipIds],
+                      {
+                         type: 'move_tactical',
+                         space: 'system',
+                         nodeId: this.selectedNodeId ?? undefined,
+                         target: { ...result.target },
+                      },
+                   );
+                }
+             } else {
+                this.world = setFleetTacticalMoveOrder(
+                   this.world,
+                   this.world.selectedFleetId,
+                   result.target,
+                   this.viewMode,
+                );
+             }
           }
        }
 
@@ -3134,7 +3289,9 @@ export class GamePrototypeScene {
        scale: number,
     ): void {
        const selectedFleet = this.getSelectedFleet();
-       const selected = selectedFleet?.shipIds.includes(shipId) ?? false;
+       const selected = this.selectedShipIds.size > 0
+                        ? this.selectedShipIds.has(shipId)
+                        : (selectedFleet?.shipIds.includes(shipId) ?? false);
        const ring = mesh.children.find(
           (child) => child.name === 'FleetSelectionRing',
        );
@@ -3184,12 +3341,21 @@ export class GamePrototypeScene {
                             : null;
        const order = selectedFleet?.order.type ?? 'none';
        const draft = this.navigation.moveDraft;
+       const hud = this.options.hud;
+
+       /*
+        * Compact RTS HUD:
+        * Keep the permanent status small. Full controls are available with H.
+        */
+       hud.style.width = 'auto';
+       hud.style.maxWidth = '560px';
+       hud.style.whiteSpace = 'pre-line';
+       hud.style.lineHeight = '1.28';
+       hud.style.padding = '7px 10px';
+       hud.style.fontSize = '11px';
 
        if (this.viewMode === 'system') {
           const node = selectedNode ?? this.world.nodes[0];
-          const planetClasses = node.system.planets
-             .map((planet) => planet.class.replace('_', ' '))
-             .join(' | ');
           const stationCount = this.world.stations.filter(
              (station) => station.nodeId === node.id,
           ).length;
@@ -3199,40 +3365,78 @@ export class GamePrototypeScene {
              )
                                   : null;
 
-          this.options.hud.textContent =
-             `GAME MODE | SYSTEM | ${node.name}\n` +
-             `star: ${node.system.star.class} | planets: ${node.system.planets.length} | belts: ${node.system.asteroidBelts.length}\n` +
-             `classes: ${planetClasses}\n` +
-             `fleet: ${selectedFleet?.name ?? 'none'} | order: ${order} | stations: ${stationCount} | yard: ${selectedStation?.name ?? 'none'}\n` +
+          const selectedShipCount = this.selectedShipIds.size;
+          const focus =
+             this.systemCameraMode === 'orbitPlanet'
+             ? 'planet orbit'
+             : this.systemCameraMode === 'orbitShip'
+               ? 'ship orbit'
+               : 'pan';
+
+          const statusLine =
+             `SYSTEM · ${node.name}  |  ` +
+             `${node.system.planets.length} planets · ` +
+             `${node.system.asteroidBelts.length} belts · ` +
+             `${stationCount} stations`;
+
+          const selectionLine =
+             `${selectedShipCount > 0 ? `${selectedShipCount} ship${selectedShipCount === 1 ? '' : 's'}` : selectedFleet?.name ?? 'no fleet'}  |  ` +
+             `${order}  |  ${focus}` +
              (
-                draft
-                ? `move draft: x ${draft.anchor.x.toFixed(1)} | ` +
-             `z ${draft.anchor.z.toFixed(1)} | ` +
-             `height ${draft.heightOffset.toFixed(1)}\n`
+                selectedStation
+                ? `  |  ${selectedStation.name}`
                 : ''
              ) +
              (
-                this.systemCameraMode === 'orbitPlanet'
-                ? `planet focus | Esc return pan | mouse orbit/zoom`
-                : this.systemCameraMode === 'orbitShip'
-                  ? `ship focus | Esc return pan | mouse orbit/zoom`
-                  : `WASD pan | Q/E zoom | double-click planet/ship orbit | left select | right enemy attack/wormhole/move | B shipyard | N fighter | Esc map`
+                draft
+                ? `  |  move ${draft.anchor.x.toFixed(0)}, ${draft.anchor.z.toFixed(0)} · h ${draft.heightOffset.toFixed(0)}`
+                : ''
              );
+
+          const helpLine =
+             this.hudHelpVisible
+             ? (
+                `\nWASD move · Q/E zoom · drag select · Shift add · ` +
+                `Ctrl+1..9 group · 1..9 select · Ctrl+Shift+1..9 dissolve\n` +
+                `RMB move/attack · dblclick orbit · B build · Esc back · H hide help`
+             )
+             : '\nH · controls';
+
+          hud.textContent =
+             statusLine +
+             '\n' +
+             selectionLine +
+             helpLine;
           return;
        }
 
-       this.options.hud.textContent =
-          `GAME MODE | STRATEGIC | seed: ${this.world.seed}\n` +
-          `systems: ${this.world.nodes.length} | lanes: ${this.world.lanes.length} | ships: ${this.world.ships.length} (system view only)\n` +
-          `system: ${selectedNode?.name ?? 'none'} | fleet: ${selectedFleet?.name ?? 'none'} | order: ${order}\n` +
+       const statusLine =
+          `STRATEGIC · seed ${this.world.seed}  |  ` +
+          `${this.world.nodes.length} systems · ` +
+          `${this.world.lanes.length} lanes`;
+
+       const selectionLine =
+          `${selectedNode?.name ?? 'no system'}  |  ` +
+          `${selectedFleet?.name ?? 'no fleet'}  |  ${order}` +
           (
              draft
-             ? `move draft: x ${draft.anchor.x.toFixed(1)} | ` +
-          `z ${draft.anchor.z.toFixed(1)} | ` +
-          `height ${draft.heightOffset.toFixed(1)}\n`
+             ? `  |  move ${draft.anchor.x.toFixed(0)}, ${draft.anchor.z.toFixed(0)}`
              : ''
-          ) +
-          `WASD pan | Q/E zoom | left select | right enemy attack | right system lane move | Enter system`;
+          );
+
+       const helpLine =
+          this.hudHelpVisible
+          ? (
+             `\nWASD move · Q/E zoom · LMB select · RMB attack/move · ` +
+             `Enter system · Esc back · H hide help`
+          )
+          : '\nH · controls';
+
+       hud.textContent =
+          statusLine +
+          '\n' +
+          selectionLine +
+          helpLine;
     }
 
     private updatePointer(event: PointerEvent): void {
@@ -3349,6 +3553,14 @@ export class GamePrototypeScene {
     }
 
     private readonly handlePointerMove = (event: PointerEvent): void => {
+       if (this.selectionDragStart) {
+          this.selectionDragCurrent = {
+             x: event.clientX,
+             y: event.clientY,
+          };
+          this.renderSelectionBox();
+       }
+
        if (!this.placementBuildableId || this.viewMode !== 'system') {
           return;
        }
@@ -3362,6 +3574,209 @@ export class GamePrototypeScene {
 
        this.updateStationPlacementGhost(this.intersection);
     };
+
+    private readonly handlePointerUp = (event: PointerEvent): void => {
+       if (!this.selectionDragStart || event.button !== 0) {
+          return;
+       }
+
+       this.selectionDragCurrent = {
+          x: event.clientX,
+          y: event.clientY,
+       };
+       this.finishSelectionDrag(event.shiftKey);
+    };
+
+    private createSelectionBox(): HTMLDivElement {
+       const box = document.createElement('div');
+       const style = box.style;
+
+       style.position = 'fixed';
+       style.display = 'none';
+       style.pointerEvents = 'none';
+       style.zIndex = '55';
+       style.border = '1px solid rgba(143,231,255,0.95)';
+       style.background = 'rgba(70,180,255,0.12)';
+       style.boxShadow = '0 0 14px rgba(70,180,255,0.16) inset';
+       return box;
+    }
+
+    private beginSelectionDrag(event: PointerEvent): void {
+       if (event.target !== this.options.domElement) {
+          return;
+       }
+
+       this.selectionDragStart = {
+          x: event.clientX,
+          y: event.clientY,
+       };
+       this.selectionDragCurrent = {
+          x: event.clientX,
+          y: event.clientY,
+       };
+       this.renderSelectionBox();
+    }
+
+    private renderSelectionBox(): void {
+       if (!this.selectionDragStart || !this.selectionDragCurrent) {
+          this.selectionBox.style.display = 'none';
+          return;
+       }
+
+       const left = Math.min(this.selectionDragStart.x, this.selectionDragCurrent.x);
+       const top = Math.min(this.selectionDragStart.y, this.selectionDragCurrent.y);
+       const width = Math.abs(this.selectionDragCurrent.x - this.selectionDragStart.x);
+       const height = Math.abs(this.selectionDragCurrent.y - this.selectionDragStart.y);
+
+       this.selectionBox.style.display = width > 2 || height > 2 ? 'block' : 'none';
+       this.selectionBox.style.left = `${left}px`;
+       this.selectionBox.style.top = `${top}px`;
+       this.selectionBox.style.width = `${width}px`;
+       this.selectionBox.style.height = `${height}px`;
+    }
+
+    private finishSelectionDrag(additive: boolean): void {
+       const start = this.selectionDragStart;
+       const end = this.selectionDragCurrent;
+
+       this.selectionDragStart = null;
+       this.selectionDragCurrent = null;
+       this.selectionBox.style.display = 'none';
+
+       if (!start || !end) {
+          return;
+       }
+
+       const left = Math.min(start.x, end.x);
+       const right = Math.max(start.x, end.x);
+       const top = Math.min(start.y, end.y);
+       const bottom = Math.max(start.y, end.y);
+
+       if (right - left < 4 && bottom - top < 4) {
+          if (!additive) {
+             this.clearShipSelection();
+          }
+          return;
+       }
+
+       const rect = this.options.domElement.getBoundingClientRect();
+       const projected = new THREE.Vector3();
+       const found: string[] = [];
+
+       for (const [shipId, object] of this.systemShipMeshes) {
+          const ship = this.world.ships.find((item) => item.id === shipId);
+
+          if (!ship || ship.factionId !== 'player' || !object.visible) {
+             continue;
+          }
+
+          object.getWorldPosition(projected);
+          projected.project(this.options.camera);
+
+          const x = rect.left + (projected.x * 0.5 + 0.5) * rect.width;
+          const y = rect.top + (-projected.y * 0.5 + 0.5) * rect.height;
+
+          if (x >= left && x <= right && y >= top && y <= bottom) {
+             found.push(shipId);
+          }
+       }
+
+       if (!additive) {
+          this.selectedShipIds.clear();
+       }
+
+       for (const shipId of found) {
+          this.selectedShipIds.add(shipId);
+       }
+
+       this.syncSelectedFleetFromShipSelection();
+    }
+
+    private selectSystemShipFromPointer(event: PointerEvent): boolean {
+       this.updatePointer(event);
+       this.raycaster.setFromCamera(this.pointer, this.options.camera);
+
+       const intersections = this.raycaster.intersectObjects(
+          [...this.systemShipMeshes.values()].filter((mesh) => mesh.visible),
+          true,
+       );
+       const object = intersections[0]?.object;
+       const shipId = object ? this.findSystemShipIdForObject(object) : null;
+
+       if (!shipId) {
+          return false;
+       }
+
+       const ship = this.world.ships.find((item) => item.id === shipId);
+
+       if (!ship || ship.factionId !== 'player') {
+          return false;
+       }
+
+       if (!event.shiftKey) {
+          this.selectedShipIds.clear();
+       }
+
+       if (event.shiftKey && this.selectedShipIds.has(shipId)) {
+          this.selectedShipIds.delete(shipId);
+       } else {
+          this.selectedShipIds.add(shipId);
+       }
+
+       this.selectedStationId = null;
+       this.syncSelectedFleetFromShipSelection();
+       this.refreshBuildMenuContext();
+
+       const now = performance.now();
+       const isDoubleClick =
+          shipId === this.lastSystemShipClickId &&
+          now - this.lastSystemShipClickTime < 360;
+
+       this.lastSystemShipClickId = shipId;
+       this.lastSystemShipClickTime = now;
+
+       if (isDoubleClick) {
+          this.enterShipOrbitView(shipId);
+       }
+
+       return true;
+    }
+
+    private syncSelectedFleetFromShipSelection(): void {
+       if (this.selectedShipIds.size === 0) {
+          return;
+       }
+
+       const selected = [...this.selectedShipIds];
+       const fleet = this.world.fleets.find(
+          (item) => selected.every((shipId) => item.shipIds.includes(shipId)),
+       ) ?? this.world.fleets.find(
+          (item) => item.shipIds.includes(selected[0]),
+       );
+
+       if (fleet) {
+          this.world = {
+             ...this.world,
+             selectedFleetId: fleet.id,
+          };
+       }
+    }
+
+    private selectShipsFromFleet(fleet: Fleet | null): void {
+       this.selectedShipIds.clear();
+
+       if (!fleet || fleet.nodeId !== this.selectedNodeId) {
+          return;
+       }
+
+       for (const shipId of fleet.shipIds) {
+          this.selectedShipIds.add(shipId);
+       }
+    }
+
+    private clearShipSelection(): void {
+       this.selectedShipIds.clear();
+    }
 
     private handleBuildMenuChoice(buildableId: BuildableId): void {
        const definition = BUILD_CATALOG[buildableId];

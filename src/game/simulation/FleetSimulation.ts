@@ -1,6 +1,8 @@
 import type {
+    CombatEvent,
     FactionId,
     Fleet,
+    FleetOrder,
     GameWorld,
     ShipRole,
     ShipDefinition,
@@ -37,6 +39,17 @@ export function updateFleetSimulation(
           ...fleet.order,
        },
     }));
+    const shipOrderOverrides = {
+       ...(world.shipOrderOverrides ?? {}),
+    };
+    const overriddenShipIds = new Set(Object.keys(shipOrderOverrides));
+    const combatEvents: CombatEvent[] = [];
+
+    updateShipOrderOverrides(
+       shipOrderOverrides,
+       nextShipsById,
+       deltaSeconds,
+    );
 
     for (const fleet of nextFleets) {
        if (fleet.order.type === 'move_to_wormhole') {
@@ -77,6 +90,10 @@ export function updateFleetSimulation(
        const space = fleet.order.space;
 
        fleet.shipIds.forEach((shipId, index) => {
+          if (overriddenShipIds.has(shipId)) {
+             return;
+          }
+
           const ship = nextShipsById.get(shipId);
 
           if (!ship) {
@@ -118,9 +135,24 @@ export function updateFleetSimulation(
        });
     }
 
+    updateAutomaticTurretCombat(
+       nextShips,
+       combatEvents,
+       deltaSeconds,
+    );
+
+    const liveShipIds = new Set(
+       nextShips.filter((ship) => ship.hull > 0).map((ship) => ship.id),
+    );
+    const liveOverrides = Object.fromEntries(
+       Object.entries(shipOrderOverrides).filter(([shipId]) => liveShipIds.has(shipId)),
+    );
+
     return {
        ...world,
        ships: nextShips.filter((ship) => ship.hull > 0),
+       combatEvents,
+       shipOrderOverrides: liveOverrides,
        fleets: nextFleets
           .map((fleet) => ({
              ...fleet,
@@ -639,30 +671,150 @@ function updateFleetAttack(
        return;
     }
 
-    const damagePerSecond = fleet.shipIds.reduce((sum, shipId) => {
-       const ship = nextShipsById.get(shipId);
+    /*
+     * In range: movement stops here. Damage is handled by the per-ship turret
+     * simulation below so every ship/turret gets its own cooldown and fire event.
+     */
+}
 
-       if (!ship || ship.hull <= 0) {
-          return sum;
+
+function updateShipOrderOverrides(
+    overrides: Record<string, FleetOrder>,
+    shipsById: Map<string, ShipDefinition>,
+    deltaSeconds: number,
+): void {
+    for (const [shipId, order] of Object.entries(overrides)) {
+       const ship = shipsById.get(shipId);
+
+       if (!ship) {
+          delete overrides[shipId];
+          continue;
        }
 
-       return sum + getShipDamage(ship.role);
-    }, 0);
-    const targetShipId = targetFleet.shipIds.find(
-       (shipId) => (nextShipsById.get(shipId)?.hull ?? 0) > 0,
-    );
-    const targetShip = targetShipId
-                       ? nextShipsById.get(targetShipId)
-                       : null;
+       if (order.type === 'hold') {
+          ship.systemVelocity.x = 0;
+          ship.systemVelocity.y = 0;
+          ship.systemVelocity.z = 0;
+          continue;
+       }
 
-    if (!targetShip) {
-       return;
+       if (order.type !== 'move_tactical' || order.space !== 'system') {
+          continue;
+       }
+
+       updateVectorMoveOrder(
+          ship.systemPosition,
+          ship.systemVelocity,
+          order.target,
+          ship.maxSpeed,
+          ship.turnRate,
+          deltaSeconds,
+          40,
+       );
     }
+}
 
-    targetShip.hull = Math.max(
-       0,
-       targetShip.hull - damagePerSecond * deltaSeconds,
-    );
+function updateAutomaticTurretCombat(
+    ships: ShipDefinition[],
+    events: CombatEvent[],
+    deltaSeconds: number,
+): void {
+    const livingShips = ships.filter((ship) => ship.hull > 0);
+
+    for (const ship of livingShips) {
+       ship.weaponCooldownSeconds = Math.max(
+          0,
+          (ship.weaponCooldownSeconds ?? 0) - deltaSeconds,
+       );
+
+       if (ship.weaponCooldownSeconds > 0 || ship.role === 'constructor') {
+          continue;
+       }
+
+       const range = getWeaponRange(ship.role);
+       let target: ShipDefinition | null = null;
+       let targetDistance = Number.POSITIVE_INFINITY;
+
+       for (const candidate of livingShips) {
+          if (
+             candidate.id === ship.id ||
+             candidate.factionId === ship.factionId ||
+             candidate.nodeId !== ship.nodeId ||
+             candidate.hull <= 0
+          ) {
+             continue;
+          }
+
+          const distance = getDistance(ship.systemPosition, candidate.systemPosition);
+
+          if (distance <= range && distance < targetDistance) {
+             target = candidate;
+             targetDistance = distance;
+          }
+       }
+
+       if (!target) {
+          continue;
+       }
+
+       const damage = getShotDamage(ship.role);
+       target.hull = Math.max(0, target.hull - damage);
+       ship.weaponCooldownSeconds = getWeaponCooldown(ship.role);
+
+       events.push({
+          id: `fire-${ship.id}-${target.id}-${Math.random().toString(36).slice(2, 8)}`,
+          type: 'turret_fire',
+          sourceShipId: ship.id,
+          targetShipId: target.id,
+          weaponKind: ship.role === 'frigate' || ship.role === 'carrier' ? 'railgun' : 'laser',
+          damage,
+       });
+    }
+}
+
+function getWeaponRange(role: ShipRole): number {
+    switch (role) {
+       case 'carrier':
+          return 15 * KILOMETER;
+       case 'frigate':
+          return 12 * KILOMETER;
+       case 'fighter':
+          return 6 * KILOMETER;
+       case 'scout':
+          return 4 * KILOMETER;
+       case 'constructor':
+          return 2.5 * KILOMETER;
+    }
+}
+
+function getWeaponCooldown(role: ShipRole): number {
+    switch (role) {
+       case 'carrier':
+          return 1.35;
+       case 'frigate':
+          return 0.95;
+       case 'fighter':
+          return 0.52;
+       case 'scout':
+          return 0.78;
+       case 'constructor':
+          return 2.0;
+    }
+}
+
+function getShotDamage(role: ShipRole): number {
+    switch (role) {
+       case 'carrier':
+          return 22;
+       case 'frigate':
+          return 16;
+       case 'fighter':
+          return 7;
+       case 'scout':
+          return 4;
+       case 'constructor':
+          return 1;
+    }
 }
 
 function updateVectorMoveOrder(

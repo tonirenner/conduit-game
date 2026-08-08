@@ -82,6 +82,9 @@ export type ShipDefinition = {
 
 	/** Steering response in 1 / second. */
 	turnRate: number;
+
+	/** Remaining weapon cooldown in seconds. */
+	weaponCooldownSeconds?: number;
 };
 
 export type FleetHoldOrder = {
@@ -139,8 +142,25 @@ export type Fleet = {
 	factionId: FactionId;
 	nodeId: string;
 	shipIds: string[];
+	hotkey?: number;
 	order: FleetOrder;
 };
+
+
+export type CombatWeaponKind =
+	| 'laser'
+	| 'railgun';
+
+export type CombatEvent = {
+	id: string;
+	type: 'turret_fire';
+	sourceShipId: string;
+	targetShipId: string;
+	weaponKind: CombatWeaponKind;
+	damage: number;
+};
+
+export type ShipOrderOverrides = Record<string, FleetOrder>;
 
 export type OrbitalStationType =
 	| 'shipyard'
@@ -189,4 +209,6 @@ export type GameWorld = {
 	fleets: Fleet[];
 	stations: OrbitalStationDefinition[];
 	selectedFleetId: string | null;
+	shipOrderOverrides?: ShipOrderOverrides;
+	combatEvents?: CombatEvent[];
 };
