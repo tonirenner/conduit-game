@@ -98,7 +98,7 @@ export class BuildMenu {
 		style.bottom = '104px';
 		style.transform = 'translateX(-50%)';
 		style.zIndex = '45';
-		style.width = 'min(720px, calc(100vw - 48px))';
+		style.width = 'min(680px, calc(100vw - 290px))';
 		style.padding = '12px';
 		style.border = '1px solid rgba(143,231,255,0.34)';
 		style.borderRadius = '10px';

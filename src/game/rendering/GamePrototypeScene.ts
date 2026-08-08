@@ -28,6 +28,7 @@ import {
 } from '../build/BuildCatalog';
 import { validateStationPlacement } from '../build/StationPlacementValidator';
 import { BuildMenu } from '../ui/BuildMenu';
+import { SystemMinimap } from '../ui/SystemMinimap';
 import {
     addBuildStation,
     enqueueShipProduction,
@@ -217,6 +218,7 @@ export class GamePrototypeScene {
     private selectionDragCurrent: { x: number; y: number } | null = null;
     private readonly combatVfx: CombatVfxSystem;
     private readonly buildMenu: BuildMenu;
+    private readonly systemMinimap: SystemMinimap;
     private placementBuildableId: StationBuildableId | null = null;
     private placementGhost: THREE.Object3D | null = null;
     private placementTargetPlanetId: string | undefined;
@@ -263,7 +265,13 @@ export class GamePrototypeScene {
        this.buildMenu = new BuildMenu({
           onBuild: (buildableId) => this.handleBuildMenuChoice(buildableId),
        });
+       this.systemMinimap = new SystemMinimap({
+          onNavigate: (renderX, renderZ) => {
+             this.navigateSystemCameraFromMinimap(renderX, renderZ);
+          },
+       });
        this.refreshBuildMenuContext();
+       this.updateSystemMinimap();
        this.configureCamera();
        this.bindInput();
 
@@ -626,6 +634,7 @@ export class GamePrototypeScene {
        this.syncMoveMarker();
        this.updateFleetMenu();
        this.refreshBuildMenuContext();
+       this.updateSystemMinimap();
        this.updateHud();
     }
 
@@ -682,6 +691,7 @@ export class GamePrototypeScene {
        this.environmentProbe = null;
        this.loadingOverlay.remove();
        this.buildMenu.dispose();
+       this.systemMinimap.dispose();
        this.selectionBox.remove();
        this.combatVfx.dispose();
        this.systemNebulaBackdrop.dispose();
@@ -3334,6 +3344,206 @@ export class GamePrototypeScene {
        }
     }
 
+    private updateSystemMinimap(): void {
+       const visible =
+          this.viewMode === 'system' &&
+          Boolean(this.selectedNodeId);
+
+       this.systemMinimap.setVisible(visible);
+
+       if (!visible || !this.selectedNodeId) {
+          return;
+       }
+
+       const node = this.getNode(this.selectedNodeId);
+
+       if (!node) {
+          return;
+       }
+
+       const points: import('../ui/SystemMinimap').MinimapPoint[] = [];
+
+       for (let index = 0; index < this.systemPlanets.length; index++) {
+          const planet = this.systemPlanets[index];
+
+          points.push({
+             id: `planet-${index}`,
+             kind: 'planet',
+             x: planet.group.position.x,
+             z: planet.group.position.z,
+             size: THREE.MathUtils.clamp(
+                this.getObjectVisualRadius(planet.group, 4) * 0.32,
+                2.8,
+                6.2,
+             ),
+             selected:
+                this.systemCameraMode === 'orbitPlanet' &&
+                this.orbitFocusPlanet === planet,
+          });
+       }
+
+       for (const station of this.world.stations) {
+          if (station.nodeId !== this.selectedNodeId) {
+             continue;
+          }
+
+          const mesh = this.stationMeshes.get(station.id);
+
+          if (!mesh) {
+             continue;
+          }
+
+          points.push({
+             id: station.id,
+             kind: 'station',
+             x: mesh.position.x,
+             z: mesh.position.z,
+             factionId: station.factionId,
+             stationType: station.type,
+             selected: station.id === this.selectedStationId,
+          });
+       }
+
+       for (const ship of this.world.ships) {
+          if (ship.nodeId !== this.selectedNodeId) {
+             continue;
+          }
+
+          const mesh = this.systemShipMeshes.get(ship.id);
+
+          if (!mesh || !mesh.visible) {
+             continue;
+          }
+
+          points.push({
+             id: ship.id,
+             kind: 'ship',
+             x: mesh.position.x,
+             z: mesh.position.z,
+             factionId: ship.factionId,
+             selected: this.selectedShipIds.has(ship.id),
+          });
+       }
+
+       for (const [targetNodeId, mesh] of this.systemExitMeshes) {
+          if (!mesh.visible) {
+             continue;
+          }
+
+          points.push({
+             id: `wormhole-${targetNodeId}`,
+             kind: 'wormhole',
+             x: mesh.position.x,
+             z: mesh.position.z,
+          });
+       }
+
+       const halfExtent = this.getSystemMinimapHalfExtent(points);
+
+       const cameraDirection = new THREE.Vector3();
+       this.options.camera.getWorldDirection(cameraDirection);
+
+       const cameraYaw = Math.atan2(
+          cameraDirection.x,
+          -cameraDirection.z,
+       );
+
+       const target = this.options.controls.target;
+       const cameraDistance =
+          this.options.camera.position.distanceTo(target);
+
+       /*
+        * Approximate visible tactical footprint.
+        * We intentionally keep this cheap; the minimap is strategic context,
+        * not a pixel-perfect frustum projection.
+        */
+       const viewportHeight = THREE.MathUtils.clamp(
+          cameraDistance * 0.95,
+          12,
+          halfExtent * 1.2,
+       );
+       const viewportWidth = THREE.MathUtils.clamp(
+          viewportHeight * this.options.camera.aspect,
+          16,
+          halfExtent * 1.6,
+       );
+
+       this.systemMinimap.setData({
+          title: `SYSTEM · ${node.name}`,
+          points,
+          center: {
+             x: 0,
+             z: 0,
+          },
+          worldHalfExtent: halfExtent,
+          viewport: {
+             x: target.x,
+             z: target.z,
+             width: viewportWidth,
+             height: viewportHeight,
+             rotationRadians: cameraYaw,
+          },
+       });
+    }
+
+    private getSystemMinimapHalfExtent(
+       points: Array<{
+          x: number;
+          z: number;
+       }>,
+    ): number {
+       let extent = 70;
+
+       for (const point of points) {
+          extent = Math.max(
+             extent,
+             Math.abs(point.x) + 14,
+             Math.abs(point.z) + 14,
+          );
+       }
+
+       return THREE.MathUtils.clamp(
+          extent,
+          70,
+          520,
+       );
+    }
+
+    private navigateSystemCameraFromMinimap(
+       renderX: number,
+       renderZ: number,
+    ): void {
+       if (this.viewMode !== 'system') {
+          return;
+       }
+
+       /*
+        * Clicking the minimap always returns to normal tactical pan first.
+        * This avoids fighting OrbitControls while a planet/ship orbit is active.
+        */
+       if (this.systemCameraMode !== 'pan') {
+          this.exitSystemOrbitView();
+       }
+
+       const currentTarget = this.options.controls.target.clone();
+       const delta = new THREE.Vector3(
+          renderX - currentTarget.x,
+          0,
+          renderZ - currentTarget.z,
+       );
+
+       this.options.controls.target.add(delta);
+       this.options.camera.position.add(delta);
+       this.options.controls.update();
+
+       /*
+        * The user has intentionally moved the pan camera. Do not allow a later
+        * orbit exit to restore the pre-minimap snapshot.
+        */
+       this.hasSavedSystemPanCamera = false;
+       this.updateSystemMinimap();
+    }
+
     private updateHud(): void {
        const selectedFleet = this.getSelectedFleet();
        const selectedNode = this.selectedNodeId
@@ -3540,6 +3750,8 @@ export class GamePrototypeScene {
        this.rebuildSystemView(node);
        this.configureCamera();
        this.refreshBuildMenuContext();
+       this.systemMinimap.setVisible(true);
+       this.updateSystemMinimap();
     }
 
     private exitSystemView(): void {
@@ -3549,6 +3761,7 @@ export class GamePrototypeScene {
        this.viewMode = 'strategic';
        this.strategicGroup.visible = true;
        this.systemGroup.visible = false;
+       this.systemMinimap.setVisible(false);
        this.configureCamera();
     }
 
