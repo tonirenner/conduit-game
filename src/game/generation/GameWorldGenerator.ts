@@ -1,5 +1,6 @@
 import { SeededRandom } from '../../planet/generation/SeededRandom';
 import { generateStarSystemDefinition } from '../../system/generation/StarSystemGenerator';
+import { KILOMETER } from '../spatial/SpatialUnits';
 
 import type {
 	FactionId,
@@ -119,8 +120,8 @@ function createLane(
 function createInitialShips(nodes: StrategicNode[]): ShipDefinition[] {
 	const playerHome = nodes.find((node) => node.owner === 'player') ?? nodes[0];
 	const opponentHome =
-		      [...nodes].reverse().find((node) => node.owner === 'opponent') ??
-		      nodes[nodes.length - 1];
+		[...nodes].reverse().find((node) => node.owner === 'opponent') ??
+		nodes[nodes.length - 1];
 
 	return [
 		...createFleetShips('player', playerHome, -3),
@@ -134,6 +135,38 @@ function createFleetShips(
 	offset: number,
 ): ShipDefinition[] {
 	return [
+		{
+			id: `${factionId}-${node.id}-carrier-1`,
+			name: factionId === 'player' ? 'Capital Ship' : 'Enemy Capital Ship',
+			role: 'carrier',
+			factionId,
+			nodeId: node.id,
+			position: {
+				x: node.position.x + offset,
+				y: 0,
+				z: node.position.y - 2.4,
+			},
+			velocity: {
+				x: 0,
+				y: 0,
+				z: 0,
+			},
+			systemPosition: {
+				x: offset * 0.85 * KILOMETER,
+				y: 0.75 * KILOMETER,
+				z: 6.1 * KILOMETER,
+			},
+			systemVelocity: {
+				x: 0,
+				y: 0,
+				z: 0,
+			},
+			hull: 260,
+			maxHull: 260,
+			maxSpeed: 3.2 * KILOMETER,
+			strategicMaxSpeed: 3.2,
+			turnRate: 1.35,
+		},
 		{
 			id: `${factionId}-${node.id}-scout-1`,
 			name: 'Scout 1',
@@ -151,9 +184,9 @@ function createFleetShips(
 				z: 0,
 			},
 			systemPosition: {
-				x: offset * 0.85,
+				x: offset * 0.85 * KILOMETER,
 				y: 0,
-				z: 8,
+				z: 8 * KILOMETER,
 			},
 			systemVelocity: {
 				x: 0,
@@ -162,7 +195,8 @@ function createFleetShips(
 			},
 			hull: 70,
 			maxHull: 70,
-			maxSpeed: 8.2,
+			maxSpeed: 8.2 * KILOMETER,
+			strategicMaxSpeed: 8.2,
 			turnRate: 4.0,
 		},
 		{
@@ -182,9 +216,9 @@ function createFleetShips(
 				z: 0,
 			},
 			systemPosition: {
-				x: offset * 0.85,
-				y: 0.35,
-				z: 9.8,
+				x: offset * 0.85 * KILOMETER,
+				y: 0.35 * KILOMETER,
+				z: 9.8 * KILOMETER,
 			},
 			systemVelocity: {
 				x: 0,
@@ -193,7 +227,8 @@ function createFleetShips(
 			},
 			hull: 160,
 			maxHull: 160,
-			maxSpeed: 4.6,
+			maxSpeed: 4.6 * KILOMETER,
+			strategicMaxSpeed: 4.6,
 			turnRate: 2.2,
 		},
 	];

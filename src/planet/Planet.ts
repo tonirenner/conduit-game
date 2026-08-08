@@ -692,7 +692,7 @@ export class Planet {
 		}
 
 		const moonSeed =
-			      (this.definition.render as any)?.moonSeed ??
+			      (this.definition?.render as any)?.moonSeed ??
 			      (this.definition.seed ^ 0x4411aa);
 
 		this.moonSystemLayer = new MoonSystemLayer({

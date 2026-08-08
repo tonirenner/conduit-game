@@ -1,4 +1,4 @@
-import type {StarSystemDefinition} from '../../system/model/StarSystemDefinition';
+import type { StarSystemDefinition } from '../../system/model/StarSystemDefinition';
 
 export type FactionId =
 	| 'player'
@@ -11,15 +11,27 @@ export type StrategicNodeKind =
 	| 'frontier'
 	| 'chokepoint';
 
+export type Vector3Like = {
+	x: number;
+	y: number;
+	z: number;
+};
+
 export type StrategicNode = {
 	id: string;
 	name: string;
 	kind: StrategicNodeKind;
 	system: StarSystemDefinition;
+
+	/**
+	 * Abstract strategic-map coordinates.
+	 * Intentionally not meters.
+	 */
 	position: {
 		x: number;
 		y: number;
 	};
+
 	owner: FactionId;
 	resourceRate: number;
 	shipyardSlots: number;
@@ -46,56 +58,80 @@ export type ShipDefinition = {
 	role: ShipRole;
 	factionId: FactionId;
 	nodeId: string;
-	position: {
-		x: number;
-		y: number;
-		z: number;
-	};
-	velocity: {
-		x: number;
-		y: number;
-		z: number;
-	};
-	systemPosition: {
-		x: number;
-		y: number;
-		z: number;
-	};
-	systemVelocity: {
-		x: number;
-		y: number;
-		z: number;
-	};
+
+	/** Abstract strategic-map position. */
+	position: Vector3Like;
+
+	/** Abstract strategic-map velocity. */
+	velocity: Vector3Like;
+
+	/** Physical position inside a star system in meters. */
+	systemPosition: Vector3Like;
+
+	/** Physical velocity inside a star system in meters / second. */
+	systemVelocity: Vector3Like;
+
 	hull: number;
 	maxHull: number;
+
+	/** Tactical/SystemView maximum speed in meters / second. */
 	maxSpeed: number;
+
+	/** Strategic-map speed in abstract map units / second. */
+	strategicMaxSpeed: number;
+
+	/** Steering response in 1 / second. */
 	turnRate: number;
 };
 
-export type FleetOrder =
-	| {
+export type FleetHoldOrder = {
 	type: 'hold';
-}
-	| {
+};
+
+export type FleetTacticalMoveOrder = {
 	type: 'move_tactical';
 	space: 'strategic' | 'system';
 	nodeId?: string;
-	target: {
-		x: number;
-		y: number;
-		z: number;
-	};
-}
-	| {
+
+	/**
+	 * strategic -> abstract map coordinates
+	 * system    -> meters
+	 */
+	target: Vector3Like;
+};
+
+/**
+ * Physical approach to a wormhole inside SystemView.
+ *
+ * The fleet must first fly to entryPosition. Only after reaching the
+ * wormhole does FleetSimulation switch to move_strategic.
+ */
+export type FleetMoveToWormholeOrder = {
+	type: 'move_to_wormhole';
+	targetNodeId: string;
+
+	/** Wormhole center in physical system coordinates (meters). */
+	entryPosition: Vector3Like;
+};
+
+export type FleetStrategicMoveOrder = {
 	type: 'move_strategic';
 	targetNodeId: string;
 	progress: number;
 	durationSeconds: number;
-}
-	| {
+};
+
+export type FleetAttackOrder = {
 	type: 'attack_fleet';
 	targetFleetId: string;
 };
+
+export type FleetOrder =
+	| FleetHoldOrder
+	| FleetTacticalMoveOrder
+	| FleetMoveToWormholeOrder
+	| FleetStrategicMoveOrder
+	| FleetAttackOrder;
 
 export type Fleet = {
 	id: string;
@@ -107,7 +143,23 @@ export type Fleet = {
 };
 
 export type OrbitalStationType =
-	| 'shipyard';
+	| 'shipyard'
+	| 'shipyard_small'
+	| 'shipyard_large'
+	| 'refinery'
+	| 'research'
+	| 'headquarters';
+
+export type StationBuildState =
+	| 'constructing'
+	| 'operational';
+
+export type ProductionQueueItem = {
+	id: string;
+	buildableId: ShipRole;
+	elapsedSeconds: number;
+	durationSeconds: number;
+};
 
 export type OrbitalStationDefinition = {
 	id: string;
@@ -115,11 +167,18 @@ export type OrbitalStationDefinition = {
 	type: OrbitalStationType;
 	factionId: FactionId;
 	nodeId: string;
-	position: {
-		x: number;
-		y: number;
-		z: number;
-	};
+
+	/** Physical system position in meters. */
+	position: Vector3Like;
+
+	buildState: StationBuildState;
+	constructionProgress: number;
+	constructionDurationSeconds: number;
+	productionQueue: ProductionQueueItem[];
+
+	/** Refinery binding. Other station types leave these undefined. */
+	targetPlanetId?: string;
+	targetPlanetName?: string;
 };
 
 export type GameWorld = {
