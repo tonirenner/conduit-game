@@ -375,8 +375,8 @@ export class PostProcessingPipeline {
 					sceneNormal,
 					{
 						camera: this.camera,
-						metalnessNode: float(0.72),
-						roughnessNode: float(0.0),
+						metalnessNode: float(0.42),
+						roughnessNode: float(0.62),
 					},
 				);
 
@@ -529,20 +529,20 @@ function getQualityProfile(
 				aoSamples: 6,
 				aoRadius: 0.16,
 				aoThickness: 0.65,
-				aoStrength: 0.24,
+				aoStrength: 0.18,
 
-				ssrResolutionScale: 0.35,
+				ssrResolutionScale: 0.45,
 				ssrQuality: 0.20,
 				ssrBlurQuality: 1,
-				ssrMaxDistance: 14,
-				ssrOpacity: 0.18,
-				ssrThickness: 0.030,
+				ssrMaxDistance: 10,
+				ssrOpacity: 0.08,
+				ssrThickness: 0.022,
 
-				bloomThreshold: 0.96,
-				bloomStrength: 0.22,
-				bloomRadius: 0.18,
+				bloomThreshold: 0.985,
+				bloomStrength: 0.10,
+				bloomRadius: 0.10,
 
-				exposure: 1.00,
+				exposure: 0.98,
 			};
 
 		case 'medium':
@@ -555,20 +555,20 @@ function getQualityProfile(
 				aoSamples: 8,
 				aoRadius: 0.18,
 				aoThickness: 0.72,
-				aoStrength: 0.30,
+				aoStrength: 0.24,
 
-				ssrResolutionScale: 0.4,
+				ssrResolutionScale: 0.55,
 				ssrQuality: 0.26,
 				ssrBlurQuality: 1,
-				ssrMaxDistance: 18,
-				ssrOpacity: 0.22,
-				ssrThickness: 0.034,
+				ssrMaxDistance: 14,
+				ssrOpacity: 0.12,
+				ssrThickness: 0.026,
 
-				bloomThreshold: 0.94,
-				bloomStrength: 0.28,
-				bloomRadius: 0.22,
+				bloomThreshold: 0.975,
+				bloomStrength: 0.15,
+				bloomRadius: 0.14,
 
-				exposure: 1.00,
+				exposure: 0.99,
 			};
 
 		case 'ultra':
@@ -581,20 +581,20 @@ function getQualityProfile(
 				aoSamples: 16,
 				aoRadius: 0.23,
 				aoThickness: 0.82,
-				aoStrength: 0.42,
+				aoStrength: 0.34,
 
-				ssrResolutionScale: 0.65,
-				ssrQuality: 0.46,
+				ssrResolutionScale: 0.80,
+				ssrQuality: 0.38,
 				ssrBlurQuality: 3,
-				ssrMaxDistance: 26,
-				ssrOpacity: 0.34,
-				ssrThickness: 0.044,
+				ssrMaxDistance: 22,
+				ssrOpacity: 0.24,
+				ssrThickness: 0.034,
 
-				bloomThreshold: 0.90,
-				bloomStrength: 0.40,
-				bloomRadius: 0.28,
+				bloomThreshold: 0.955,
+				bloomStrength: 0.26,
+				bloomRadius: 0.20,
 
-				exposure: 1.02,
+				exposure: 1.00,
 			};
 
 		case 'high':
@@ -608,20 +608,20 @@ function getQualityProfile(
 				aoSamples: 12,
 				aoRadius: 0.20,
 				aoThickness: 0.78,
-				aoStrength: 0.36,
+				aoStrength: 0.29,
 
-				ssrResolutionScale: 0.5,
-				ssrQuality: 0.34,
+				ssrResolutionScale: 0.70,
+				ssrQuality: 0.28,
 				ssrBlurQuality: 2,
-				ssrMaxDistance: 22,
-				ssrOpacity: 0.28,
-				ssrThickness: 0.038,
+				ssrMaxDistance: 18,
+				ssrOpacity: 0.18,
+				ssrThickness: 0.030,
 
-				bloomThreshold: 0.92,
-				bloomStrength: 0.34,
-				bloomRadius: 0.25,
+				bloomThreshold: 0.965,
+				bloomStrength: 0.20,
+				bloomRadius: 0.17,
 
-				exposure: 1.01,
+				exposure: 1.00,
 			};
 	}
 }

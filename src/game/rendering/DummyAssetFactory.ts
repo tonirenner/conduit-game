@@ -56,15 +56,21 @@ export function createDummyShipModel(
 		material,
 	);
 
-	const nose = new THREE.Mesh(
-		new THREE.ConeGeometry(width * 0.52, length * 0.28, 4),
+	const bowLength = length * 0.22;
+	const bow = new THREE.Mesh(
+		createTaperedBowGeometry(
+			width,
+			width * 0.36,
+			bowLength,
+		),
 		material.clone(),
 	);
 
-	nose.rotation.x = Math.PI * 0.5;
-	nose.position.z = -length * 0.62;
+	hull.name = 'DummyShipHull';
+	bow.name = 'DummyShipBow';
+	bow.position.z = -length * 0.5 - bowLength * 0.5;
 
-	group.add(hull, nose);
+	group.add(hull, bow);
 
 	if (role === 'carrier' || role === 'frigate') {
 		const turret = createDummyTurret(factionId);
@@ -75,6 +81,46 @@ export function createDummyShipModel(
 
 	group.name = `Dummy ${role}`;
 	return group;
+}
+
+function createTaperedBowGeometry(
+	width: number,
+	height: number,
+	length: number,
+): THREE.BufferGeometry {
+	const rearHalfWidth = width * 0.5;
+	const rearHalfHeight = height * 0.5;
+	const frontHalfWidth = width * 0.23;
+	const frontHalfHeight = height * 0.30;
+	const rearZ = length * 0.5;
+	const frontZ = -length * 0.5;
+	const positions = new Float32Array([
+		-rearHalfWidth, -rearHalfHeight, rearZ,
+		rearHalfWidth, -rearHalfHeight, rearZ,
+		rearHalfWidth, rearHalfHeight, rearZ,
+		-rearHalfWidth, rearHalfHeight, rearZ,
+		-frontHalfWidth, -frontHalfHeight, frontZ,
+		frontHalfWidth, -frontHalfHeight, frontZ,
+		frontHalfWidth, frontHalfHeight, frontZ,
+		-frontHalfWidth, frontHalfHeight, frontZ,
+	]);
+	const indices = [
+		0, 1, 2, 0, 2, 3,
+		4, 6, 5, 4, 7, 6,
+		0, 4, 5, 0, 5, 1,
+		3, 2, 6, 3, 6, 7,
+		1, 5, 6, 1, 6, 2,
+		0, 3, 7, 0, 7, 4,
+	];
+	const geometry = new THREE.BufferGeometry();
+
+	geometry.setAttribute(
+		'position',
+		new THREE.BufferAttribute(positions, 3),
+	);
+	geometry.setIndex(indices);
+	geometry.computeVertexNormals();
+	return geometry;
 }
 
 export function createDummyTurret(

@@ -88,7 +88,7 @@ export class Planet {
 		private readonly renderProfile: PlanetRenderProfile | null   = null,
 	) {
 		this.features       = mergePlanetRenderFeatures(features);
-		this.renderTuning  = this.createDefaultRenderTuning(rendererMode);
+		this.renderTuning  = this.createDefaultRenderTuning();
 		this.surfaceProfile =
 			this.definition && this.renderProfile
 			? createSurfaceRenderProfile(
@@ -166,12 +166,10 @@ export class Planet {
 		return this.rendererKind === 'solid_surface';
 	}
 
-	private createDefaultRenderTuning(
-		rendererMode: PlanetRendererMode,
-	): PlanetRenderTuning {
+	private createDefaultRenderTuning(): PlanetRenderTuning {
 		return {
-			ambient: rendererMode === 'webgpu' ? 0.68 : 0.40,
-			exposureScale: rendererMode === 'webgpu' ? 1.16 : 1.0,
+			ambient: 0.40,
+			exposureScale: 1.0,
 			horizonGlowScale: 1.0,
 			surfaceDetailStrength: 1.0,
 			proceduralColorStrength: 0.65,
@@ -429,6 +427,8 @@ export class Planet {
 				atmosphereLayer,
 				atmosphereRenderProfile.density,
 				atmosphereRenderProfile.haze,
+				atmosphereRenderProfile.color,
+				atmosphereRenderProfile.palette,
 			);
 		}
 
@@ -476,54 +476,75 @@ export class Planet {
 	private getAtmosphereRenderProfileValues(): {
 		density: number;
 		haze: number;
+		color: string;
+		palette: string;
 	} {
 		const density = this.renderProfile?.atmosphereDensity ?? 0;
 		const haze = this.definition?.atmosphere.haze ?? 0;
+		const color = this.definition?.atmosphere.color ?? '#8ec5ff';
+		const palette = this.renderProfile?.atmospherePalette ?? '';
 
 		switch (this.definition?.class) {
 			case 'barren':
 				return {
 					density: density * 0.28,
 					haze: haze * 0.22,
+					color,
+					palette,
 				};
 
 			case 'metal_rich':
 				return {
 					density: density * 0.18,
 					haze: haze * 0.14,
+					color,
+					palette,
 				};
 
 			case 'rocky':
 				return {
 					density: density * 0.42,
 					haze: haze * 0.32,
+					color,
+					palette,
 				};
 
 			case 'carbon':
 				return {
 					density: density * 0.34,
 					haze: haze * 0.26,
+					color,
+					palette,
 				};
 
 			case 'desert':
 				return {
 					density: density * 0.68,
 					haze: haze * 0.58,
+					color,
+					palette,
 				};
 
 			case 'lava':
 				return {
-					density: density * 0.24,
-					haze: Math.max(
-						0.10,
-						haze * 0.30,
+					density: Math.max(
+						0.18,
+						density * 0.42,
 					),
+					haze: Math.max(
+						0.24,
+						haze * 0.70,
+					),
+					color: '#ef3a1f',
+					palette: 'lava',
 				};
 
 			default:
 				return {
 					density,
 					haze,
+					color,
+					palette,
 				};
 		}
 	}

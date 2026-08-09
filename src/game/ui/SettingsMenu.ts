@@ -136,6 +136,7 @@ export class SettingsMenu {
 			) +
 			this.renderSection(
 				'DEVELOPER',
+				`<a href="?view=test" style="color:#8fe7ff">Open Feature Lab</a><br>` +
 				`<a href="?view=planet" style="color:#8fe7ff">Open Planet Viewer</a>`,
 			) +
 			`<button data-reset-settings style="${buttonStyle()}width:100%;margin-top:10px;">Reset Settings</button>`;

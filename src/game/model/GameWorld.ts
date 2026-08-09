@@ -151,7 +151,9 @@ export type Fleet = {
 
 export type CombatWeaponKind =
 	| 'laser'
-	| 'railgun';
+	| 'railgun'
+	| 'missile'
+	| 'rocket';
 
 export type CombatEvent = {
 	id: string;

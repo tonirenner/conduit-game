@@ -20,6 +20,7 @@ import {
 	loadOrCreateSingleplayerState,
 	saveSingleplayerState,
 } from './game/persistence/SingleplayerBootstrap';
+import {FeatureLab} from './game/dev/FeatureLab';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -113,7 +114,10 @@ let forcedPlanetKind: ForcedPlanetKind = parseForcedPlanetKind();
 const renderTuningPanelEnabled         =
 	      new URLSearchParams(window.location.search).get('tuning') === '1' ||
 	      new URLSearchParams(window.location.search).get('renderDebug') === '1';
+const testMode                         =
+	      new URLSearchParams(window.location.search).get('view') === 'test';
 const gameMode                         =
+	      !testMode &&
 	      new URLSearchParams(window.location.search).get('view') !== 'planet' &&
 	      new URLSearchParams(window.location.search).get('game') !== '0';
 
@@ -683,7 +687,40 @@ function resizeRenderer(): void {
 
 window.addEventListener('resize', resizeRenderer);
 
-if (gameMode) {
+if (testMode) {
+	hud.textContent = 'Feature Lab';
+
+	const featureLab = new FeatureLab({
+		scene,
+		camera,
+		controls,
+		renderer,
+		rendererMode,
+		settingsStore,
+		initialSceneId: new URLSearchParams(window.location.search).get('scene'),
+	});
+
+	function animateFeatureLab(timestamp?: number): void {
+		requestAnimationFrame(animateFeatureLab);
+
+		timer.update(timestamp);
+
+		const deltaSeconds = Math.min(timer.getDelta(), 0.05);
+
+		controls.update();
+		renderQuality.update(deltaSeconds);
+		featureLab.update(deltaSeconds);
+
+		if (postProcessingEnabled) {
+			void postProcessing.render();
+		} else {
+			void renderFrame(renderer, scene, camera);
+		}
+	}
+
+	resizeRenderer();
+	animateFeatureLab();
+} else if (gameMode) {
 	let singleplayerState = loadOrCreateSingleplayerState({
 		seed: currentPlanetSeed,
 	});

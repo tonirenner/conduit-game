@@ -55,7 +55,7 @@ export function createPlanetRenderProfile(
 		enableRings: planet.rings?.enabled ?? false,
 
 		surfacePalette: getSurfacePalette(planet.class),
-		atmospherePalette: planet.atmosphere.color,
+		atmospherePalette: getAtmospherePalette(planet.class),
 		cloudPalette: getCloudPalette(planet.class),
 
 		terrainRoughness: planet.surface.terrainRoughness,
@@ -129,5 +129,34 @@ function getCloudPalette(planetClass: PlanetClass): string {
 			return 'thin_ice_haze';
 		default:
 			return 'water_clouds';
+	}
+}
+
+function getAtmospherePalette(planetClass: PlanetClass): string {
+	switch (planetClass) {
+		case 'lava':
+			return 'lava';
+		case 'toxic':
+			return 'toxic';
+		case 'desert':
+			return 'dust';
+		case 'ice':
+		case 'ice_giant':
+			return 'ice';
+		case 'gas_giant':
+			return 'gas_giant';
+		case 'ocean':
+			return 'oceanic';
+		case 'terrestrial':
+			return 'earthlike';
+		case 'carbon':
+			return 'carbon';
+		case 'metal_rich':
+			return 'metallic';
+		case 'barren':
+			return 'barren';
+		case 'rocky':
+		default:
+			return 'rocky';
 	}
 }

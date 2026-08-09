@@ -69,10 +69,23 @@ export class EngineVfxSystem {
 			return existing.userData.engineVfxInstance as EngineVfxInstance;
 		}
 
+		const nodeLayout = this.createLayoutFromEngineNodes(
+			shipObject,
+			role,
+		);
+
+		if (nodeLayout) {
+			const instance = this.createInstance(role, nodeLayout);
+
+			shipObject.add(instance.root);
+			instance.root.userData.engineVfxInstance = instance;
+			return instance;
+		}
+
 		/*
-		 * Frigate is a real GLB and loads asynchronously. Never attach the old
-		 * hard-coded fallback engines to the ship root. Wait until the real model
-		 * exists, then derive rear engine positions from its actual bounds.
+		 * Frigate is a real GLB and loads asynchronously. If no explicit
+		 * engine_01 style nodes exist yet, wait until the real model exists,
+		 * then derive rear engine positions from its actual bounds.
 		 */
 		if (role === 'frigate') {
 			const frigateModel = shipObject.getObjectByName('FrigateShipModel');
@@ -100,6 +113,39 @@ export class EngineVfxSystem {
 		shipObject.add(instance.root);
 		instance.root.userData.engineVfxInstance = instance;
 		return instance;
+	}
+
+	private createLayoutFromEngineNodes(
+		shipRoot: THREE.Object3D,
+		role: ShipRole,
+	): EngineLayout | null {
+		const engineNodes = findEngineNodes(shipRoot);
+
+		if (engineNodes.length === 0) {
+			return null;
+		}
+
+		shipRoot.updateMatrixWorld(true);
+
+		const worldBox = new THREE.Box3().setFromObject(shipRoot);
+		const size = new THREE.Vector3();
+		worldBox.getSize(size);
+
+		return {
+			points: engineNodes.map((node) => {
+				const worldPosition = new THREE.Vector3();
+				node.getWorldPosition(worldPosition);
+				const localPosition = shipRoot.worldToLocal(worldPosition);
+
+				return {
+					x: localPosition.x,
+					y: localPosition.y,
+					z: localPosition.z,
+				};
+			}),
+			coreRadius: getNodeCoreRadius(role, size),
+			plumeLength: getNodePlumeLength(role, size),
+		};
 	}
 
 	private createFrigateLayoutFromModel(
@@ -160,6 +206,7 @@ export class EngineVfxSystem {
 		const root = new THREE.Group();
 		const cores: THREE.Mesh[] = [];
 		const plumes: THREE.Mesh[] = [];
+		const plumeTexture = createPlumeTexture();
 
 		root.name = ENGINE_ROOT_NAME;
 		root.renderOrder = 30;
@@ -167,17 +214,18 @@ export class EngineVfxSystem {
 		for (let index = 0; index < layout.points.length; index++) {
 			const point = layout.points[index];
 			const coreMaterial = new THREE.MeshBasicMaterial({
-				color: new THREE.Color().setRGB(0.10, 0.62, 1.55),
+				color: new THREE.Color().setRGB(0.22, 0.76, 1.0),
 				transparent: true,
-				opacity: 0.56,
+				opacity: 0.42,
 				depthTest: true,
 				depthWrite: false,
 				blending: THREE.AdditiveBlending,
 			});
 			const plumeMaterial = new THREE.MeshBasicMaterial({
-				color: new THREE.Color().setRGB(0.05, 0.34, 1.35),
+				map: plumeTexture,
+				color: new THREE.Color().setRGB(0.18, 0.56, 1.0),
 				transparent: true,
-				opacity: 0.28,
+				opacity: 0.20,
 				depthTest: true,
 				depthWrite: false,
 				blending: THREE.AdditiveBlending,
@@ -185,26 +233,25 @@ export class EngineVfxSystem {
 			});
 
 			const core = new THREE.Mesh(
-				new THREE.SphereGeometry(layout.coreRadius, 10, 6),
+				new THREE.SphereGeometry(layout.coreRadius, 14, 8),
 				coreMaterial,
 			);
 			const plume = new THREE.Mesh(
-				new THREE.ConeGeometry(
-					layout.coreRadius * 0.72,
-					layout.plumeLength,
-					10,
-					1,
-					true,
-				),
+				new THREE.PlaneGeometry(1, 1),
 				plumeMaterial,
 			);
 
 			core.position.set(point.x, point.y, point.z);
-			plume.rotation.x = -Math.PI * 0.5;
+			plume.rotation.y = -Math.PI * 0.5;
 			plume.position.set(
 				point.x,
 				point.y,
-				point.z + layout.plumeLength * 0.48,
+				point.z + layout.plumeLength * 0.5,
+			);
+			plume.scale.set(
+				layout.plumeLength,
+				layout.coreRadius * 4.2,
+				1,
 			);
 
 			core.name = `engine_core_${index + 1}`;
@@ -248,21 +295,108 @@ export class EngineVfxSystem {
 		const phase = hashString01(ship.id) * Math.PI * 2;
 		const pulse = 1 + Math.sin(this.elapsedSeconds * 8.0 + phase) * 0.035;
 		const energy = THREE.MathUtils.lerp(0.10, 1.0, throttle) * pulse;
-		const plumeLengthScale = THREE.MathUtils.lerp(0.22, 1.85, Math.pow(throttle, 0.72)) * pulse;
-		const plumeWidthScale = THREE.MathUtils.lerp(0.62, 1.05, throttle);
+		const plumeLengthScale = THREE.MathUtils.lerp(0.35, 1.65, Math.pow(throttle, 0.72)) * pulse;
+		const plumeWidthScale = THREE.MathUtils.lerp(0.72, 1.18, throttle);
 
 		for (const core of instance.cores) {
-			core.scale.setScalar(THREE.MathUtils.lerp(0.62, 1.12, energy));
+			core.scale.setScalar(THREE.MathUtils.lerp(0.70, 1.20, energy));
 			const material = core.material as THREE.MeshBasicMaterial;
-			material.opacity = THREE.MathUtils.lerp(0.18, 0.72, energy);
+			material.opacity = THREE.MathUtils.lerp(0.12, 0.54, energy);
 		}
 
 		for (const plume of instance.plumes) {
-			plume.scale.set(plumeWidthScale, plumeLengthScale, plumeWidthScale);
+			const baseLength =
+				typeof plume.userData.baseLength === 'number'
+					? plume.userData.baseLength as number
+					: plume.scale.x;
+			const baseWidth =
+				typeof plume.userData.baseWidth === 'number'
+					? plume.userData.baseWidth as number
+					: plume.scale.y;
+
+			plume.userData.baseLength = baseLength;
+			plume.userData.baseWidth = baseWidth;
+			plume.scale.set(
+				baseLength * plumeLengthScale,
+				baseWidth * plumeWidthScale,
+				1,
+			);
+
 			const material = plume.material as THREE.MeshBasicMaterial;
-			material.opacity = THREE.MathUtils.lerp(0.035, 0.38, Math.pow(energy, 0.92));
+			material.opacity = THREE.MathUtils.lerp(0.025, 0.28, Math.pow(energy, 0.92));
 		}
 	}
+}
+
+function createPlumeTexture(): THREE.CanvasTexture {
+	const canvas = document.createElement('canvas');
+	canvas.width = 256;
+	canvas.height = 64;
+	const context = canvas.getContext('2d');
+
+	if (context) {
+		const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
+		gradient.addColorStop(0.00, 'rgba(255,255,255,0.96)');
+		gradient.addColorStop(0.12, 'rgba(130,230,255,0.72)');
+		gradient.addColorStop(0.46, 'rgba(38,120,255,0.24)');
+		gradient.addColorStop(1.00, 'rgba(0,0,0,0)');
+
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		const vertical = context.createLinearGradient(0, 0, 0, canvas.height);
+		vertical.addColorStop(0.00, 'rgba(255,255,255,0)');
+		vertical.addColorStop(0.42, 'rgba(255,255,255,0.82)');
+		vertical.addColorStop(0.50, 'rgba(255,255,255,1)');
+		vertical.addColorStop(0.58, 'rgba(255,255,255,0.82)');
+		vertical.addColorStop(1.00, 'rgba(255,255,255,0)');
+		context.globalCompositeOperation = 'destination-in';
+		context.fillStyle = vertical;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+	}
+
+	const texture = new THREE.CanvasTexture(canvas);
+	texture.colorSpace = THREE.SRGBColorSpace;
+	texture.needsUpdate = true;
+	return texture;
+}
+
+function findEngineNodes(root: THREE.Object3D): THREE.Object3D[] {
+	const nodes: THREE.Object3D[] = [];
+
+	root.traverse((node) => {
+		if (/^engine_\d+$/.test(node.name)) {
+			nodes.push(node);
+		}
+	});
+
+	return nodes;
+}
+
+function getNodeCoreRadius(
+	role: ShipRole,
+	modelSize: THREE.Vector3,
+): number {
+	const fallback = getFallbackEngineLayout(role).coreRadius;
+
+	return THREE.MathUtils.clamp(
+		Math.max(modelSize.x, modelSize.y) * 0.035,
+		fallback * 0.55,
+		fallback * 1.25,
+	);
+}
+
+function getNodePlumeLength(
+	role: ShipRole,
+	modelSize: THREE.Vector3,
+): number {
+	const fallback = getFallbackEngineLayout(role).plumeLength;
+
+	return THREE.MathUtils.clamp(
+		modelSize.z * 0.16,
+		fallback * 0.75,
+		fallback * 1.65,
+	);
 }
 
 type EngineLayout = {

@@ -1,5 +1,6 @@
 import type {
     CombatEvent,
+    CombatWeaponKind,
     FactionId,
     Fleet,
     FleetOrder,
@@ -766,9 +767,22 @@ function updateAutomaticTurretCombat(
           type: 'turret_fire',
           sourceShipId: ship.id,
           targetShipId: target.id,
-          weaponKind: ship.role === 'frigate' || ship.role === 'carrier' ? 'railgun' : 'laser',
+          weaponKind: getWeaponKind(ship.role),
           damage,
        });
+    }
+}
+
+function getWeaponKind(role: ShipRole): CombatWeaponKind {
+    switch (role) {
+       case 'carrier':
+          return 'missile';
+       case 'frigate':
+          return 'railgun';
+       case 'fighter':
+       case 'scout':
+       case 'constructor':
+          return 'laser';
     }
 }
 
