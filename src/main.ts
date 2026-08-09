@@ -14,6 +14,12 @@ import {PostProcessingPipeline} from './postprocessing/PostProcessingPipeline';
 import {RenderTuningPanel} from './debug/RenderTuningPanel';
 import type {PlanetClass} from './planet/model/PlanetDefinition';
 import {GamePrototypeScene} from './game/rendering/GamePrototypeScene';
+import {createSettingsStore} from './game/settings/GameSettings';
+import {SettingsMenu} from './game/ui/SettingsMenu';
+import {
+	loadOrCreateSingleplayerState,
+	saveSingleplayerState,
+} from './game/persistence/SingleplayerBootstrap';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -108,7 +114,8 @@ const renderTuningPanelEnabled         =
 	      new URLSearchParams(window.location.search).get('tuning') === '1' ||
 	      new URLSearchParams(window.location.search).get('renderDebug') === '1';
 const gameMode                         =
-	      new URLSearchParams(window.location.search).get('game') === '1';
+	      new URLSearchParams(window.location.search).get('view') !== 'planet' &&
+	      new URLSearchParams(window.location.search).get('game') !== '0';
 
 type ForcedSurfaceKind = 'auto' | 'lava';
 
@@ -151,6 +158,9 @@ const CINEMATIC_LOW_ORBIT_HEIGHT = 0.54;
 const timer = new THREE.Timer();
 timer.connect(document);
 
+const settingsStore = createSettingsStore();
+const initialSettings = settingsStore.getSnapshot();
+
 THREE.ColorManagement.enabled = true;
 
 // Star background
@@ -179,7 +189,9 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0.35, 3.65, 10.6);
 
 // Renderer
-const preferredRendererMode = getPreferredRendererMode();
+const preferredRendererMode = getPreferredRendererMode(
+	initialSettings.renderer,
+);
 
 const {
 	      renderer,
@@ -206,6 +218,10 @@ const postProcessing = new PostProcessingPipeline(
 	{
 		enabled: postProcessingEnabled,
 		rendererMode,
+		quality: initialSettings.graphicsQuality,
+		enableGTAO: initialSettings.gtao,
+		enableSSR: initialSettings.ssr,
+		enableBloom: initialSettings.bloom,
 	},
 );
 
@@ -243,6 +259,21 @@ hud.style.pointerEvents  = 'none';
 hud.style.backdropFilter = 'blur(4px)';
 
 document.body.appendChild(hud);
+
+let settingsMenu: SettingsMenu | null = null;
+
+settingsMenu = new SettingsMenu({
+	store: settingsStore,
+	activeRendererMode: rendererMode,
+	onSettingsChanged: (settings) => {
+		hudVisible = settings.hud;
+		hud.style.display = hudVisible ? 'block' : 'none';
+		document.documentElement.style.setProperty(
+			'--game-ui-scale',
+			String(settings.uiScale),
+		);
+	},
+});
 
 const climateDebug = createClimateDebugCanvas({
 	                                              visible: false,
@@ -653,6 +684,9 @@ function resizeRenderer(): void {
 window.addEventListener('resize', resizeRenderer);
 
 if (gameMode) {
+	let singleplayerState = loadOrCreateSingleplayerState({
+		seed: currentPlanetSeed,
+	});
 	const gamePrototype = new GamePrototypeScene({
 		                                             scene,
 		                                             camera,
@@ -661,7 +695,24 @@ if (gameMode) {
 		                                             hud,
 		                                             seed: currentPlanetSeed,
 		                                             rendererMode,
-		                                             renderer
+		                                             renderer,
+		                                             initialWorld: singleplayerState.world,
+		                                             onWorldChanged: (world) => {
+			                                             singleplayerState = {
+				                                             ...singleplayerState,
+				                                             world,
+				                                             playerProfile: {
+					                                             ...singleplayerState.playerProfile,
+					                                             ownedSystems: world.nodes
+						                                             .filter((node) => node.owner === 'player')
+						                                             .map((node) => node.id),
+					                                             fleets: world.fleets
+						                                             .filter((fleet) => fleet.factionId === 'player')
+						                                             .map((fleet) => fleet.id),
+				                                             },
+			                                             };
+			                                             saveSingleplayerState(singleplayerState);
+		                                             },
 	                                             });
 
 	function animateGame(timestamp?: number): void {

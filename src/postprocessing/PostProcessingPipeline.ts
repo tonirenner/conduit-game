@@ -1,404 +1,652 @@
 import * as THREE from 'three';
-import { RenderPipeline } from 'three/webgpu';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { bloom } from 'three/addons/tsl/display/BloomNode.js';
-import {
-	Fn,
-	float,
-	length,
-	pass,
-	screenUV,
-	smoothstep,
-	vec4,
-	saturation as adjustSaturation,
-} from 'three/tsl';
 
-import {
-	type AppRenderer,
-	type RendererMode,
-	renderFrame,
-} from '../render/RendererFactory';
+export type PostProcessingQuality =
+	| 'low'
+	| 'medium'
+	| 'high'
+	| 'ultra';
+
+export type PostProcessingRendererMode =
+	| 'webgl'
+	| 'webgpu';
 
 export type PostProcessingPipelineOptions = {
-	enabled: boolean;
-	rendererMode: RendererMode;
+	enabled?: boolean;
+	rendererMode: PostProcessingRendererMode;
+	quality?: PostProcessingQuality;
+	enableGTAO?: boolean;
+	enableSSR?: boolean;
+	enableBloom?: boolean;
+	toneMappingExposure?: number;
 };
 
-type ComposerLike = {
-	render: () => void;
-	setPixelRatio: (pixelRatio: number) => void;
-	setSize: (width: number, height: number) => void;
-	dispose: () => void;
-};
-
-type WebGPURenderPipelineLike = {
-	outputNode: unknown;
-	render: () => void;
-	dispose: () => void;
-};
-
-const colorGradeShader = {
-	name: 'PlanetColorGradeShader',
-
-	uniforms: {
-		tDiffuse: {
-			value: null,
-		},
-		contrast: {
-			value: 1.055,
-		},
-		saturation: {
-			value: 1.035,
-		},
-		vignetteStrength: {
-			value: 0.16,
-		},
-		vignetteRadius: {
-			value: 0.86,
-		},
-	},
-
-	vertexShader: /* glsl */`
-		varying vec2 vUv;
-
-		void main() {
-			vUv = uv;
-			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-		}
-	`,
-
-	fragmentShader: /* glsl */`
-		uniform sampler2D tDiffuse;
-		uniform float contrast;
-		uniform float saturation;
-		uniform float vignetteStrength;
-		uniform float vignetteRadius;
-
-		varying vec2 vUv;
-
-		void main() {
-			vec4 texel = texture2D(tDiffuse, vUv);
-			vec3 color = texel.rgb;
-
-			color = (color - 0.5) * contrast + 0.5;
-
-			float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-			color = mix(vec3(luminance), color, saturation);
-
-			float vignette = smoothstep(
-				0.28,
-				vignetteRadius,
-				length(vUv - 0.5)
-			);
-
-			color *= 1.0 - vignette * vignetteStrength;
-
-			gl_FragColor = vec4(color, texel.a);
-		}
-	`,
-};
-
-const webGPUColorGradeNode = Fn(([input]) => {
-	let color = input.rgb;
-
-	color = color
-		.sub(0.24)
-		.mul(1.035)
-		.add(0.24)
-		.mul(1.025);
-
-	color = adjustSaturation(
-		color,
-		float(1.026),
-	);
-
-	const vignette = smoothstep(
-		0.28,
-		0.86,
-		length(
-			screenUV.sub(0.5),
-		),
-	);
-
-	color = color.mul(
-		float(1.0).sub(
-			vignette.mul(0.035),
-		),
-	);
-
-	return vec4(
-		color,
-		input.a,
-	);
-});
-
-export class PostProcessingPipeline {
-	private readonly renderer: AppRenderer;
-	private readonly scene: THREE.Scene;
-	private readonly camera: THREE.Camera;
-	private readonly rendererMode: RendererMode;
-
-	private composer: ComposerLike | null = null;
-	private webGPURenderPipeline: WebGPURenderPipelineLike | null = null;
-	private enabled: boolean;
-	private fallbackWarned = false;
-	private lastWidth = 0;
-	private lastHeight = 0;
-	private lastPixelRatio = 0;
-
-	constructor(
-		renderer: AppRenderer,
+type RendererLike = {
+	render: (
 		scene: THREE.Scene,
 		camera: THREE.Camera,
-		options: Partial<PostProcessingPipelineOptions> = {},
-	) {
-		this.renderer     = renderer;
-		this.scene        = scene;
-		this.camera       = camera;
-		this.enabled      = options.enabled ?? true;
-		this.rendererMode = options.rendererMode ?? 'webgl';
+	) => void;
+	toneMapping?: THREE.ToneMapping;
+	toneMappingExposure?: number;
+};
 
-		if (this.enabled) {
-			this.createPipeline();
+type RenderPipelineLike = {
+	outputNode: unknown;
+	needsUpdate?: boolean;
+	render: () => void;
+};
+
+type PipelineRuntime = {
+	renderPipeline: RenderPipelineLike;
+};
+
+export class PostProcessingPipeline {
+	private readonly enabled: boolean;
+	private readonly quality: PostProcessingQuality;
+	private readonly enableGTAO: boolean;
+	private readonly enableSSR: boolean;
+	private readonly enableBloom: boolean;
+	private readonly toneMappingExposure: number;
+
+	private runtime: PipelineRuntime | null = null;
+	private initializationPromise: Promise<void> | null = null;
+	private initializationFailed = false;
+
+	constructor(
+		private readonly renderer: RendererLike,
+		private readonly scene: THREE.Scene,
+		private readonly camera: THREE.PerspectiveCamera,
+		options: PostProcessingPipelineOptions,
+	) {
+		const params = new URLSearchParams(window.location.search);
+
+		this.enabled =
+			options.enabled !== false &&
+			params.get('postfx') !== '0';
+
+		this.quality = resolveQuality(
+			params.get('fx'),
+			options.quality,
+		);
+
+		const profile = getQualityProfile(this.quality);
+
+		this.enableGTAO =
+			options.enableGTAO ??
+			(
+				params.get('ao') !== '0' &&
+				profile.gtao
+			);
+
+		this.enableSSR =
+			options.enableSSR ??
+			(
+				params.get('ssr') !== '0' &&
+				profile.ssr
+			);
+
+		this.enableBloom =
+			options.enableBloom ??
+			(
+				params.get('bloom') !== '0' &&
+				profile.bloom
+			);
+
+		this.toneMappingExposure =
+			options.toneMappingExposure ??
+			profile.exposure;
+
+		if (
+			this.enabled &&
+			options.rendererMode === 'webgpu'
+		) {
+			this.startInitialization();
 		}
 	}
 
-	render(): void | Promise<void> {
-		if (!this.enabled) {
-			return renderFrame(
-				this.renderer,
+	render(): void {
+		if (
+			!this.enabled ||
+			this.initializationFailed
+		) {
+			this.renderer.render(
 				this.scene,
 				this.camera,
 			);
+			return;
 		}
 
-		if (this.composer) {
-			this.syncComposerSize();
-
+		if (this.runtime) {
 			try {
-				this.composer.render();
+				this.runtime.renderPipeline.render();
 				return;
 			} catch (error) {
-				this.warnFallback(
-					'WebGL postprocessing failed during render. Falling back to normal rendering.',
+				/*
+				 * TSL compiles the node graph lazily on the first real render.
+				 * If a version-specific node combination still fails there,
+				 * disable the pipeline once and return to normal rendering
+				 * instead of throwing the same error every frame.
+				 */
+				this.initializationFailed = true;
+				this.runtime = null;
+
+				console.warn(
+					'Phase 4.1 WebGPU post-processing failed while compiling/rendering. ' +
+					'Falling back to the normal renderer.',
 					error,
 				);
 
-				this.disposePipeline();
-				this.enabled = false;
-
-				return renderFrame(
-					this.renderer,
+				this.renderer.render(
 					this.scene,
 					this.camera,
 				);
-			}
-		}
-
-		if (this.webGPURenderPipeline) {
-			try {
-				this.webGPURenderPipeline.render();
 				return;
-			} catch (error) {
-				this.warnFallback(
-					'WebGPU postprocessing failed during render. Falling back to normal rendering.',
-					error,
-				);
-
-				this.disposePipeline();
-				this.enabled = false;
-
-				return renderFrame(
-					this.renderer,
-					this.scene,
-					this.camera,
-				);
 			}
 		}
 
-		return renderFrame(
-			this.renderer,
+		/*
+		 * Keep rendering normally while the dynamic WebGPU modules initialize.
+		 */
+		this.renderer.render(
 			this.scene,
 			this.camera,
 		);
+
+		this.startInitialization();
 	}
 
-	setEnabled(enabled: boolean): void {
-		if (this.enabled === enabled) {
-			return;
-		}
-
-		this.enabled = enabled;
-
-		if (enabled) {
-			this.createPipeline();
-			return;
-		}
-
-		this.disposePipeline();
+	getQuality(): PostProcessingQuality {
+		return this.quality;
 	}
 
-	dispose(): void {
-		this.disposePipeline();
+	isReady(): boolean {
+		return Boolean(this.runtime);
 	}
 
-	private createPipeline(): void {
-		this.disposePipeline();
-
-		if (this.rendererMode === 'webgpu') {
-			this.createWebGPUPipeline();
-			return;
-		}
-
-		if (!(this.renderer instanceof THREE.WebGLRenderer)) {
-			this.warnFallback(
-				'Postprocessing currently requires WebGLRenderer. Falling back to normal rendering.',
-			);
-
-			this.enabled = false;
-			return;
-		}
-
-		this.createWebGLComposer();
-	}
-
-	private createWebGLComposer(): void {
-		try {
-			const composer = new EffectComposer(this.renderer);
-
-			const renderPass = new RenderPass(
-				this.scene,
-				this.camera,
-				null,
-				null,
-				0,
-			);
-
-			const bloomPass = new UnrealBloomPass(
-				new THREE.Vector2(
-					window.innerWidth,
-					window.innerHeight,
-				),
-				0.34,
-				0.42,
-				0.72,
-			);
-
-			const colorGradePass = new ShaderPass(colorGradeShader);
-			const outputPass     = new OutputPass();
-
-			composer.addPass(renderPass);
-			composer.addPass(bloomPass);
-			composer.addPass(colorGradePass);
-			composer.addPass(outputPass);
-
-			this.composer = composer;
-			this.syncComposerSize();
-		} catch (error) {
-			this.warnFallback(
-				'Postprocessing could not be initialized. Falling back to normal rendering.',
-				error,
-			);
-
-			this.disposeComposer();
-			this.enabled = false;
-		}
-	}
-
-	private createWebGPUPipeline(): void {
-		try {
-			const renderPipeline = new RenderPipeline(
-				this.renderer,
-			) as unknown as WebGPURenderPipelineLike;
-
-			const scenePass  = pass(this.scene, this.camera) as any;
-			const sceneColor = scenePass.getTextureNode('output');
-			const bloomPass  = bloom(
-				sceneColor,
-				0.24,
-				0.42,
-				0.72,
-			);
-
-			renderPipeline.outputNode = webGPUColorGradeNode(
-				sceneColor.add(bloomPass),
-			);
-
-			this.webGPURenderPipeline = renderPipeline;
-		} catch (error) {
-			this.warnFallback(
-				'WebGPU postprocessing could not be initialized. Falling back to normal rendering.',
-				error,
-			);
-
-			this.disposePipeline();
-			this.enabled = false;
-		}
-	}
-
-	private syncComposerSize(): void {
-		if (!this.composer) {
-			return;
-		}
-
-		const size       = this.renderer.getSize(new THREE.Vector2());
-		const pixelRatio = this.renderer.getPixelRatio();
-
+	private startInitialization(): void {
 		if (
-			size.x === this.lastWidth &&
-			size.y === this.lastHeight &&
-			Math.abs(pixelRatio - this.lastPixelRatio) < 0.001
+			this.initializationPromise ||
+			this.runtime ||
+			this.initializationFailed
 		) {
 			return;
 		}
 
-		this.lastWidth      = size.x;
-		this.lastHeight     = size.y;
-		this.lastPixelRatio = pixelRatio;
+		this.initializationPromise =
+			this.initializeWebGPUPipeline()
+				.catch((error) => {
+					this.initializationFailed = true;
 
-		this.composer.setPixelRatio(pixelRatio);
-		this.composer.setSize(
-			size.x,
-			size.y,
+					console.warn(
+						'Phase 4 WebGPU post-processing could not initialize. ' +
+						'Falling back to the normal renderer.',
+						error,
+					);
+				});
+	}
+
+	private async initializeWebGPUPipeline(): Promise<void> {
+		const [
+			webgpu,
+			tsl,
+			gtaoModule,
+			ssrModule,
+			bloomModule,
+		] = await Promise.all([
+			import('three/webgpu'),
+			import('three/tsl'),
+			import('three/addons/tsl/display/GTAONode.js'),
+			import('three/addons/tsl/display/SSRNode.js'),
+			import('three/addons/tsl/display/BloomNode.js'),
+		]);
+
+		const RenderPipeline = (webgpu as any).RenderPipeline;
+
+		if (!RenderPipeline) {
+			throw new Error(
+				'three/webgpu.RenderPipeline is unavailable.',
+			);
+		}
+
+		const {
+			pass,
+			mrt,
+			output,
+			normalView,
+			float,
+			vec4,
+		} = tsl as any;
+
+		const ao = (gtaoModule as any).ao;
+		const ssr = (ssrModule as any).ssr;
+		const bloom = (bloomModule as any).bloom;
+
+		if (
+			!pass ||
+			!mrt ||
+			!output ||
+			!normalView ||
+			!float ||
+			!vec4 ||
+			!ao ||
+			!ssr ||
+			!bloom
+		) {
+			throw new Error(
+				'Required Three.js WebGPU/TSL post-processing API is unavailable.',
+			);
+		}
+
+		const renderPipeline =
+			new RenderPipeline(
+				this.renderer as any,
+			) as RenderPipelineLike;
+
+		/*
+		 * r184-compatible MRT layout.
+		 *
+		 * IMPORTANT:
+		 * GTAONode and SSRNode accept the normal texture directly.
+		 * Do NOT pack/unpack normals through the deprecated
+		 * directionToColor()/colorToDirection() helpers.
+		 */
+		const scenePass = pass(
+			this.scene,
+			this.camera,
+		);
+
+		/*
+		 * Stable r184 MRT shared by GTAO and SSR.
+		 *
+		 * Both GTAONode and SSRNode expect `normalNode` to be a TextureNode.
+		 * SSRNode explicitly uses both:
+		 *
+		 *   this.normalNode.rgb
+		 *   this.normalNode.sample( uv )
+		 *
+		 * So pass the raw MRT normal texture directly to both effects.
+		 */
+		scenePass.setMRT(
+			mrt({
+				output,
+				normal: normalView,
+			}),
+		);
+
+		const sceneColor =
+			scenePass.getTextureNode('output');
+		const sceneNormal =
+			scenePass.getTextureNode('normal');
+		const sceneDepth =
+			scenePass.getTextureNode('depth');
+
+		if (
+			!sceneColor ||
+			!sceneNormal ||
+			!sceneDepth
+		) {
+			throw new Error(
+				'Could not create required WebGPU scene texture nodes.',
+			);
+		}
+
+		const profile =
+			getQualityProfile(this.quality);
+
+		let workingColor: any =
+			sceneColor;
+
+		if (this.enableGTAO) {
+			/*
+			 * Official r184 GTAO signature:
+			 * ao(depthNode, normalNode, camera)
+			 */
+			const aoPass: any =
+				ao(
+					sceneDepth,
+					sceneNormal,
+					this.camera,
+				);
+
+			aoPass.resolutionScale =
+				profile.aoResolutionScale;
+
+			setUniformOrProperty(
+				aoPass,
+				'samples',
+				profile.aoSamples,
+			);
+
+			setUniformOrProperty(
+				aoPass,
+				'radius',
+				profile.aoRadius,
+			);
+
+			setUniformOrProperty(
+				aoPass,
+				'thickness',
+				profile.aoThickness,
+			);
+
+			/*
+			 * Three.js r183+ exposes the GTAO result directly on the node.
+			 * The migration guide explicitly states that AO is available
+			 * in the R channel and should be blended on application level.
+			 *
+			 * IMPORTANT:
+			 * Do not call aoPass.getTextureNode() here. GTAONode is already
+			 * the composable TSL effect node and that extra indirection can
+			 * resolve to null during lazy graph construction in r184.
+			 */
+			/*
+			 * GTAONode renders AO into its own internal render target.
+			 * r184's own GTAONode documentation retrieves that result through
+			 * getTextureNode() and uses the R channel.
+			 */
+			const aoOutput =
+				aoPass.getTextureNode();
+
+			workingColor =
+				vec4(
+					sceneColor.rgb.mul(
+						float(1.0).sub(
+							float(profile.aoStrength).mul(
+								float(1.0).sub(aoOutput.r),
+							),
+						),
+					),
+					sceneColor.a,
+				);
+		}
+
+		if (this.enableSSR) {
+			/*
+			 * Three r185 SSR signature:
+			 * ssr(colorNode, depthNode, normalNode, options)
+			 *
+			 * SSRNode currently calls float() on both material inputs during
+			 * shader setup, so provide concrete nodes instead of relying on
+			 * its documented null defaults.
+			 */
+			const ssrPass: any =
+				ssr(
+					sceneColor,
+					sceneDepth,
+					sceneNormal,
+					{
+						camera: this.camera,
+						metalnessNode: float(0.72),
+						roughnessNode: float(0.0),
+					},
+				);
+
+			ssrPass.resolutionScale =
+				profile.ssrResolutionScale;
+
+			setUniformOrProperty(
+				ssrPass,
+				'quality',
+				profile.ssrQuality,
+			);
+
+			setUniformOrProperty(
+				ssrPass,
+				'maxDistance',
+				profile.ssrMaxDistance,
+			);
+
+			setUniformOrProperty(
+				ssrPass,
+				'opacity',
+				profile.ssrOpacity,
+			);
+
+			setUniformOrProperty(
+				ssrPass,
+				'thickness',
+				profile.ssrThickness,
+			);
+
+			workingColor =
+				vec4(
+					workingColor.rgb.add(
+						ssrPass.rgb.mul(
+							profile.ssrOpacity,
+						),
+					),
+					workingColor.a,
+				);
+		}
+
+		if (this.enableBloom) {
+			/*
+			 * Bloom uniforms are UniformNodes in r184.
+			 */
+			/*
+			 * r184 bloom() accepts strength, radius and threshold directly.
+			 * Supplying them at construction time avoids mutating internal
+			 * node properties after creation.
+			 */
+			const bloomPass: any =
+				bloom(
+					workingColor,
+					profile.bloomStrength,
+					profile.bloomRadius,
+					profile.bloomThreshold,
+				);
+
+			workingColor =
+				workingColor.add(
+					bloomPass,
+				);
+		}
+
+		renderPipeline.outputNode =
+			workingColor;
+
+		renderPipeline.needsUpdate = true;
+
+		if ('toneMapping' in this.renderer) {
+			this.renderer.toneMapping =
+				(webgpu as any).ACESFilmicToneMapping ??
+				THREE.ACESFilmicToneMapping;
+		}
+
+		if ('toneMappingExposure' in this.renderer) {
+			this.renderer.toneMappingExposure =
+				this.toneMappingExposure;
+		}
+
+		this.runtime = {
+			renderPipeline,
+		};
+
+		console.info(
+			'[Phase 4.1] WebGPU visual pipeline ready',
+			{
+				quality: this.quality,
+				gtao: this.enableGTAO,
+				ssr: this.enableSSR,
+				bloom: this.enableBloom,
+				exposure: this.toneMappingExposure,
+			},
 		);
 	}
+}
 
-	private disposeComposer(): void {
-		this.composer?.dispose();
-		this.composer = null;
+type QualityProfile = {
+	gtao: boolean;
+	ssr: boolean;
+	bloom: boolean;
 
-		this.lastWidth      = 0;
-		this.lastHeight     = 0;
-		this.lastPixelRatio = 0;
+	aoResolutionScale: number;
+	aoSamples: number;
+	aoRadius: number;
+	aoThickness: number;
+	aoStrength: number;
+
+	ssrResolutionScale: number;
+	ssrQuality: number;
+	ssrBlurQuality: number;
+	ssrMaxDistance: number;
+	ssrOpacity: number;
+	ssrThickness: number;
+
+	bloomThreshold: number;
+	bloomStrength: number;
+	bloomRadius: number;
+
+	exposure: number;
+};
+
+function resolveQuality(
+	urlQuality: string | null,
+	optionQuality: PostProcessingQuality | undefined,
+): PostProcessingQuality {
+	if (
+		urlQuality === 'low' ||
+		urlQuality === 'medium' ||
+		urlQuality === 'high' ||
+		urlQuality === 'ultra'
+	) {
+		return urlQuality;
 	}
 
-	private disposeWebGPURenderPipeline(): void {
-		this.webGPURenderPipeline?.dispose();
-		this.webGPURenderPipeline = null;
+	return optionQuality ?? 'high';
+}
+
+function getQualityProfile(
+	quality: PostProcessingQuality,
+): QualityProfile {
+	switch (quality) {
+		case 'low':
+			return {
+				gtao: false,
+				ssr: false,
+				bloom: true,
+
+				aoResolutionScale: 0.35,
+				aoSamples: 6,
+				aoRadius: 0.16,
+				aoThickness: 0.65,
+				aoStrength: 0.24,
+
+				ssrResolutionScale: 0.35,
+				ssrQuality: 0.20,
+				ssrBlurQuality: 1,
+				ssrMaxDistance: 14,
+				ssrOpacity: 0.18,
+				ssrThickness: 0.030,
+
+				bloomThreshold: 0.96,
+				bloomStrength: 0.22,
+				bloomRadius: 0.18,
+
+				exposure: 1.00,
+			};
+
+		case 'medium':
+			return {
+				gtao: true,
+				ssr: false,
+				bloom: true,
+
+				aoResolutionScale: 0.45,
+				aoSamples: 8,
+				aoRadius: 0.18,
+				aoThickness: 0.72,
+				aoStrength: 0.30,
+
+				ssrResolutionScale: 0.4,
+				ssrQuality: 0.26,
+				ssrBlurQuality: 1,
+				ssrMaxDistance: 18,
+				ssrOpacity: 0.22,
+				ssrThickness: 0.034,
+
+				bloomThreshold: 0.94,
+				bloomStrength: 0.28,
+				bloomRadius: 0.22,
+
+				exposure: 1.00,
+			};
+
+		case 'ultra':
+			return {
+				gtao: true,
+				ssr: true,
+				bloom: true,
+
+				aoResolutionScale: 0.65,
+				aoSamples: 16,
+				aoRadius: 0.23,
+				aoThickness: 0.82,
+				aoStrength: 0.42,
+
+				ssrResolutionScale: 0.65,
+				ssrQuality: 0.46,
+				ssrBlurQuality: 3,
+				ssrMaxDistance: 26,
+				ssrOpacity: 0.34,
+				ssrThickness: 0.044,
+
+				bloomThreshold: 0.90,
+				bloomStrength: 0.40,
+				bloomRadius: 0.28,
+
+				exposure: 1.02,
+			};
+
+		case 'high':
+		default:
+			return {
+				gtao: true,
+				ssr: true,
+				bloom: true,
+
+				aoResolutionScale: 0.50,
+				aoSamples: 12,
+				aoRadius: 0.20,
+				aoThickness: 0.78,
+				aoStrength: 0.36,
+
+				ssrResolutionScale: 0.5,
+				ssrQuality: 0.34,
+				ssrBlurQuality: 2,
+				ssrMaxDistance: 22,
+				ssrOpacity: 0.28,
+				ssrThickness: 0.038,
+
+				bloomThreshold: 0.92,
+				bloomStrength: 0.34,
+				bloomRadius: 0.25,
+
+				exposure: 1.01,
+			};
+	}
+}
+
+function setUniformOrProperty(
+	host: Record<string, any>,
+	key: string,
+	value: number,
+): void {
+	const current =
+		host[key];
+
+	if (
+		current &&
+		typeof current === 'object' &&
+		'value' in current
+	) {
+		current.value = value;
+		return;
 	}
 
-	private disposePipeline(): void {
-		this.disposeComposer();
-		this.disposeWebGPURenderPipeline();
-	}
-
-	private warnFallback(
-		message: string,
-		error?: unknown,
-	): void {
-		if (this.fallbackWarned) {
-			return;
-		}
-
-		this.fallbackWarned = true;
-		if (error === undefined) {
-			console.warn(message);
-			return;
-		}
-		console.warn(message, error);
-	}
+	/*
+	 * Some Three.js versions expose compile-time quality settings as
+	 * primitive values. Preserve compatibility without replacing a
+	 * UniformNode when one already exists.
+	 */
+	host[key] = value;
 }

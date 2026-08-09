@@ -8,6 +8,8 @@ export type FactionId =
 export type StrategicNodeKind =
 	| 'homeworld'
 	| 'resource'
+	| 'research'
+	| 'outer'
 	| 'frontier'
 	| 'chokepoint';
 

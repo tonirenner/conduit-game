@@ -36,6 +36,7 @@ import {
     updateProductionSystem,
 } from '../simulation/ProductionSystem';
 import { CombatVfxSystem } from './CombatVfxSystem';
+import { EngineVfxSystem } from './EngineVfxSystem';
 import {
     createOrReplaceControlGroup,
     dissolveControlGroup,
@@ -90,6 +91,8 @@ export type GamePrototypeSceneOptions = {
     hud: HTMLDivElement;
     seed: number;
     rendererMode: PlanetRendererMode;
+    initialWorld?: GameWorld;
+    onWorldChanged?: (world: GameWorld) => void;
 
     /*
      * Optional for dynamic backdrop -> environment cubemap capture.
@@ -217,8 +220,10 @@ export class GamePrototypeScene {
     private selectionDragStart: { x: number; y: number } | null = null;
     private selectionDragCurrent: { x: number; y: number } | null = null;
     private readonly combatVfx: CombatVfxSystem;
+    private readonly engineVfx = new EngineVfxSystem();
     private readonly buildMenu: BuildMenu;
     private readonly systemMinimap: SystemMinimap;
+    private autoSaveTimerSeconds = 0;
     private placementBuildableId: StationBuildableId | null = null;
     private placementGhost: THREE.Object3D | null = null;
     private placementTargetPlanetId: string | undefined;
@@ -231,7 +236,7 @@ export class GamePrototypeScene {
     constructor(
        private readonly options: GamePrototypeSceneOptions,
     ) {
-       this.world = generateGameWorld(options.seed, {
+       this.world = options.initialWorld ?? generateGameWorld(options.seed, {
           nodeCount: 7,
        });
        this.navigation = createTacticalNavigationState();
@@ -612,6 +617,13 @@ export class GamePrototypeScene {
        this.world = updateProductionSystem(this.world, deltaSeconds);
        this.ensureSelectedFleetExists();
        this.syncSystemShipMeshes();
+       this.engineVfx.update(
+          this.world.ships,
+          this.systemShipMeshes,
+          this.shipMeshes,
+          deltaSeconds,
+          this.viewMode,
+       );
        this.combatVfx.trackTargets(this.world.ships, deltaSeconds);
        this.combatVfx.consume(this.world.combatEvents ?? []);
        this.combatVfx.update(deltaSeconds);
@@ -636,6 +648,12 @@ export class GamePrototypeScene {
        this.refreshBuildMenuContext();
        this.updateSystemMinimap();
        this.updateHud();
+       this.autoSaveTimerSeconds += deltaSeconds;
+
+       if (this.autoSaveTimerSeconds >= 12) {
+          this.autoSaveTimerSeconds = 0;
+          this.options.onWorldChanged?.(this.world);
+       }
     }
 
     private ensureSelectedFleetExists(): void {
@@ -760,7 +778,9 @@ export class GamePrototypeScene {
           this.options.controls.enableRotate = false;
           this.options.controls.enableZoom = false;
           this.options.controls.screenSpacePanning = true;
-          this.options.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+          /* RTS input: LEFT=selection, MIDDLE=pan, RIGHT=orders. */
+          this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+          this.options.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
           this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
           this.options.controls.minDistance = 8;
           this.options.controls.maxDistance = 360;
@@ -779,7 +799,9 @@ export class GamePrototypeScene {
        this.options.controls.enableRotate = false;
        this.options.controls.enableZoom = false;
        this.options.controls.screenSpacePanning = true;
-       this.options.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+       /* RTS input: LEFT=selection, MIDDLE=pan, RIGHT=orders. */
+       this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+       this.options.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
        this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
        this.options.controls.minDistance = 10;
        this.options.controls.maxDistance = 180;
@@ -1096,6 +1118,7 @@ export class GamePrototypeScene {
        this.options.controls.enableZoom = true;
        this.options.controls.screenSpacePanning = true;
        this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+       this.options.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
        this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
        this.options.controls.minDistance = radius * 1.12;
        this.options.controls.maxDistance = radius * 18.0;
@@ -1137,6 +1160,7 @@ export class GamePrototypeScene {
        this.options.controls.enableZoom = true;
        this.options.controls.screenSpacePanning = true;
        this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+       this.options.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
        this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
        this.options.controls.minDistance = Math.max(0.18, radius * 1.20);
        this.options.controls.maxDistance = Math.max(8, radius * 24.0);
@@ -1182,7 +1206,9 @@ export class GamePrototypeScene {
        this.options.controls.enableRotate = false;
        this.options.controls.enableZoom = false;
        this.options.controls.screenSpacePanning = true;
-       this.options.controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+       /* RTS input: LEFT=selection, MIDDLE=pan, RIGHT=orders. */
+       this.options.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+       this.options.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
        this.options.controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
        this.options.controls.minDistance = 8;
        this.options.controls.maxDistance = 360;
@@ -1738,6 +1764,15 @@ export class GamePrototypeScene {
           0,
        );
        hull.scale.z = -1;
+
+       /*
+        * Frigate has a real GLB. Do not show its fallback hull while the
+        * asynchronous GLB is loading; otherwise the dummy and real model can
+        * be visible in the same frame. The fallback is enabled only on an
+        * actual load failure below.
+        */
+       hull.visible = ship.role !== 'frigate' && ship.role !== 'carrier';
+
        group.name = ship.name;
        group.add(hull);
 
@@ -1760,7 +1795,7 @@ export class GamePrototypeScene {
              ship,
              hull,
           );
-       } else {
+       } else if (ship.role === 'carrier') {
           this.attachCapitalShipModel(
              group,
              ship,
@@ -1768,13 +1803,12 @@ export class GamePrototypeScene {
           );
        }
 
-       if (ship.role === 'frigate' || ship.role === 'carrier') {
-          const turret = createDummyTurret(ship.factionId);
-          turret.name = 'turret_yaw';
-          turret.position.set(0, 0.42, -0.25);
-          turret.scale.setScalar(ship.role === 'carrier' ? 0.72 : 0.46);
-          group.add(turret);
-       }
+       /*
+        * Real Frigate / Capital models are rendered exclusively.
+        * Do not add dummy turrets or a second fallback model on top.
+        * Until the final GLBs expose turret_yaw/muzzle nodes, CombatVfxSystem
+        * simply fires from the ship origin when no muzzle exists.
+        */
 
        return group;
     }
@@ -1878,6 +1912,9 @@ export class GamePrototypeScene {
              group.add(model);
           })
           .catch((error) => {
+             /* Only now show the fallback mesh. */
+             fallbackHull.visible = true;
+
              if (frigateModelWarningShown) {
                 return;
              }
@@ -1927,6 +1964,9 @@ export class GamePrototypeScene {
              group.add(model);
           })
           .catch((error) => {
+             /* Only show the simple fallback when the real Capital model failed. */
+             fallbackHull.visible = true;
+
              if (capitalShipModelWarningShown) {
                 return;
              }
@@ -2259,6 +2299,10 @@ export class GamePrototypeScene {
               * orbital_hanger.glb therefore gets a stable visual size in SystemView
               * instead of the much smaller meterAuthoredAssetRenderScale().
               */
+             /*
+              * Final Small Shipyard landmark size in SystemView.
+              * Keep this independent from construction progress.
+              */
              this.normalizeImportedModel(
                 model,
                 10.5,
@@ -2290,13 +2334,19 @@ export class GamePrototypeScene {
        group.name = station.name;
 
        if (station.buildState === 'constructing') {
-          const constructionScale = THREE.MathUtils.lerp(
-             0.18,
-             1,
-             THREE.MathUtils.smoothstep(station.constructionProgress, 0, 1),
-          );
-
-          group.scale.multiplyScalar(constructionScale);
+          /*
+           * IMPORTANT:
+           * Never animate construction by scaling the station root.
+           *
+           * Imported station models (especially orbital_hanger.glb) are already
+           * normalized to their final SystemView size. Scaling the outer group
+           * by constructionProgress caused the Small Shipyard to appear tiny
+           * while building and suddenly jump to full size after a rebuild.
+           *
+           * Construction is visualized only through material opacity for now.
+           * Final dimensions stay stable from placement to completion.
+           */
+          group.scale.setScalar(1);
 
           group.traverse((object) => {
              if (!(object instanceof THREE.Mesh)) {
@@ -2309,10 +2359,18 @@ export class GamePrototypeScene {
 
              for (const material of materials) {
                 material.transparent = true;
-                material.opacity = 0.42 + station.constructionProgress * 0.48;
+                material.opacity =
+                   0.46 +
+                   THREE.MathUtils.clamp(
+                      station.constructionProgress,
+                      0,
+                      1,
+                   ) * 0.44;
                 material.needsUpdate = true;
              }
           });
+       } else {
+          group.scale.setScalar(1);
        }
 
        return group;
@@ -3949,6 +4007,25 @@ export class GamePrototypeScene {
        this.lastSystemShipClickTime = now;
 
        if (isDoubleClick) {
+          /*
+           * Mirror the planet double-click behavior exactly:
+           *
+           * - double-click a ship from pan -> enter ship orbit
+           * - double-click the SAME focused ship again -> return to the
+           *   previously saved pan camera
+           * - double-click another ship while orbiting -> switch focus
+           *
+           * Previously this path always called enterShipOrbitView(), so the
+           * second double-click never executed the shared reset path.
+           */
+          if (
+             this.systemCameraMode === 'orbitShip' &&
+             this.orbitFocusShipId === shipId
+          ) {
+             this.exitSystemOrbitView();
+             return true;
+          }
+
           this.enterShipOrbitView(shipId);
        }
 
@@ -5033,6 +5110,12 @@ export class GamePrototypeScene {
 
           case 'resource':
              return 1.05;
+
+          case 'research':
+             return 0.96;
+
+          case 'outer':
+             return 0.68;
 
           case 'chokepoint':
              return 0.86;

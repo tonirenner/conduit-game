@@ -10,7 +10,9 @@ export type AppRenderer = THREE.WebGLRenderer & {
 	) => Promise<void>;
 };
 
-export function getPreferredRendererMode(): RendererMode {
+export function getPreferredRendererMode(
+	fallback: RendererMode = 'webgl',
+): RendererMode {
 	const params   = new URLSearchParams(window.location.search);
 	const renderer = params.get('renderer')
 		?.toLowerCase();
@@ -19,7 +21,11 @@ export function getPreferredRendererMode(): RendererMode {
 		return 'webgpu';
 	}
 
-	return 'webgl';
+	if (renderer === 'webgl') {
+		return 'webgl';
+	}
+
+	return fallback;
 }
 
 export async function createAppRenderer(
