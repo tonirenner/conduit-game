@@ -870,15 +870,15 @@ export function createPlanetSurfaceMaterial(
 				if (uPaletteOceanic > 0.001) {
 					float islandMask =
 						smoothstep(
-							0.72,
-							0.84,
+							0.76,
+							0.86,
 							landMask +
-							surfaceSample.height * 0.42
+							surfaceSample.height * 0.18
 						);
 
 					float shelfMask =
-						smoothstep(0.42, 0.62, landMask) *
-						(1.0 - smoothstep(0.68, 0.82, landMask));
+						smoothstep(0.46, 0.58, landMask) *
+						(1.0 - smoothstep(0.62, 0.76, landMask));
 
 					float waveLarge =
 						fbm(localGeometricNormal * 42.0 + vec3(6.1, 2.4, 9.7));
@@ -907,7 +907,7 @@ export function createPlanetSurfaceMaterial(
 					oceanBase = mix(
 						oceanBase,
 						shelfOcean,
-						shelfMask * 0.42
+						shelfMask * 0.30
 					);
 
 					oceanBase +=

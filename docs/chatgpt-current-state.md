@@ -162,6 +162,71 @@ The Planet LOD scene has a planet class dropdown covering all current `PlanetCla
 - gas_giant
 - ice_giant
 
+Planet LOD now displays scale diagnostics:
+
+- real physical radius in km
+- lab render radius and km per render unit
+- SystemView/game render radius and km per render unit
+- visual compression multiplier versus raw `1 render unit = 1 km`
+
+The shared SystemView planet radius formula lives in `src/game/spatial/SpatialRenderScale.ts`.
+
+## Game Scale Diagnostics
+
+Files:
+
+- `src/game/spatial/SpatialRenderScale.ts`
+- `src/game/rendering/GamePrototypeScene.ts`
+
+SystemView keeps simulation values physical but renders planets with a compressed/cinematic scale.
+
+Current HUD behavior:
+
+- In SystemView, HUD shows `scale | system 1u=1km`.
+- It also shows the first planet's real radius, current rendered radius, km per render unit, and compression multiplier.
+- Planet render radius is calculated centrally via `getSystemPlanetRenderRadius()`.
+
+## SystemView Planet Quality Alignment
+
+Files:
+
+- `src/game/rendering/GamePrototypeScene.ts`
+- `src/planet/PlanetSurfaceMaterial.ts`
+- `src/planet/PlanetSurfaceNodeMaterial.ts`
+
+Current planet alignment work:
+
+- SystemView no longer applies the previous aggressive solid-planet brightness/procedural-strength override.
+- SystemView planet render tuning is closer to PlanetViewer defaults, with only restrained per-class adjustments.
+- SystemView idle cloud raymarch budget now matches the default PlanetViewer budget.
+- Ocean island/coast masks were tightened in both WebGL and WebGPU materials:
+  - reduced terrain-height influence on `oceanIslandMask`
+  - narrower island transition thresholds
+  - narrower/weaker shelf tint
+
+Known remaining difference:
+
+- PlanetViewer can use baked terrain textures; SystemView still uses the procedural/live material path.
+
+## Gas / Ice Giant Rendering
+
+Files:
+
+- `src/planet/GasGiantLayer.ts`
+- `src/planet/Planet.ts`
+- `src/game/rendering/GamePrototypeScene.ts`
+- `src/game/dev/scenes/planets/PlanetLodTestScene.ts`
+
+Current giant rendering work:
+
+- Gas/Ice Giants no longer get the generic solid-planet AtmosphereLayer on top of their dedicated `GasGiantLayer` atmosphere.
+- SystemView and Planet LOD now enable giant cloud particles for `gas_giant` and `ice_giant`.
+- `GasGiantLayer` has denser cloud shells, stronger shell opacity, stronger atmospheric shell opacity, and more particle veil density.
+- `GasGiantLayer` now uses horizontally seamless FBM for turbulent bands/cloud alpha so equirectangular textures wrap cleanly.
+- Final body/cloud textures get a small horizontal seam blend after Canvas strokes, reducing visible left/right texture discontinuities.
+- Giant cloud particles now fade down with camera distance relative to planet radius, so close views keep depth while far views avoid noisy bright particle speckles.
+- The current volumetric look is still an approximation: layered transparent shells plus particle veil. A true volume-cloud gas giant would need a later raymarch/3D texture path.
+
 ## Planet WebGL/WebGPU Alignment
 
 Files:

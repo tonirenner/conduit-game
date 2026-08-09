@@ -6,6 +6,10 @@ import { generatePlanetDefinition } from '../../../../planet/generation/PlanetGe
 import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
 import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
 import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
+import {
+	getPlanetScaleDiagnostics,
+	getSystemPlanetRenderRadius,
+} from '../../../spatial/SpatialRenderScale';
 
 const PLANET_CLASSES: PlanetClass[] = [
 	'barren',
@@ -123,7 +127,11 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			3,
 			this.context.rendererMode,
 			null,
-			{},
+			{
+				gasCloudParticles:
+					definition.class === 'gas_giant' ||
+					definition.class === 'ice_giant',
+			},
 			definition,
 			profile,
 		);
@@ -143,10 +151,26 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const terrain = this.planet.getTerrainStats();
 		const distance = this.context.camera.position.length();
 		const climate = this.definition.climate;
+		const labRenderRadius = 3;
+		const gameRenderRadius = getSystemPlanetRenderRadius(
+			this.definition.physical.radius,
+			this.definition.class,
+		);
+		const labScale = getPlanetScaleDiagnostics(
+			this.definition.physical.radius,
+			labRenderRadius,
+		);
+		const gameScale = getPlanetScaleDiagnostics(
+			this.definition.physical.radius,
+			gameRenderRadius,
+		);
 
 		this.stats.innerHTML =
 			`class: ${this.planetClass}<br>` +
 			`surface: ${this.profile.surfacePalette} / atmosphere: ${this.profile.atmospherePalette}<br>` +
+			`real radius: ${formatKilometers(labScale.physicalRadiusKilometers)} km<br>` +
+			`lab radius: ${labRenderRadius.toFixed(1)}u (${formatKilometers(labScale.kilometersPerRenderedUnit)} km/u)<br>` +
+			`game radius: ${gameRenderRadius.toFixed(1)}u (${formatKilometers(gameScale.kilometersPerRenderedUnit)} km/u, ${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>` +
 			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
 			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +
 			`ash: ${format01(climate.ashLoad)} season: ${format01(climate.seasonality)}<br>` +
@@ -171,4 +195,30 @@ function formatPlanetClass(planetClass: PlanetClass): string {
 
 function format01(value: number): string {
 	return value.toFixed(2);
+}
+
+function formatKilometers(value: number): string {
+	if (Math.abs(value) >= 10_000) {
+		return value.toLocaleString('en-US', {
+			maximumFractionDigits: 0,
+		});
+	}
+
+	if (Math.abs(value) >= 100) {
+		return value.toFixed(0);
+	}
+
+	return value.toFixed(1);
+}
+
+function formatScaleMultiplier(value: number): string {
+	if (value === 0 || !Number.isFinite(value)) {
+		return 'n/a';
+	}
+
+	if (Math.abs(value) < 0.001) {
+		return `${value.toExponential(2)}x`;
+	}
+
+	return `${value.toFixed(4)}x`;
 }

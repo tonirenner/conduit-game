@@ -73,13 +73,14 @@ import {
     SYSTEM_ORBIT_VISUAL_SCALE,
     SYSTEM_PLANET_VISUAL_SCALE,
     SYSTEM_STAR_VISUAL_SCALE,
+    getPlanetScaleDiagnostics,
+    getSystemPlanetRenderRadius as getScaledSystemPlanetRenderRadius,
     meterAuthoredAssetRenderScale,
     systemMetersToRenderUnits,
     systemRenderUnitsToMeters,
 } from '../spatial/SpatialRenderScale';
 import {
     ASTRONOMICAL_UNIT_METERS,
-    EARTH_RADIUS_METERS,
     KILOMETER,
     SOLAR_RADIUS_METERS,
 } from '../spatial/SpatialUnits';
@@ -3658,6 +3659,7 @@ export class GamePrototypeScene {
              `${node.system.asteroidBelts.length} belts · ` +
              `${stationCount} stations`;
 
+          const scaleLine = this.getSystemScaleHudLine(node);
           const selectionLine =
              `${selectedShipCount > 0 ? `${selectedShipCount} ship${selectedShipCount === 1 ? '' : 's'}` : selectedFleet?.name ?? 'no fleet'}  |  ` +
              `${order}  |  ${focus}` +
@@ -3683,6 +3685,8 @@ export class GamePrototypeScene {
 
           hud.textContent =
              statusLine +
+             '\n' +
+             scaleLine +
              '\n' +
              selectionLine +
              helpLine;
@@ -4746,10 +4750,12 @@ export class GamePrototypeScene {
              raymarchedSurface: true,
              moonSystem: true,
              nearSurfaceTerrain: true,
-             gasCloudParticles: false,
+             gasCloudParticles:
+                planetDefinition.class === 'gas_giant' ||
+                planetDefinition.class === 'ice_giant',
              cloudSteps: {
-                moving: 8,
-                idle: 20,
+                moving: 10,
+                idle: 24,
              },
              atmosphereSteps: {
                 moving: 8,
@@ -4767,28 +4773,8 @@ export class GamePrototypeScene {
        planet.group.name = planetDefinition.name;
        planet.group.userData.systemRenderRadius = radius;
        const systemViewTuning = this.getSystemPlanetRenderTuning(planetDefinition);
-       const isSolidSystemPlanet =
-                planetDefinition.class !== 'gas_giant' &&
-                planetDefinition.class !== 'ice_giant';
 
-       planet.setRenderTuning({
-                                 ...systemViewTuning,
-                                 ambient: isSolidSystemPlanet
-                                          ? Math.max(systemViewTuning.ambient ?? 0.68, 0.96)
-                                          : systemViewTuning.ambient,
-                                 exposureScale: isSolidSystemPlanet
-                                                ? Math.max(systemViewTuning.exposureScale ?? 1.16, 1.42)
-                                                : systemViewTuning.exposureScale,
-                                 horizonGlowScale: isSolidSystemPlanet
-                                                   ? Math.max(systemViewTuning.horizonGlowScale ?? 1.0, 1.18)
-                                                   : systemViewTuning.horizonGlowScale,
-                                 proceduralColorStrength: isSolidSystemPlanet
-                                                          ? Math.max(systemViewTuning.proceduralColorStrength ?? 0.65, 0.92)
-                                                          : systemViewTuning.proceduralColorStrength,
-                                 surfaceTextureStrength: isSolidSystemPlanet
-                                                         ? Math.max(systemViewTuning.surfaceTextureStrength ?? 1.0, 1.20)
-                                                         : systemViewTuning.surfaceTextureStrength,
-                              });
+       planet.setRenderTuning(systemViewTuning);
 
        planet.setHorizonCullingEnabled(false);
        planet.setPatchFrustumCullingEnabled(false);
@@ -5160,24 +5146,32 @@ export class GamePrototypeScene {
     private getSystemPlanetRenderRadius(
        planet: StrategicNode['system']['planets'][number],
     ): number {
-       const physicalRadiusEarth =
-                planet.physical.radius / EARTH_RADIUS_METERS;
-       const baseRadius = THREE.MathUtils.clamp(
-          physicalRadiusEarth / 2.2,
-          1.85,
-          5.8,
+       return getScaledSystemPlanetRenderRadius(
+          planet.physical.radius,
+          planet.class,
+       );
+    }
+
+    private getSystemScaleHudLine(node: StrategicNode): string {
+       const planet = node.system.planets[0];
+
+       if (!planet) {
+          return `scale | system 1u=1km | orbit x${SYSTEM_ORBIT_VISUAL_SCALE.toFixed(2)} | planet x${SYSTEM_PLANET_VISUAL_SCALE.toFixed(2)}`;
+       }
+
+       const renderRadius = this.getSystemPlanetRenderRadius(planet);
+       const diagnostics = getPlanetScaleDiagnostics(
+          planet.physical.radius,
+          renderRadius,
        );
 
-       const classScale =
-                planet.class === 'gas_giant'
-                ? 1.95
-                : planet.class === 'ice_giant'
-                  ? 1.68
-                  : planet.class === 'ocean'
-                    ? 1.34
-                    : 1.08;
-
-       return baseRadius * classScale * SYSTEM_PLANET_VISUAL_SCALE;
+       return (
+          `scale | system 1u=1km | ` +
+          `${planet.name} R ${formatKilometers(diagnostics.physicalRadiusKilometers)}km -> ` +
+          `${renderRadius.toFixed(1)}u (` +
+          `1u~${formatKilometers(diagnostics.kilometersPerRenderedUnit)}km, ` +
+          `${formatScaleMultiplier(diagnostics.visualScaleMultiplier)})`
+       );
     }
 
     private getSystemPlanetRenderTuning(
@@ -5186,97 +5180,97 @@ export class GamePrototypeScene {
        switch (planet.class) {
           case 'ocean':
              return {
-                ambient: 1.02,
-                exposureScale: 1.62,
-                horizonGlowScale: 1.14,
-                proceduralColorStrength: 1.04,
-                surfaceTextureStrength: 1.08,
+                ambient: 0.54,
+                exposureScale: 1.18,
+                horizonGlowScale: 1.02,
+                proceduralColorStrength: 0.76,
+                surfaceTextureStrength: 1.02,
              };
 
           case 'terrestrial':
              return {
-                ambient: 0.96,
-                exposureScale: 1.56,
-                horizonGlowScale: 1.08,
-                proceduralColorStrength: 1.02,
-                surfaceTextureStrength: 1.04,
+                ambient: 0.52,
+                exposureScale: 1.16,
+                horizonGlowScale: 1.00,
+                proceduralColorStrength: 0.74,
+                surfaceTextureStrength: 1.00,
              };
 
           case 'ice':
           case 'ice_giant':
              return {
-                ambient: 1.04,
-                exposureScale: 1.62,
-                horizonGlowScale: 1.28,
-                proceduralColorStrength: 1.04,
+                ambient: 0.56,
+                exposureScale: 1.18,
+                horizonGlowScale: 1.12,
+                proceduralColorStrength: 0.76,
              };
 
           case 'lava':
              return {
-                ambient: 0.88,
-                exposureScale: 1.78,
-                horizonGlowScale: 1.52,
-                proceduralColorStrength: 1.12,
+                ambient: 0.46,
+                exposureScale: 1.28,
+                horizonGlowScale: 1.34,
+                proceduralColorStrength: 0.82,
              };
 
           case 'toxic':
              return {
-                ambient: 1.00,
-                exposureScale: 1.62,
-                horizonGlowScale: 1.34,
-                proceduralColorStrength: 1.12,
-                surfaceTextureStrength: 1.08,
+                ambient: 0.54,
+                exposureScale: 1.20,
+                horizonGlowScale: 1.12,
+                proceduralColorStrength: 0.82,
+                surfaceTextureStrength: 1.02,
              };
 
           case 'desert':
              return {
-                ambient: 0.96,
-                exposureScale: 1.60,
-                horizonGlowScale: 0.76,
-                proceduralColorStrength: 1.08,
-                surfaceTextureStrength: 1.12,
+                ambient: 0.50,
+                exposureScale: 1.18,
+                horizonGlowScale: 0.74,
+                proceduralColorStrength: 0.78,
+                surfaceTextureStrength: 1.04,
              };
 
           case 'metal_rich':
              return {
-                ambient: 0.94,
-                exposureScale: 1.60,
+                ambient: 0.48,
+                exposureScale: 1.16,
                 horizonGlowScale: 0.34,
-                proceduralColorStrength: 1.08,
-                surfaceTextureStrength: 1.14,
+                proceduralColorStrength: 0.78,
+                surfaceTextureStrength: 1.06,
              };
 
           case 'carbon':
              return {
-                ambient: 0.98,
-                exposureScale: 1.72,
+                ambient: 0.50,
+                exposureScale: 1.22,
                 horizonGlowScale: 0.58,
-                proceduralColorStrength: 1.10,
-                surfaceTextureStrength: 1.12,
+                proceduralColorStrength: 0.80,
+                surfaceTextureStrength: 1.04,
              };
 
           case 'barren':
              return {
-                ambient: 0.92,
-                exposureScale: 1.56,
+                ambient: 0.48,
+                exposureScale: 1.14,
                 horizonGlowScale: 0.50,
-                proceduralColorStrength: 1.06,
-                surfaceTextureStrength: 1.16,
+                proceduralColorStrength: 0.76,
+                surfaceTextureStrength: 1.06,
              };
 
           case 'rocky':
              return {
-                ambient: 0.92,
-                exposureScale: 1.56,
+                ambient: 0.48,
+                exposureScale: 1.14,
                 horizonGlowScale: 0.62,
-                proceduralColorStrength: 1.06,
-                surfaceTextureStrength: 1.16,
+                proceduralColorStrength: 0.76,
+                surfaceTextureStrength: 1.06,
              };
 
           case 'gas_giant':
              return {
-                ambient: 0.82,
-                exposureScale: 1.44,
+                ambient: 0.46,
+                exposureScale: 1.12,
              };
        }
     }
@@ -5400,4 +5394,30 @@ export class GamePrototypeScene {
              };
        }
     }
+}
+
+function formatKilometers(value: number): string {
+    if (Math.abs(value) >= 10_000) {
+       return value.toLocaleString('en-US', {
+          maximumFractionDigits: 0,
+       });
+    }
+
+    if (Math.abs(value) >= 100) {
+       return value.toFixed(0);
+    }
+
+    return value.toFixed(1);
+}
+
+function formatScaleMultiplier(value: number): string {
+    if (value === 0 || !Number.isFinite(value)) {
+       return 'n/a';
+    }
+
+    if (Math.abs(value) < 0.001) {
+       return `${value.toExponential(2)}x`;
+    }
+
+    return `${value.toFixed(4)}x`;
 }

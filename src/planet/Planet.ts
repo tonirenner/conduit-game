@@ -153,8 +153,6 @@ export class Planet {
 
 		this.group.add(this.gasGiantLayer.group);
 
-		this.createAtmosphereLayer();
-
 		this.createRingSystem();
 		this.createMoonSystem();
 
@@ -574,7 +572,7 @@ export class Planet {
 			this.planet.rotation.y += 0.0008;
 		}
 
-		this.gasGiantLayer?.update(deltaSeconds);
+		this.gasGiantLayer?.update(deltaSeconds, cameraPosition.length());
 		this.ringSystemLayer?.update(deltaSeconds);
 		this.moonSystemLayer?.update(deltaSeconds);
 		this.toxicHazeLayer?.update();

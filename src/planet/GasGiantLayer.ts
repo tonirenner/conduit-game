@@ -13,6 +13,8 @@ type CloudParticleLayer = {
 	points: THREE.Points;
 	geometry: THREE.BufferGeometry;
 	material: THREE.PointsMaterial;
+	baseOpacity: number;
+	baseSize: number;
 };
 
 type CloudVolumeShell = {
@@ -83,7 +85,7 @@ export class GasGiantLayer {
 		this.group.add(this.atmosphereMesh);
 	}
 
-	update(deltaSeconds: number): void {
+	update(deltaSeconds: number, cameraDistance?: number): void {
 		const rotationSpeed =
 			      this.options.kind === 'ice_giant'
 			      ? 0.00055
@@ -103,6 +105,8 @@ export class GasGiantLayer {
 		}
 
 		if (this.cloudParticleLayer) {
+			this.updateCloudParticleDistanceFade(cameraDistance);
+
 			this.cloudParticleLayer.points.rotation.y +=
 				deltaSeconds *
 				(
@@ -123,6 +127,28 @@ export class GasGiantLayer {
 				 ? 0.000004
 				 : 0.000009
 			 )) % 1;
+	}
+
+	private updateCloudParticleDistanceFade(cameraDistance?: number): void {
+		if (!this.cloudParticleLayer || cameraDistance === undefined) {
+			return;
+		}
+
+		const distanceRatio =
+			      cameraDistance /
+			      Math.max(0.0001, this.options.radius);
+		const farFade = THREE.MathUtils.smoothstep(
+			distanceRatio,
+			7.5,
+			22.0,
+		);
+		const opacityMultiplier = THREE.MathUtils.lerp(1.0, 0.18, farFade);
+		const sizeMultiplier = THREE.MathUtils.lerp(1.0, 0.52, farFade);
+
+		this.cloudParticleLayer.material.opacity =
+			this.cloudParticleLayer.baseOpacity * opacityMultiplier;
+		this.cloudParticleLayer.material.size =
+			this.cloudParticleLayer.baseSize * sizeMultiplier;
 	}
 
 	dispose(): void {
@@ -170,17 +196,17 @@ export class GasGiantLayer {
 			                                                color: 0xffffff,
 			                                                roughness:
 				                                                this.options.kind === 'ice_giant'
-				                                                ? 0.64
-				                                                : 0.78,
+				                                                ? 0.82
+				                                                : 0.88,
 			                                                metalness: 0.0,
 			                                                emissive:
 				                                                this.options.kind === 'ice_giant'
-				                                                ? new THREE.Color(0x071722)
-				                                                : new THREE.Color(0x201008),
+				                                                ? new THREE.Color(0x0b2430)
+				                                                : new THREE.Color(0x24160c),
 			                                                emissiveIntensity:
 				                                                this.options.kind === 'ice_giant'
-				                                                ? 0.26
-				                                                : 0.2,
+				                                                ? 0.18
+				                                                : 0.14,
 		                                                });
 
 		const mesh = new THREE.Mesh(
@@ -201,8 +227,8 @@ export class GasGiantLayer {
 	private createCloudVolumeShells(): CloudVolumeShell[] {
 		const shellCount =
 			      this.options.kind === 'ice_giant'
-			      ? 3
-			      : 4;
+			      ? 4
+			      : 5;
 
 		const shells: CloudVolumeShell[] = [];
 
@@ -213,8 +239,8 @@ export class GasGiantLayer {
 				this.options.radius *
 				(
 					this.options.kind === 'ice_giant'
-					? 1.018 + index * 0.010
-					: 1.016 + index * 0.009
+					? 1.016 + index * 0.011
+					: 1.014 + index * 0.010
 				),
 				128,
 				80,
@@ -229,8 +255,8 @@ export class GasGiantLayer {
 				                                                transparent: true,
 				                                                opacity:
 					                                                this.options.kind === 'ice_giant'
-					                                                ? Math.max(0.035, 0.11 - index * 0.02)
-					                                                : Math.max(0.04, 0.13 - index * 0.022),
+					                                                ? Math.max(0.045, 0.15 - index * 0.022)
+					                                                : Math.max(0.055, 0.18 - index * 0.026),
 				                                                depthWrite: false,
 				                                                depthTest: true,
 				                                                side: THREE.DoubleSide,
@@ -242,9 +268,9 @@ export class GasGiantLayer {
 					                                                : new THREE.Color(0xffcf9d),
 				                                                emissiveIntensity:
 					                                                this.options.kind === 'ice_giant'
-					                                                ? 0.10
-					                                                : 0.08,
-				                                                blending: THREE.NormalBlending,
+					                                                ? 0.14
+					                                                : 0.12,
+				                                                blending: THREE.AdditiveBlending,
 			                                                });
 
 			const mesh = new THREE.Mesh(
@@ -340,6 +366,7 @@ export class GasGiantLayer {
 		context.putImageData(image, 0, 0);
 
 		this.paintCloudVolumeWisps(context, width, height, shellIndex, field);
+		this.blendHorizontalTextureSeam(context, width, height, 40);
 
 		const texture = new THREE.CanvasTexture(canvas);
 
@@ -379,29 +406,23 @@ export class GasGiantLayer {
 			      shellIndex * 0.8,
 			      );
 
-		const clump = fbm2(
-			u *
-			(
-				this.options.kind === 'ice_giant'
-				? 10.0
-				: 16.0
-			) +
-			turbulence.medium * 1.8 +
+		const clump = seamlessFbm2(
+			wrap01(u + turbulence.medium * 0.018 + shellIndex * 0.031),
+			v +
+			turbulence.fine * 0.025 +
+			shellIndex * 0.041,
+			this.options.kind === 'ice_giant' ? 10.0 : 16.0,
+			this.options.kind === 'ice_giant' ? 26.0 : 42.0,
 			shellIndex * 11.7,
-			v *
-			(
-				this.options.kind === 'ice_giant'
-				? 26.0
-				: 42.0
-			) +
-			turbulence.fine * 2.3 +
-			shellIndex * 7.4,
 			4,
 		);
 
-		const wisps = fbm2(
-			u * 54.0 + turbulence.swirl * 3.6 + shellIndex * 21.3,
-			v * 96.0 + turbulence.medium * 4.0 + shellIndex * 13.6,
+		const wisps = seamlessFbm2(
+			wrap01(u + turbulence.swirl * 0.014 + shellIndex * 0.047),
+			v + turbulence.medium * 0.030 + shellIndex * 0.059,
+			54.0,
+			96.0,
+			shellIndex * 21.3,
 			3,
 		);
 
@@ -513,8 +534,8 @@ export class GasGiantLayer {
 	private createCloudParticles(): CloudParticleLayer {
 		const particleCount =
 			      this.options.kind === 'ice_giant'
-			      ? 12000
-			      : 18000;
+			      ? 18000
+			      : 28000;
 
 		const positions = new Float32Array(particleCount * 3);
 		const colors = new Float32Array(particleCount * 3);
@@ -601,18 +622,21 @@ export class GasGiantLayer {
 			new THREE.BufferAttribute(colors, 3),
 		);
 
+		const baseSize =
+			      this.options.kind === 'ice_giant'
+			      ? this.options.radius * 0.0075
+			      : this.options.radius * 0.009;
+		const baseOpacity =
+			      this.options.kind === 'ice_giant'
+			      ? 0.14
+			      : 0.18;
+
 		const material = new THREE.PointsMaterial({
-			                                          size:
-				                                          this.options.kind === 'ice_giant'
-				                                          ? this.options.radius * 0.0075
-				                                          : this.options.radius * 0.009,
+			                                          size: baseSize,
 			                                          sizeAttenuation: true,
 			                                          vertexColors: true,
 			                                          transparent: true,
-			                                          opacity:
-				                                          this.options.kind === 'ice_giant'
-				                                          ? 0.10
-				                                          : 0.13,
+			                                          opacity: baseOpacity,
 			                                          depthWrite: false,
 			                                          depthTest: true,
 			                                          blending: THREE.AdditiveBlending,
@@ -635,6 +659,8 @@ export class GasGiantLayer {
 			points,
 			geometry,
 			material,
+			baseOpacity,
+			baseSize,
 		};
 	}
 
@@ -677,7 +703,12 @@ export class GasGiantLayer {
 
 	private createAtmosphere(): THREE.Mesh {
 		const geometry = new THREE.SphereGeometry(
-			this.options.radius * 1.04,
+			this.options.radius *
+			(
+				this.options.kind === 'ice_giant'
+				? 1.055
+				: 1.065
+			),
 			128,
 			80,
 		);
@@ -690,10 +721,11 @@ export class GasGiantLayer {
 			                                             transparent: true,
 			                                             opacity:
 				                                             this.options.kind === 'ice_giant'
-				                                             ? 0.105
-				                                             : 0.09,
+				                                             ? 0.16
+				                                             : 0.15,
 			                                             side: THREE.BackSide,
 			                                             depthWrite: false,
+			                                             depthTest: true,
 			                                             blending: THREE.AdditiveBlending,
 		                                             });
 
@@ -744,6 +776,8 @@ export class GasGiantLayer {
 			this.paintIceHaze(context, width, height, field);
 			this.paintSoftIceWisps(context, width, height, field);
 		}
+
+		this.blendHorizontalTextureSeam(context, width, height, 72);
 
 		const texture = new THREE.CanvasTexture(canvas);
 
@@ -1155,6 +1189,52 @@ export class GasGiantLayer {
 
 		context.globalAlpha = 1;
 	}
+
+	private blendHorizontalTextureSeam(
+		context: CanvasRenderingContext2D,
+		width: number,
+		height: number,
+		blendWidth: number,
+	): void {
+		const seamWidth = Math.max(
+			1,
+			Math.min(blendWidth, Math.floor(width * 0.08)),
+		);
+
+		const source = context.getImageData(0, 0, width, height);
+		const original = source.data;
+		const blended = new Uint8ClampedArray(original);
+
+		for (let y = 0; y < height; y++) {
+			for (let distance = 0; distance < seamWidth; distance++) {
+				const t = smoothstep(distance / Math.max(1, seamWidth - 1));
+				const leftX = distance;
+				const rightX = width - 1 - distance;
+				const leftOffset = (y * width + leftX) * 4;
+				const rightOffset = (y * width + rightX) * 4;
+
+				for (let channel = 0; channel < 4; channel++) {
+					const left = original[leftOffset + channel];
+					const right = original[rightOffset + channel];
+					const seamAverage = (left + right) * 0.5;
+
+					blended[leftOffset + channel] = THREE.MathUtils.lerp(
+						seamAverage,
+						left,
+						t,
+					);
+					blended[rightOffset + channel] = THREE.MathUtils.lerp(
+						seamAverage,
+						right,
+						t,
+					);
+				}
+			}
+		}
+
+		source.data.set(blended);
+		context.putImageData(source, 0, 0);
+	}
 }
 
 type TurbulenceSample = {
@@ -1193,30 +1273,41 @@ function createTurbulenceField(
 				      : 0.19;
 
 			const shearedU =
+				      wrap01(
 				      u +
 				      Math.sin(v * Math.PI * 8 + bandPhase) *
 				      shearStrength +
 				      latitude *
-				      0.06;
+				      0.06
+				      );
 
 			const medium =
-				      fbm2(
-					      shearedU * 7.0 + offsetA,
-					      v * 24.0 + offsetB,
+				      seamlessFbm2(
+					      shearedU,
+					      v,
+					      7.0,
+					      24.0,
+					      offsetA + offsetB,
 					      4,
 				      ) * 2 - 1;
 
 			const fine =
-				      fbm2(
-					      shearedU * 22.0 + offsetB,
-					      v * 74.0 + offsetC,
+				      seamlessFbm2(
+					      shearedU,
+					      v,
+					      22.0,
+					      74.0,
+					      offsetB + offsetC,
 					      3,
 				      ) * 2 - 1;
 
 			const swirl =
-				      fbm2(
-					      shearedU * 5.2 + medium * 0.35 + offsetC,
-					      v * 18.0 + fine * 0.22 + offsetA,
+				      seamlessFbm2(
+					      wrap01(shearedU + medium * 0.035),
+					      v + fine * 0.022,
+					      5.2,
+					      18.0,
+					      offsetC + offsetA,
 					      4,
 				      ) * 2 - 1;
 
@@ -1254,24 +1345,43 @@ function getIcePalette(): THREE.Color[] {
 	];
 }
 
-function fbm2(x: number, y: number, octaves: number): number {
+function seamlessFbm2(
+	u: number,
+	v: number,
+	scaleX: number,
+	scaleY: number,
+	offset: number,
+	octaves: number,
+): number {
 	let value = 0;
 	let amplitude = 0.5;
 	let frequency = 1;
 	let normalizer = 0;
 
 	for (let i = 0; i < octaves; i++) {
-		value += valueNoise2(
-		         x * frequency,
-		         y * frequency,
-		) * amplitude;
+		const angle = wrap01(u) * Math.PI * 2 * frequency;
+		const ringRadius = scaleX * frequency;
+		const x =
+			Math.cos(angle) * ringRadius +
+			offset +
+			i * 37.17;
+		const y =
+			Math.sin(angle) * ringRadius +
+			v * scaleY * frequency +
+			offset * 0.37 +
+			i * 19.91;
 
+		value += valueNoise2(x, y) * amplitude;
 		normalizer += amplitude;
 		amplitude *= 0.5;
-		frequency *= 2.03;
+		frequency *= 2;
 	}
 
 	return value / normalizer;
+}
+
+function wrap01(value: number): number {
+	return value - Math.floor(value);
 }
 
 function valueNoise2(x: number, y: number): number {
