@@ -4,7 +4,8 @@ import { disposeObject3D } from '../../DebugPrimitives';
 import { Planet } from '../../../../planet/Planet';
 import { generatePlanetDefinition } from '../../../../planet/generation/PlanetGenerator';
 import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
-import type { PlanetClass } from '../../../../planet/model/PlanetDefinition';
+import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
+import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
 
 const PLANET_CLASSES: PlanetClass[] = [
 	'barren',
@@ -30,6 +31,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private context: FeatureTestContext | null = null;
 	private readonly root = new THREE.Group();
 	private planet: Planet | null = null;
+	private definition: PlanetDefinition | null = null;
+	private profile: PlanetRenderProfile | null = null;
 	private stats: HTMLElement | null = null;
 	private seed = 3001;
 	private planetClass: PlanetClass = 'ocean';
@@ -102,6 +105,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 
 		this.planet?.dispose();
 		this.planet = null;
+		this.definition = null;
+		this.profile = null;
 		this.root.clear();
 		this.context.clearReport();
 
@@ -112,6 +117,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			forcePlanetClass: this.planetClass,
 		});
 		const profile = createPlanetRenderProfile(definition);
+		this.definition = definition;
+		this.profile = profile;
 		this.planet = new Planet(
 			3,
 			this.context.rendererMode,
@@ -129,15 +136,20 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	}
 
 	private updateStats(): void {
-		if (!this.planet || !this.context || !this.stats) {
+		if (!this.planet || !this.context || !this.stats || !this.definition || !this.profile) {
 			return;
 		}
 
 		const terrain = this.planet.getTerrainStats();
 		const distance = this.context.camera.position.length();
+		const climate = this.definition.climate;
 
 		this.stats.innerHTML =
 			`class: ${this.planetClass}<br>` +
+			`surface: ${this.profile.surfacePalette} / atmosphere: ${this.profile.atmospherePalette}<br>` +
+			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
+			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +
+			`ash: ${format01(climate.ashLoad)} season: ${format01(climate.seasonality)}<br>` +
 			`distance: ${distance.toFixed(2)}<br>` +
 			`patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>` +
 			`max lod: ${terrain.maxLevel}<br>` +
@@ -155,4 +167,8 @@ function formatPlanetClass(planetClass: PlanetClass): string {
 		.split('_')
 		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
 		.join(' ');
+}
+
+function format01(value: number): string {
+	return value.toFixed(2);
 }

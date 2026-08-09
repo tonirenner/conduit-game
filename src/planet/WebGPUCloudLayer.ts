@@ -42,6 +42,7 @@ export class WebGPUCloudLayer {
 	private profileCloudCoverage = 0.505;
 	private profileCloudDensity = 2.25;
 	private profileCloudAlpha = 0.82;
+	private profileDriftScale = 1.0;
 
 	private currentRenderQuality: WebGPUCloudQuality = 'idle';
 
@@ -94,8 +95,8 @@ export class WebGPUCloudLayer {
 		 * Cheap weather drift for now.
 		 * Later we can pass real time into the WGSL function.
 		 */
-		this.mesh.rotation.y += deltaSeconds * 0.0032 * 0.14;
-		this.mesh.rotation.x += deltaSeconds * 0.00025 * 0.14;
+		this.mesh.rotation.y += deltaSeconds * 0.0032 * 0.14 * this.profileDriftScale;
+		this.mesh.rotation.x += deltaSeconds * 0.00025 * 0.14 * this.profileDriftScale;
 	}
 
 	setSunDirection(direction: THREE.Vector3): void {
@@ -105,9 +106,43 @@ export class WebGPUCloudLayer {
 	setCloudProfile(
 		cloudCoverage: number,
 		atmosphereDensity: number,
+		climate?: {
+			cloudPersistence?: number;
+			stormActivity?: number;
+			windStrength?: number;
+			ashLoad?: number;
+		},
 	): void {
 		const normalizedCoverage = THREE.MathUtils.clamp(
 			cloudCoverage,
+			0,
+			1,
+		);
+		const cloudPersistence = THREE.MathUtils.clamp(
+			climate?.cloudPersistence ?? normalizedCoverage,
+			0,
+			1,
+		);
+		const stormActivity = THREE.MathUtils.clamp(
+			climate?.stormActivity ?? 0,
+			0,
+			1,
+		);
+		const windStrength = THREE.MathUtils.clamp(
+			climate?.windStrength ?? 0,
+			0,
+			1,
+		);
+		const ashLoad = THREE.MathUtils.clamp(
+			climate?.ashLoad ?? 0,
+			0,
+			1,
+		);
+		const effectiveCoverage = THREE.MathUtils.clamp(
+			normalizedCoverage * 0.62 +
+			cloudPersistence * 0.28 +
+			stormActivity * 0.10 -
+			ashLoad * 0.08,
 			0,
 			1,
 		);
@@ -125,19 +160,34 @@ export class WebGPUCloudLayer {
 		this.profileCloudCoverage = THREE.MathUtils.lerp(
 			0.66,
 			0.43,
-			normalizedCoverage,
+			effectiveCoverage,
 		);
 
 		this.profileCloudDensity = THREE.MathUtils.lerp(
 			1.20,
 			2.85,
-			Math.max(normalizedCoverage, normalizedDensity),
+			Math.max(
+				effectiveCoverage,
+				normalizedDensity,
+				stormActivity * 0.82,
+			),
 		);
 
 		this.profileCloudAlpha = THREE.MathUtils.lerp(
 			0.28,
 			0.92,
-			normalizedCoverage,
+			THREE.MathUtils.clamp(
+				effectiveCoverage * 0.84 +
+				cloudPersistence * 0.16 -
+				ashLoad * 0.10,
+				0,
+				1,
+			),
+		);
+		this.profileDriftScale = THREE.MathUtils.lerp(
+			0.55,
+			1.85,
+			Math.max(windStrength, stormActivity * 0.82),
 		);
 
 		this.cloudCoverage.value = this.profileCloudCoverage;

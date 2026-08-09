@@ -155,6 +155,26 @@ Current alignment work:
 - Lava planets force the `lava` atmosphere palette and a red atmosphere tint.
 - WebGL/WebGPU lava atmosphere alpha, scattering and opacity factors were aligned.
 
+## Climate System
+
+Review file: `docs/climate-system-review.md`
+
+Current climate work:
+
+- Global climate is generated in `PlanetGenerator.ts`.
+- Local biome/weather sampling exists in `Climate.ts` and `Weather.ts`.
+- Cloud layers now receive global climate values from `PlanetRenderProfile`:
+  - cloud persistence
+  - storm activity
+  - wind strength
+  - ash load
+- WebGL and WebGPU cloud profile calculations now use the same effective coverage/density/alpha logic.
+- Planet LOD scene displays generated climate values for the selected planet class/seed.
+
+Known limitation:
+
+- Local biome sampling is still not fully planet-specific; `getClimateSample()` should later accept a shared `ClimateProfile`.
+
 ## Known Open Visual Issues / Next Work
 
 - Continue checking model forward consistency across real assets and dummy assets.

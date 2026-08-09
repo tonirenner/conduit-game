@@ -64,6 +64,10 @@
 - Fixed atmosphere profile propagation so both WebGL and WebGPU receive atmosphere color and semantic palette values.
 - Lava planets now force the `lava` atmosphere palette and a red atmosphere tint through the shared `PlanetRenderProfile` path.
 - Reduced WebGL/WebGPU lava atmosphere divergence by using the same lava alpha/scattering/opacity factors in both atmosphere layers.
+- Reviewed the climate system in `docs/climate-system-review.md`.
+- Cloud layers now receive generated climate cloud persistence, storm activity, wind strength, and ash load from `PlanetRenderProfile`.
+- WebGL and WebGPU cloud profiles now use the same effective coverage/density/alpha calculation from those climate values.
+- Planet LOD test now displays generated climate values for the selected class/seed.
 - Added initial registered scenes:
   - Model Viewer
   - Turret Tracking

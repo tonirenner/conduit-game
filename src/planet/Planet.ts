@@ -406,6 +406,12 @@ export class Planet {
 				cloudLayer,
 				this.renderProfile.cloudCoverage,
 				this.renderProfile.atmosphereDensity,
+				{
+					cloudPersistence: this.renderProfile.climateCloudPersistence,
+					stormActivity: this.renderProfile.climateStormActivity,
+					windStrength: this.renderProfile.climateWindStrength,
+					ashLoad: this.renderProfile.climateAshLoad,
+				},
 			);
 		}
 
