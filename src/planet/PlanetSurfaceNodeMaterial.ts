@@ -704,22 +704,22 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const waterHint = oneMinus(
 		smoothstep(
-			0.42,
-			0.76,
+			0.46,
+			0.66,
 			landMask,
 		),
 	);
 
 	const landOnly = smoothstep(
-		0.58,
-		0.78,
+		0.62,
+		0.72,
 		landMask,
 	);
 
 	const shallowWater = waterHint.mul(
 		smoothstep(
-			0.30,
-			0.76,
+			0.34,
+			0.66,
 			landMask,
 		),
 	);
@@ -736,34 +736,34 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const shelfWater = waterHint.mul(
 		smoothstep(
-			0.34,
-			0.70,
+			0.40,
+			0.62,
 			landMask,
 		),
 	).mul(
 		oneMinus(
 			smoothstep(
-				0.76,
-				0.96,
+				0.68,
+				0.84,
 				landMask,
 			),
 		),
 	);
 
-	const coastDistance = landMask.sub(0.55).abs();
+	const coastDistance = landMask.sub(0.58).abs();
 
 	const coastMask = oneMinus(
 		smoothstep(
-			0.035,
-			0.235,
+			0.025,
+			0.125,
 			coastDistance,
 		),
 	);
 
 	const softCoastMask = oneMinus(
 		smoothstep(
-			0.050,
-			0.280,
+			0.045,
+			0.175,
 			coastDistance,
 		),
 	);
@@ -1082,23 +1082,23 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const oceanShelfMask = smoothstep(
-		0.38,
-		0.76,
+		0.42,
+		0.62,
 		landMask,
 	).mul(
 		oneMinus(
 			smoothstep(
-				0.78,
-				0.92,
+				0.68,
+				0.82,
 				landMask,
 			),
 		),
 	);
 
 	const oceanIslandMask = smoothstep(
-		0.86,
-		0.98,
-		landMask.add(terrainHeight.mul(0.72)),
+		0.72,
+		0.84,
+		landMask.add(terrainHeight.mul(0.42)),
 	);
 
 	const oceanPolarIce = smoothstep(
@@ -1131,8 +1131,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	oceanicWater = mix(
 		oceanicWater,
-		color(0x5ad8df),
-		oceanShelfMask.mul(0.78),
+		color(0x34aebd),
+		oceanShelfMask.mul(0.42),
 	);
 
 	let oceanicColor = mix(

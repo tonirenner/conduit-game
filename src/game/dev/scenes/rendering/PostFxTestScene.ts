@@ -11,7 +11,7 @@ export class PostFxTestScene implements FeatureTestScene {
 	private context: FeatureTestContext | null = null;
 	private readonly root = new THREE.Group();
 	private emissive: THREE.Mesh | null = null;
-	private bloomStrength = 0.85;
+	private bloomStrength = 0.70;
 
 	init(context: FeatureTestContext): void {
 		this.context = context;
@@ -61,9 +61,9 @@ export class PostFxTestScene implements FeatureTestScene {
 		const floor = new THREE.Mesh(
 			new THREE.PlaneGeometry(12, 12),
 			new THREE.MeshStandardMaterial({
-				color: 0x20262b,
-				roughness: 0.82,
-				metalness: 0.02,
+				color: 0x1f2529,
+				roughness: 0.92,
+				metalness: 0.0,
 			}),
 		);
 		floor.rotation.x = -Math.PI * 0.5;
@@ -73,17 +73,17 @@ export class PostFxTestScene implements FeatureTestScene {
 		this.root.add(this.createSphere(-3.2, 0x9ca7af, 0.18, 0.88, 'metal'));
 		this.root.add(this.createSphere(-1.1, 0x4f6f83, 0.82, 0.08, 'rough'));
 		this.root.add(this.createSphere(1.1, 0x15191e, 0.64, 0.02, 'dark'));
-		this.emissive = this.createSphere(3.2, 0x8acfe8, 0.36, 0.08, 'emissive');
+		this.emissive = this.createSphere(3.2, 0x8acfe8, 0.44, 0.04, 'emissive');
 		(this.emissive.material as THREE.MeshStandardMaterial).emissive =
 			new THREE.Color(0x35c5ff);
 		(this.emissive.material as THREE.MeshStandardMaterial).emissiveIntensity =
 			this.bloomStrength;
 		this.root.add(this.emissive);
 
-		const key = new THREE.DirectionalLight(0xffffff, 3.2);
+		const key = new THREE.DirectionalLight(0xffffff, 2.8);
 		key.position.set(4, 7, 5);
 		this.root.add(key);
-		this.root.add(new THREE.AmbientLight(0x8fb6d8, 0.16));
+		this.root.add(new THREE.AmbientLight(0x8fb6d8, 0.14));
 	}
 
 	private createSphere(
@@ -111,7 +111,7 @@ export class PostFxTestScene implements FeatureTestScene {
 	private createUi(root: HTMLElement): void {
 		root.innerHTML =
 			`<label style="display:block;margin:6px 0;">Emissive Strength ` +
-			`<input data-bloom-proxy type="range" min="0" max="2.5" step="0.05" value="${this.bloomStrength}" style="width:150px;"></label>` +
+			`<input data-bloom-proxy type="range" min="0" max="2" step="0.05" value="${this.bloomStrength}" style="width:150px;"></label>` +
 			`<div style="opacity:.62;margin-top:8px;">PostFX toggles are currently applied at startup through Settings.</div>`;
 
 		root.querySelector<HTMLInputElement>('[data-bloom-proxy]')

@@ -12,9 +12,11 @@ type EngineVfxInstance = {
 	cores: THREE.Mesh[];
 	plumes: THREE.Mesh[];
 	role: ShipRole;
+	layoutSource: EngineLayoutSource;
 };
 
 const ENGINE_ROOT_NAME = 'EngineVFXRoot';
+const DEFAULT_ENGINE_DIRECTION = Object.freeze({ x: 0, y: 0, z: 1 });
 
 export class EngineVfxSystem {
 	private elapsedSeconds = 0;
@@ -61,32 +63,60 @@ export class EngineVfxSystem {
 		role: ShipRole,
 	): EngineVfxInstance | null {
 		const existing = shipObject.getObjectByName(ENGINE_ROOT_NAME);
+		const desiredLayout = this.createDesiredLayout(shipObject, role);
+
+		/*
+		 * Frigate is a real GLB and loads asynchronously. If no explicit
+		 * engine nodes or real model bounds exist yet, wait instead of showing
+		 * temporary fallback exhausts in the wrong place.
+		 */
+		if (!desiredLayout) {
+			return null;
+		}
 
 		if (
 			existing instanceof THREE.Group &&
 			existing.userData.engineVfxInstance
 		) {
-			return existing.userData.engineVfxInstance as EngineVfxInstance;
+			const instance = existing.userData.engineVfxInstance as EngineVfxInstance;
+
+			if (
+				instance.layoutSource.priority >= desiredLayout.source.priority
+			) {
+				return instance;
+			}
+
+			shipObject.remove(instance.root);
+			disposeObject(instance.root);
 		}
 
+		const instance = this.createInstance(
+			role,
+			desiredLayout.layout,
+			desiredLayout.source,
+		);
+
+		shipObject.add(instance.root);
+		instance.root.userData.engineVfxInstance = instance;
+		return instance;
+	}
+
+	private createDesiredLayout(
+		shipObject: THREE.Object3D,
+		role: ShipRole,
+	): DesiredEngineLayout | null {
 		const nodeLayout = this.createLayoutFromEngineNodes(
 			shipObject,
 			role,
 		);
 
 		if (nodeLayout) {
-			const instance = this.createInstance(role, nodeLayout);
-
-			shipObject.add(instance.root);
-			instance.root.userData.engineVfxInstance = instance;
-			return instance;
+			return {
+				layout: nodeLayout,
+				source: ENGINE_LAYOUT_SOURCES.nodes,
+			};
 		}
 
-		/*
-		 * Frigate is a real GLB and loads asynchronously. If no explicit
-		 * engine_01 style nodes exist yet, wait until the real model exists,
-		 * then derive rear engine positions from its actual bounds.
-		 */
 		if (role === 'frigate') {
 			const frigateModel = shipObject.getObjectByName('FrigateShipModel');
 
@@ -94,25 +124,37 @@ export class EngineVfxSystem {
 				return null;
 			}
 
-			const layout = this.createFrigateLayoutFromModel(
-				shipObject,
-				frigateModel,
-			);
-			const instance = this.createInstance(role, layout);
-
-			shipObject.add(instance.root);
-			instance.root.userData.engineVfxInstance = instance;
-			return instance;
+			return {
+				layout: this.createBoundsLayoutFromModel(
+					shipObject,
+					frigateModel,
+					'frigate',
+					'min',
+				),
+				source: ENGINE_LAYOUT_SOURCES.modelBounds,
+			};
 		}
 
-		const instance = this.createInstance(
-			role,
-			getFallbackEngineLayout(role),
-		);
+		if (role === 'carrier') {
+			const capitalModel = shipObject.getObjectByName('CapitalShipModel');
 
-		shipObject.add(instance.root);
-		instance.root.userData.engineVfxInstance = instance;
-		return instance;
+			if (capitalModel) {
+				return {
+					layout: this.createBoundsLayoutFromModel(
+						shipObject,
+						capitalModel,
+						'carrier',
+						'max',
+					),
+					source: ENGINE_LAYOUT_SOURCES.modelBounds,
+				};
+			}
+		}
+
+		return {
+			layout: getFallbackEngineLayout(role),
+			source: ENGINE_LAYOUT_SOURCES.fallback,
+		};
 	}
 
 	private createLayoutFromEngineNodes(
@@ -129,18 +171,33 @@ export class EngineVfxSystem {
 
 		const worldBox = new THREE.Box3().setFromObject(shipRoot);
 		const size = new THREE.Vector3();
+		const localBox = worldBoxToLocalBox(worldBox, shipRoot);
+		const localCenter = new THREE.Vector3();
+
 		worldBox.getSize(size);
+		localBox.getCenter(localCenter);
 
 		return {
 			points: engineNodes.map((node) => {
 				const worldPosition = new THREE.Vector3();
 				node.getWorldPosition(worldPosition);
 				const localPosition = shipRoot.worldToLocal(worldPosition);
+				const direction = getEngineDirectionAwayFromCenter(
+					localPosition,
+					localCenter,
+				);
+				const anchorPosition = getEngineAnchorPosition(
+					node,
+					shipRoot,
+					localPosition,
+					direction,
+				);
 
 				return {
-					x: localPosition.x,
-					y: localPosition.y,
-					z: localPosition.z,
+					x: anchorPosition.x,
+					y: anchorPosition.y,
+					z: anchorPosition.z,
+					direction,
 				};
 			}),
 			coreRadius: getNodeCoreRadius(role, size),
@@ -148,9 +205,11 @@ export class EngineVfxSystem {
 		};
 	}
 
-	private createFrigateLayoutFromModel(
+	private createBoundsLayoutFromModel(
 		shipRoot: THREE.Object3D,
 		model: THREE.Object3D,
+		role: ShipRole,
+		sternSide: 'min' | 'max',
 	): EngineLayout {
 		shipRoot.updateMatrixWorld(true);
 		model.updateMatrixWorld(true);
@@ -158,21 +217,10 @@ export class EngineVfxSystem {
 		const worldBox = new THREE.Box3().setFromObject(model);
 
 		if (worldBox.isEmpty()) {
-			return getFallbackEngineLayout('frigate');
+			return getFallbackEngineLayout(role);
 		}
 
-		const corners = [
-			new THREE.Vector3(worldBox.min.x, worldBox.min.y, worldBox.min.z),
-			new THREE.Vector3(worldBox.min.x, worldBox.min.y, worldBox.max.z),
-			new THREE.Vector3(worldBox.min.x, worldBox.max.y, worldBox.min.z),
-			new THREE.Vector3(worldBox.min.x, worldBox.max.y, worldBox.max.z),
-			new THREE.Vector3(worldBox.max.x, worldBox.min.y, worldBox.min.z),
-			new THREE.Vector3(worldBox.max.x, worldBox.min.y, worldBox.max.z),
-			new THREE.Vector3(worldBox.max.x, worldBox.max.y, worldBox.min.z),
-			new THREE.Vector3(worldBox.max.x, worldBox.max.y, worldBox.max.z),
-		].map((point) => shipRoot.worldToLocal(point));
-
-		const localBox = new THREE.Box3().setFromPoints(corners);
+		const localBox = worldBoxToLocalBox(worldBox, shipRoot);
 		const size = new THREE.Vector3();
 		const center = new THREE.Vector3();
 
@@ -180,19 +228,23 @@ export class EngineVfxSystem {
 		localBox.getCenter(center);
 
 		/*
-		 * frigate.glb flies toward local -Z, therefore +Z is the stern.
-		 * Place two small exhausts just behind the real model bounds.
+		 * Frigate GLB has its visible engine mesh at negative local Z after
+		 * import normalization. The fallback lab ships still use positive Z.
 		 */
-		const sternZ = localBox.max.z + Math.max(size.z * 0.012, 0.015);
-		const xOffset = Math.max(size.x * 0.22, 0.035);
+		const sternSign = sternSide === 'min' ? -1 : 1;
+		const sternZ =
+			(sternSide === 'min' ? localBox.min.z : localBox.max.z) +
+			Math.max(size.z * 0.012, 0.015) * sternSign;
+		const direction = { x: 0, y: 0, z: sternSign };
+		const xOffset = Math.max(size.x * 0.20, 0.035);
 		const y = center.y - size.y * 0.08;
 		const coreRadius = THREE.MathUtils.clamp(size.x * 0.035, 0.018, 0.055);
 		const plumeLength = THREE.MathUtils.clamp(size.z * 0.12, 0.12, 0.42);
 
 		return {
 			points: [
-				{ x: center.x - xOffset, y, z: sternZ },
-				{ x: center.x + xOffset, y, z: sternZ },
+				{ x: center.x - xOffset, y, z: sternZ, direction },
+				{ x: center.x + xOffset, y, z: sternZ, direction },
 			],
 			coreRadius,
 			plumeLength,
@@ -202,6 +254,7 @@ export class EngineVfxSystem {
 	private createInstance(
 		role: ShipRole,
 		layout: EngineLayout,
+		layoutSource: EngineLayoutSource,
 	): EngineVfxInstance {
 		const root = new THREE.Group();
 		const cores: THREE.Mesh[] = [];
@@ -213,6 +266,7 @@ export class EngineVfxSystem {
 
 		for (let index = 0; index < layout.points.length; index++) {
 			const point = layout.points[index];
+			const direction = normalizeEngineDirection(point.direction);
 			const coreMaterial = new THREE.MeshBasicMaterial({
 				color: new THREE.Color().setRGB(0.22, 0.76, 1.0),
 				transparent: true,
@@ -242,11 +296,14 @@ export class EngineVfxSystem {
 			);
 
 			core.position.set(point.x, point.y, point.z);
-			plume.rotation.y = -Math.PI * 0.5;
+			plume.quaternion.setFromUnitVectors(
+				new THREE.Vector3(1, 0, 0),
+				new THREE.Vector3(direction.x, direction.y, direction.z),
+			);
 			plume.position.set(
-				point.x,
-				point.y,
-				point.z + layout.plumeLength * 0.5,
+				point.x + direction.x * layout.plumeLength * 0.5,
+				point.y + direction.y * layout.plumeLength * 0.5,
+				point.z + direction.z * layout.plumeLength * 0.5,
 			);
 			plume.scale.set(
 				layout.plumeLength,
@@ -256,6 +313,8 @@ export class EngineVfxSystem {
 
 			core.name = `engine_core_${index + 1}`;
 			plume.name = `engine_plume_${index + 1}`;
+			plume.userData.engineBasePoint = { x: point.x, y: point.y, z: point.z };
+			plume.userData.engineDirection = direction;
 			core.renderOrder = 31;
 			plume.renderOrder = 30;
 
@@ -264,7 +323,7 @@ export class EngineVfxSystem {
 			plumes.push(plume);
 		}
 
-		return { root, cores, plumes, role };
+		return { root, cores, plumes, role, layoutSource };
 	}
 
 	private updateInstance(
@@ -321,6 +380,19 @@ export class EngineVfxSystem {
 				baseWidth * plumeWidthScale,
 				1,
 			);
+			const scaledLength = baseLength * plumeLengthScale;
+			const basePoint =
+				plume.userData.engineBasePoint as EnginePoint | undefined;
+			const direction =
+				plume.userData.engineDirection as EngineDirection | undefined;
+
+			if (basePoint && direction) {
+				plume.position.set(
+					basePoint.x + direction.x * scaledLength * 0.5,
+					basePoint.y + direction.y * scaledLength * 0.5,
+					basePoint.z + direction.z * scaledLength * 0.5,
+				);
+			}
 
 			const material = plume.material as THREE.MeshBasicMaterial;
 			material.opacity = THREE.MathUtils.lerp(0.025, 0.28, Math.pow(energy, 0.92));
@@ -365,12 +437,30 @@ function findEngineNodes(root: THREE.Object3D): THREE.Object3D[] {
 	const nodes: THREE.Object3D[] = [];
 
 	root.traverse((node) => {
-		if (/^engine_\d+$/.test(node.name)) {
+		if (isEngineAnchorNode(node)) {
 			nodes.push(node);
 		}
 	});
 
 	return nodes;
+}
+
+function isEngineAnchorNode(node: THREE.Object3D): boolean {
+	const name = node.name.toLowerCase();
+
+	if (
+		name === ENGINE_ROOT_NAME.toLowerCase() ||
+		name.startsWith('engine_core_') ||
+		name.startsWith('engine_plume_')
+	) {
+		return false;
+	}
+
+	return (
+		/^engine_\d+$/.test(name) ||
+		/^engine_main_\d+$/.test(name) ||
+		/^engine[-_][-\d.]+$/.test(name)
+	);
 }
 
 function getNodeCoreRadius(
@@ -400,18 +490,47 @@ function getNodePlumeLength(
 }
 
 type EngineLayout = {
-	points: Array<{ x: number; y: number; z: number }>;
+	points: EnginePoint[];
 	coreRadius: number;
 	plumeLength: number;
 };
+
+type EnginePoint = {
+	x: number;
+	y: number;
+	z: number;
+	direction?: EngineDirection;
+};
+
+type EngineDirection = {
+	x: number;
+	y: number;
+	z: number;
+};
+
+type EngineLayoutSource = {
+	id: 'fallback' | 'model-bounds' | 'nodes';
+	priority: number;
+};
+
+type DesiredEngineLayout = {
+	layout: EngineLayout;
+	source: EngineLayoutSource;
+};
+
+const ENGINE_LAYOUT_SOURCES = {
+	fallback: { id: 'fallback', priority: 1 },
+	modelBounds: { id: 'model-bounds', priority: 2 },
+	nodes: { id: 'nodes', priority: 3 },
+} satisfies Record<string, EngineLayoutSource>;
 
 function getFallbackEngineLayout(role: ShipRole): EngineLayout {
 	switch (role) {
 		case 'carrier':
 			return {
 				points: [
-					{ x: -0.42, y: -0.08, z: 1.42 },
-					{ x: 0.42, y: -0.08, z: 1.42 },
+					{ x: -0.42, y: -0.08, z: 1.42, direction: DEFAULT_ENGINE_DIRECTION },
+					{ x: 0.42, y: -0.08, z: 1.42, direction: DEFAULT_ENGINE_DIRECTION },
 				],
 				coreRadius: 0.075,
 				plumeLength: 0.46,
@@ -419,8 +538,8 @@ function getFallbackEngineLayout(role: ShipRole): EngineLayout {
 		case 'frigate':
 			return {
 				points: [
-					{ x: -0.18, y: -0.03, z: 0.74 },
-					{ x: 0.18, y: -0.03, z: 0.74 },
+					{ x: -0.18, y: -0.03, z: 0.74, direction: DEFAULT_ENGINE_DIRECTION },
+					{ x: 0.18, y: -0.03, z: 0.74, direction: DEFAULT_ENGINE_DIRECTION },
 				],
 				coreRadius: 0.04,
 				plumeLength: 0.24,
@@ -428,25 +547,144 @@ function getFallbackEngineLayout(role: ShipRole): EngineLayout {
 		case 'constructor':
 			return {
 				points: [
-					{ x: -0.12, y: 0, z: 0.54 },
-					{ x: 0.12, y: 0, z: 0.54 },
+					{ x: -0.12, y: 0, z: 0.54, direction: DEFAULT_ENGINE_DIRECTION },
+					{ x: 0.12, y: 0, z: 0.54, direction: DEFAULT_ENGINE_DIRECTION },
 				],
 				coreRadius: 0.038,
 				plumeLength: 0.22,
 			};
 		case 'fighter':
 			return {
-				points: [{ x: 0, y: 0, z: 0.42 }],
+				points: [{ x: 0, y: 0, z: 0.42, direction: DEFAULT_ENGINE_DIRECTION }],
 				coreRadius: 0.032,
 				plumeLength: 0.18,
 			};
 		case 'scout':
 			return {
-				points: [{ x: 0, y: 0, z: 0.38 }],
+				points: [{ x: 0, y: 0, z: 0.38, direction: DEFAULT_ENGINE_DIRECTION }],
 				coreRadius: 0.030,
 				plumeLength: 0.16,
 			};
 	}
+}
+
+function worldBoxToLocalBox(
+	worldBox: THREE.Box3,
+	root: THREE.Object3D,
+): THREE.Box3 {
+	const corners = [
+		new THREE.Vector3(worldBox.min.x, worldBox.min.y, worldBox.min.z),
+		new THREE.Vector3(worldBox.min.x, worldBox.min.y, worldBox.max.z),
+		new THREE.Vector3(worldBox.min.x, worldBox.max.y, worldBox.min.z),
+		new THREE.Vector3(worldBox.min.x, worldBox.max.y, worldBox.max.z),
+		new THREE.Vector3(worldBox.max.x, worldBox.min.y, worldBox.min.z),
+		new THREE.Vector3(worldBox.max.x, worldBox.min.y, worldBox.max.z),
+		new THREE.Vector3(worldBox.max.x, worldBox.max.y, worldBox.min.z),
+		new THREE.Vector3(worldBox.max.x, worldBox.max.y, worldBox.max.z),
+	].map((point) => root.worldToLocal(point));
+
+	return new THREE.Box3().setFromPoints(corners);
+}
+
+function getEngineDirectionAwayFromCenter(
+	localPosition: THREE.Vector3,
+	localCenter: THREE.Vector3,
+): EngineDirection {
+	const dz = localPosition.z - localCenter.z;
+
+	if (Math.abs(dz) > 0.0001) {
+		return { x: 0, y: 0, z: Math.sign(dz) };
+	}
+
+	const direction = localPosition.clone().sub(localCenter);
+
+	if (direction.lengthSq() <= 0.0001) {
+		return { ...DEFAULT_ENGINE_DIRECTION };
+	}
+
+	direction.normalize();
+	return {
+		x: direction.x,
+		y: direction.y,
+		z: direction.z,
+	};
+}
+
+function getEngineAnchorPosition(
+	node: THREE.Object3D,
+	shipRoot: THREE.Object3D,
+	fallbackPosition: THREE.Vector3,
+	direction: EngineDirection,
+): THREE.Vector3 {
+	const nodeBox = new THREE.Box3().setFromObject(node);
+
+	if (nodeBox.isEmpty()) {
+		return fallbackPosition;
+	}
+
+	const localBox = worldBoxToLocalBox(nodeBox, shipRoot);
+	const center = new THREE.Vector3();
+	localBox.getCenter(center);
+
+	return new THREE.Vector3(
+		getExtremeAlongDirection(localBox.min.x, localBox.max.x, center.x, direction.x),
+		getExtremeAlongDirection(localBox.min.y, localBox.max.y, center.y, direction.y),
+		getExtremeAlongDirection(localBox.min.z, localBox.max.z, center.z, direction.z),
+	);
+}
+
+function getExtremeAlongDirection(
+	min: number,
+	max: number,
+	center: number,
+	direction: number,
+): number {
+	if (direction > 0.001) {
+		return max;
+	}
+
+	if (direction < -0.001) {
+		return min;
+	}
+
+	return center;
+}
+
+function normalizeEngineDirection(
+	direction: EngineDirection | undefined,
+): EngineDirection {
+	const vector = new THREE.Vector3(
+		direction?.x ?? DEFAULT_ENGINE_DIRECTION.x,
+		direction?.y ?? DEFAULT_ENGINE_DIRECTION.y,
+		direction?.z ?? DEFAULT_ENGINE_DIRECTION.z,
+	);
+
+	if (vector.lengthSq() <= 0.0001) {
+		return { ...DEFAULT_ENGINE_DIRECTION };
+	}
+
+	vector.normalize();
+	return { x: vector.x, y: vector.y, z: vector.z };
+}
+
+function disposeObject(object: THREE.Object3D): void {
+	object.traverse((child) => {
+		const mesh = child as THREE.Mesh;
+
+		if (mesh.geometry) {
+			mesh.geometry.dispose();
+		}
+
+		const material = mesh.material;
+
+		if (Array.isArray(material)) {
+			for (const entry of material) {
+				entry.dispose();
+			}
+		} else if (material) {
+			material.dispose();
+		}
+	});
 }
 
 function hashString01(value: string): number {

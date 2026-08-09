@@ -76,7 +76,6 @@ export class CombatVfxSystem {
             const targetWorld = new THREE.Vector3();
             target.getWorldPosition(targetWorld);
             this.aimTurretsSmooth(source, targetWorld, deltaSeconds);
-            this.turnShipTowardTarget(source, targetWorld, deltaSeconds);
         }
     }
 
@@ -187,20 +186,6 @@ export class CombatVfxSystem {
 
             object.rotation.y = current + delta * step;
         });
-    }
-
-    private turnShipTowardTarget(
-        source: THREE.Object3D,
-        targetWorld: THREE.Vector3,
-        deltaSeconds: number,
-    ): void {
-        const currentQuaternion = source.quaternion.clone();
-        source.lookAt(targetWorld);
-        const desiredQuaternion = source.quaternion.clone();
-        source.quaternion.copy(currentQuaternion).slerp(
-            desiredQuaternion,
-            Math.min(1, deltaSeconds * 1.8),
-        );
     }
 
     private aimTurrets(source: THREE.Object3D, target: THREE.Object3D): void {
@@ -395,16 +380,25 @@ function isTurretYawNode(object: THREE.Object3D): boolean {
 }
 
 function isMuzzleNode(object: THREE.Object3D): boolean {
-    return object.name === 'muzzle' || /^muzzle_\d+$/.test(object.name);
+    const name = object.name.toLowerCase();
+
+    return (
+        name === 'muzzle' ||
+        /^muzzle_\d+$/.test(name) ||
+        /^turret_\d+_muzzle(?:_(?:left|right))?$/.test(name)
+    );
 }
 
 function isLauncherMuzzleNode(object: THREE.Object3D): boolean {
+    const name = object.name.toLowerCase();
+
     return (
-        object.name === 'launcher_muzzle' ||
-        object.name === 'rocket_muzzle' ||
-        /^launcher_\d+_muzzle$/.test(object.name) ||
-        /^rocket_muzzle_\d+$/.test(object.name) ||
-        /^missile_muzzle_\d+$/.test(object.name)
+        name === 'launcher_muzzle' ||
+        name === 'rocket_muzzle' ||
+        /^launcher_\d+_muzzle$/.test(name) ||
+        /^rocket_muzzle_\d+$/.test(name) ||
+        /^missile_muzzle_\d+$/.test(name) ||
+        /^rocket_launcher_\d+$/.test(name)
     );
 }
 

@@ -79,12 +79,15 @@ File: `src/game/rendering/CombatVfxSystem.ts`
 - Combat VFX now differentiates beam weapons and launcher weapons.
 - `laser` and `railgun` use yaw turret tracking and beam/line effects.
 - `missile` and `rocket` use launcher muzzle nodes and do not rotate yaw turrets.
+- In the normal game, Combat VFX no longer rotates the whole ship toward targets; movement/render sync owns ship orientation, Combat VFX only aims turret nodes.
+- Frigate GLB muzzle names like `turret_01_muzzle_left` / `turret_01_muzzle_right` are recognized as beam origins.
 - Supported launcher node names include:
   - `launcher_muzzle`
   - `rocket_muzzle`
   - `launcher_01_muzzle`
   - `rocket_muzzle_01`
   - `missile_muzzle_01`
+  - `rocket_launcher_01`
 
 Weapon mapping in `src/game/simulation/FleetSimulation.ts`:
 
@@ -98,8 +101,12 @@ Ship vs Ship Combat test currently uses Carrier vs Frigate so both missile and r
 
 File: `src/game/rendering/EngineVfxSystem.ts`
 
-- Engine VFX prefers real engine nodes named `engine_01`, `engine_02`, etc.
+- Engine VFX prefers real engine nodes and now recognizes names like `engine_01`, `engine_main_01`, and `Engine_-1.65`.
 - Fallback engine points are only used when no engine nodes exist.
+- Frigate GLB engine VFX now uses the real `engine_main_01` node instead of the old bounds fallback.
+- Engine plume direction is derived away from the local ship/model center, so Frigate exhaust at negative local Z emits backward instead of into the hull.
+- Engine anchors use the outer side of an engine mesh/node bounding box, not only the node origin.
+- Existing fallback VFX can be replaced when a higher-quality async real model/node layout becomes available.
 - Plumes were changed to textured planes instead of visible cone shapes.
 - Effects were tuned more subtle.
 
@@ -113,6 +120,7 @@ File: `src/postprocessing/PostProcessingPipeline.ts`
   - lower metalness
   - higher roughness
   - higher SSR resolution scale to reduce blocky plane reflections
+- Latest tuning lowered High/Ultra SSR opacity and distance again, and tightened Bloom thresholds/strength.
 - Bloom is intended only for bright emissive details, not large glow fields.
 
 PostFX test scene:
@@ -154,6 +162,7 @@ Current alignment work:
 - Atmosphere color and semantic atmosphere palette are passed to both WebGL and WebGPU atmosphere layers.
 - Lava planets force the `lava` atmosphere palette and a red atmosphere tint.
 - WebGL/WebGPU lava atmosphere alpha, scattering and opacity factors were aligned.
+- Ocean land/water transitions were sharpened in both surface paths by narrowing shelf/coast/island masks and reducing the bright cyan shelf tint.
 
 ## Climate System
 

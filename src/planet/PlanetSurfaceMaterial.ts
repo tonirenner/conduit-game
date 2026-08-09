@@ -525,13 +525,13 @@ export function createPlanetSurfaceMaterial(
 
 				float oceanBasin =
 					waterHint *
-					(1.0 - smoothstep(0.22, 0.62, land)) *
+					(1.0 - smoothstep(0.24, 0.54, land)) *
 					smoothstep(0.38, 0.82, bathymetryLarge);
 
 				float oceanShelf =
 					waterHint *
-					smoothstep(0.34, 0.70, land) *
-					(1.0 - smoothstep(0.76, 0.96, land));
+					smoothstep(0.40, 0.62, land) *
+					(1.0 - smoothstep(0.68, 0.84, land));
 
 				float oceanVariation =
 					(
@@ -543,23 +543,23 @@ export function createPlanetSurfaceMaterial(
 				float coastMask =
 					1.0 -
 					smoothstep(
-						0.035,
-						0.235,
-						abs(land - 0.55)
+						0.025,
+						0.125,
+						abs(land - 0.58)
 					);
 
 				coastMask = saturate(coastMask);
 
 				float shallowWater =
 					waterHint *
-					smoothstep(0.28, 0.72, land);
+					smoothstep(0.34, 0.66, land);
 
 				float deepWater =
 					waterHint *
-					(1.0 - smoothstep(0.18, 0.48, land));
+					(1.0 - smoothstep(0.18, 0.44, land));
 
 				float landOnlyMask =
-					smoothstep(0.58, 0.76, land);
+					smoothstep(0.62, 0.72, land);
 
 				float mountainMask =
 					smoothstep(0.07, 0.20, height) *
@@ -836,7 +836,7 @@ export function createPlanetSurfaceMaterial(
 
 				float waterHint =
 					1.0 -
-					smoothstep(0.42, 0.76, landMask);
+					smoothstep(0.46, 0.66, landMask);
 
 				waterHint = saturate(waterHint);
 
@@ -870,15 +870,15 @@ export function createPlanetSurfaceMaterial(
 				if (uPaletteOceanic > 0.001) {
 					float islandMask =
 						smoothstep(
+							0.72,
 							0.84,
-							0.98,
 							landMask +
-							surfaceSample.height * 0.72
+							surfaceSample.height * 0.42
 						);
 
 					float shelfMask =
-						smoothstep(0.34, 0.74, landMask) *
-						(1.0 - smoothstep(0.78, 0.94, landMask));
+						smoothstep(0.42, 0.62, landMask) *
+						(1.0 - smoothstep(0.68, 0.82, landMask));
 
 					float waveLarge =
 						fbm(localGeometricNormal * 42.0 + vec3(6.1, 2.4, 9.7));
@@ -891,7 +891,7 @@ export function createPlanetSurfaceMaterial(
 
 					vec3 deepOcean = vec3(0.012, 0.060, 0.150);
 					vec3 midOcean = vec3(0.020, 0.235, 0.355);
-					vec3 shelfOcean = vec3(0.080, 0.560, 0.650);
+					vec3 shelfOcean = vec3(0.070, 0.420, 0.500);
 					vec3 islandLand = mix(
 						vec3(0.145, 0.300, 0.185),
 						vec3(0.590, 0.560, 0.350),
@@ -907,7 +907,7 @@ export function createPlanetSurfaceMaterial(
 					oceanBase = mix(
 						oceanBase,
 						shelfOcean,
-						shelfMask * 0.68
+						shelfMask * 0.42
 					);
 
 					oceanBase +=

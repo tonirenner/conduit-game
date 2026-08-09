@@ -375,8 +375,8 @@ export class PostProcessingPipeline {
 					sceneNormal,
 					{
 						camera: this.camera,
-						metalnessNode: float(0.42),
-						roughnessNode: float(0.62),
+						metalnessNode: float(0.32),
+						roughnessNode: float(0.78),
 					},
 				);
 
@@ -535,11 +535,11 @@ function getQualityProfile(
 				ssrQuality: 0.20,
 				ssrBlurQuality: 1,
 				ssrMaxDistance: 10,
-				ssrOpacity: 0.08,
-				ssrThickness: 0.022,
+				ssrOpacity: 0.05,
+				ssrThickness: 0.018,
 
-				bloomThreshold: 0.985,
-				bloomStrength: 0.10,
+				bloomThreshold: 0.990,
+				bloomStrength: 0.08,
 				bloomRadius: 0.10,
 
 				exposure: 0.98,
@@ -561,12 +561,12 @@ function getQualityProfile(
 				ssrQuality: 0.26,
 				ssrBlurQuality: 1,
 				ssrMaxDistance: 14,
-				ssrOpacity: 0.12,
-				ssrThickness: 0.026,
+				ssrOpacity: 0.08,
+				ssrThickness: 0.022,
 
-				bloomThreshold: 0.975,
-				bloomStrength: 0.15,
-				bloomRadius: 0.14,
+				bloomThreshold: 0.982,
+				bloomStrength: 0.12,
+				bloomRadius: 0.12,
 
 				exposure: 0.99,
 			};
@@ -584,15 +584,15 @@ function getQualityProfile(
 				aoStrength: 0.34,
 
 				ssrResolutionScale: 0.80,
-				ssrQuality: 0.38,
+				ssrQuality: 0.34,
 				ssrBlurQuality: 3,
-				ssrMaxDistance: 22,
-				ssrOpacity: 0.24,
-				ssrThickness: 0.034,
+				ssrMaxDistance: 18,
+				ssrOpacity: 0.16,
+				ssrThickness: 0.028,
 
-				bloomThreshold: 0.955,
-				bloomStrength: 0.26,
-				bloomRadius: 0.20,
+				bloomThreshold: 0.965,
+				bloomStrength: 0.22,
+				bloomRadius: 0.17,
 
 				exposure: 1.00,
 			};
@@ -611,15 +611,15 @@ function getQualityProfile(
 				aoStrength: 0.29,
 
 				ssrResolutionScale: 0.70,
-				ssrQuality: 0.28,
+				ssrQuality: 0.24,
 				ssrBlurQuality: 2,
-				ssrMaxDistance: 18,
-				ssrOpacity: 0.18,
-				ssrThickness: 0.030,
+				ssrMaxDistance: 14,
+				ssrOpacity: 0.12,
+				ssrThickness: 0.024,
 
-				bloomThreshold: 0.965,
-				bloomStrength: 0.20,
-				bloomRadius: 0.17,
+				bloomThreshold: 0.975,
+				bloomStrength: 0.16,
+				bloomRadius: 0.14,
 
 				exposure: 1.00,
 			};

@@ -24,6 +24,8 @@
 - Tuned the PostProcessing profiles down again after visual inspection: less SSR reach/opacity, tighter Bloom thresholds, lower Bloom strength, and neutral exposure.
 - Reduced the PostProcessing Feature Lab emissive/light defaults so the test scene exercises Bloom without forcing an artificial glow field.
 - Changed SSR material assumptions from mirror-like to rough/subtle reflections and raised SSR resolution scales to reduce blocky plane reflections.
+- Tuned PostProcessing again toward gameplay defaults: rougher/lower-metal SSR assumptions, lower High/Ultra SSR opacity, shorter SSR distance, and tighter Bloom.
+- Adjusted the PostProcessing Feature Lab floor/emissive defaults to behave more like matte game surfaces instead of a mirror-like stress plane.
 
 ### Combat VFX
 
@@ -68,6 +70,7 @@
 - Cloud layers now receive generated climate cloud persistence, storm activity, wind strength, and ash load from `PlanetRenderProfile`.
 - WebGL and WebGPU cloud profiles now use the same effective coverage/density/alpha calculation from those climate values.
 - Planet LOD test now displays generated climate values for the selected class/seed.
+- Sharpened Ocean planet land/water transitions in both WebGL and WebGPU surface materials by narrowing water, shelf, coast, and island masks and reducing the bright cyan shelf tint.
 - Added initial registered scenes:
   - Model Viewer
   - Turret Tracking
