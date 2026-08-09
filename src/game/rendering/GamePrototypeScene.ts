@@ -66,6 +66,7 @@ import {
     getTacticalMoveDraftTarget,
     startTacticalMoveDraft,
     type TacticalNavigationState,
+    type TacticalMoveTarget,
     updateTacticalMoveDraftHeight,
 } from '../navigation/TacticalNavigation';
 import {
@@ -2734,42 +2735,8 @@ export class GamePrototypeScene {
           const result = confirmTacticalMoveDraft(this.navigation);
           this.navigation = result.state;
 
-          if (result.target && this.world.selectedFleetId) {
-             if (this.viewMode === 'system' && this.selectedShipIds.size > 0) {
-                const selectedFleet = this.getSelectedFleet();
-                const selectionMatchesFleet = Boolean(
-                   selectedFleet &&
-                   selectedFleet.shipIds.length === this.selectedShipIds.size &&
-                   selectedFleet.shipIds.every((shipId) => this.selectedShipIds.has(shipId)),
-                );
-
-                if (selectionMatchesFleet && selectedFleet) {
-                   this.world = setFleetTacticalMoveOrder(
-                      this.world,
-                      selectedFleet.id,
-                      result.target,
-                      'system',
-                   );
-                } else {
-                   this.world = setShipOrderOverrides(
-                      this.world,
-                      [...this.selectedShipIds],
-                      {
-                         type: 'move_tactical',
-                         space: 'system',
-                         nodeId: this.selectedNodeId ?? undefined,
-                         target: { ...result.target },
-                      },
-                   );
-                }
-             } else {
-                this.world = setFleetTacticalMoveOrder(
-                   this.world,
-                   this.world.selectedFleetId,
-                   result.target,
-                   this.viewMode,
-                );
-             }
+          if (result.target) {
+             this.applyMoveCommand(result.target);
           }
        }
 
@@ -3120,6 +3087,50 @@ export class GamePrototypeScene {
        this.navigation = startTacticalMoveDraft(
           this.navigation,
           target,
+       );
+    }
+
+    private applyMoveCommand(target: TacticalMoveTarget): void {
+       if (!this.world.selectedFleetId) {
+          return;
+       }
+
+       if (this.viewMode === 'system' && this.selectedShipIds.size > 0) {
+          const selectedFleet = this.getSelectedFleet();
+          const selectionMatchesFleet = Boolean(
+             selectedFleet &&
+             selectedFleet.shipIds.length === this.selectedShipIds.size &&
+             selectedFleet.shipIds.every((shipId) => this.selectedShipIds.has(shipId)),
+          );
+
+          if (selectionMatchesFleet && selectedFleet) {
+             this.world = setFleetTacticalMoveOrder(
+                this.world,
+                selectedFleet.id,
+                target,
+                'system',
+             );
+             return;
+          }
+
+          this.world = setShipOrderOverrides(
+             this.world,
+             [...this.selectedShipIds],
+             {
+                type: 'move_tactical',
+                space: 'system',
+                nodeId: this.selectedNodeId ?? undefined,
+                target: { ...target },
+             },
+          );
+          return;
+       }
+
+       this.world = setFleetTacticalMoveOrder(
+          this.world,
+          this.world.selectedFleetId,
+          target,
+          this.viewMode,
        );
     }
 

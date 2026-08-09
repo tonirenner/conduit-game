@@ -40,6 +40,21 @@ Registered scenes:
 
 The lab uses isolated in-memory state and should not write to persistent singleplayer saves.
 
+## Fleet Move Commands
+
+Files:
+
+- `src/game/rendering/GamePrototypeScene.ts`
+- `src/game/simulation/FleetSimulation.ts`
+
+Current behavior:
+
+- Right-click in SystemView creates the Homeworld-style move draft again.
+- Mouse wheel changes draft height.
+- Enter confirms the draft and issues the move command.
+- Fleet move commands clear stale per-ship order overrides for the ships in that fleet.
+- This fixes cases where Home Fleet showed a fleet move order but some/all ships ignored it because older individual ship overrides still existed.
+
 ## Model Viewer
 
 File: `src/game/dev/scenes/ships/ShipModelTestScene.ts`

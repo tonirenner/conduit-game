@@ -175,8 +175,20 @@ export function setFleetTacticalMoveOrder(
     },
     space: 'strategic' | 'system' = 'strategic',
 ): GameWorld {
+    const fleetToMove = world.fleets.find((fleet) => fleet.id === fleetId);
+    const nextShipOrderOverrides = {
+       ...(world.shipOrderOverrides ?? {}),
+    };
+
+    if (fleetToMove) {
+       for (const shipId of fleetToMove.shipIds) {
+          delete nextShipOrderOverrides[shipId];
+       }
+    }
+
     return {
        ...world,
+       shipOrderOverrides: nextShipOrderOverrides,
        fleets: world.fleets.map((fleet) => (
           fleet.id === fleetId
           ? {
