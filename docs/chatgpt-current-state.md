@@ -270,16 +270,16 @@ Known limitation:
 - Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.
 - Frigate Game rendering and Studio Lighting now share `FRIGATE_MATERIAL_LIGHTING_PROFILE` in `src/game/rendering/ShipMaterialLightingProfile.ts`.
 - Game dynamic environment probe now uses `GAME_ENVIRONMENT_PROBE_PROFILE`:
-  - environmentIntensity `1.35`
-  - HDR peak intensity scale `0.45`
-  - HDR peak size scale `1.4`
-  - HDR peak opacity scale `0.82`
+  - environmentIntensity `1.15`
+  - HDR peak intensity scale `0.32`
+  - HDR peak size scale `1.7`
+  - HDR peak opacity scale `0.72`
 - Feature Lab now has `rendering-studio-lighting` / `Studio Lighting` for Frigate GLB material tuning against `/models/warm_studio_hangar_4k.exr`.
 - Studio Lighting `Blender Match` preset:
-  - roughnessMultiplier `1.08`
+  - roughnessMultiplier `1.14`
   - metalnessMultiplier `1.0`
   - environmentIntensity `1.35`
-  - envMapIntensity `1.1`
+  - envMapIntensity `0.95`
   - normalScale `1.0`
   - aoMapIntensity `1.0`
   - exposure `1.03`

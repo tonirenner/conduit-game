@@ -17,19 +17,19 @@ export type GameEnvironmentProbeProfile = {
 };
 
 export const FRIGATE_MATERIAL_LIGHTING_PROFILE: ShipMaterialLightingProfile = {
-	roughnessMultiplier: 1.08,
+	roughnessMultiplier: 1.14,
 	metalnessMultiplier: 1.0,
-	envMapIntensity: 1.1,
+	envMapIntensity: 0.95,
 	normalScale: 1.0,
 	aoMapIntensity: 1.0,
 	emissiveIntensityMultiplier: 1.0,
 };
 
 export const GAME_ENVIRONMENT_PROBE_PROFILE: GameEnvironmentProbeProfile = {
-	environmentIntensity: 1.35,
-	hdrPeakIntensityScale: 0.45,
-	hdrPeakSizeScale: 1.4,
-	hdrPeakOpacityScale: 0.82,
+	environmentIntensity: 1.15,
+	hdrPeakIntensityScale: 0.32,
+	hdrPeakSizeScale: 1.7,
+	hdrPeakOpacityScale: 0.72,
 };
 
 export function applyShipMaterialLightingProfile(
