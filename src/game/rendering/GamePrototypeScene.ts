@@ -13,6 +13,11 @@ import { SystemNebulaBackdrop } from './SystemNebulaBackdrop';
 import { WormholeNodeVisual } from './WormholeNodeVisual';
 import { DynamicEnvironmentProbe } from './DynamicEnvironmentProbe';
 import {
+    applyShipMaterialLightingProfile,
+    FRIGATE_MATERIAL_LIGHTING_PROFILE,
+    GAME_ENVIRONMENT_PROBE_PROFILE,
+} from './ShipMaterialLightingProfile';
+import {
     createDummyStationModel,
     createDummyTurret,
     makePlacementGhost,
@@ -307,7 +312,8 @@ export class GamePrototypeScene {
                                                               near: 0.1,
                                                               far: 5200,
                                                               updateIntervalSeconds: 4.0,
-                                                              environmentIntensity: 3,
+                                                              environmentIntensity:
+                                                                 GAME_ENVIRONMENT_PROBE_PROFILE.environmentIntensity,
                                                               debug:
                                                                  typeof window !== 'undefined' &&
                                                                  new URLSearchParams(window.location.search)
@@ -1373,9 +1379,14 @@ export class GamePrototypeScene {
        for (const hotspot of hotspots) {
           const material = new THREE.SpriteMaterial({
                                                        map: hotspotTexture,
-                                                       color: hotspot.color.clone().multiplyScalar(hotspot.intensity),
+                                                       color: hotspot.color.clone().multiplyScalar(
+                                                          hotspot.intensity *
+                                                          GAME_ENVIRONMENT_PROBE_PROFILE.hdrPeakIntensityScale,
+                                                       ),
                                                        transparent: true,
-                                                       opacity: hotspot.opacity,
+                                                       opacity:
+                                                          hotspot.opacity *
+                                                          GAME_ENVIRONMENT_PROBE_PROFILE.hdrPeakOpacityScale,
                                                        blending: THREE.AdditiveBlending,
                                                        depthWrite: false,
                                                        depthTest: false,
@@ -1386,10 +1397,12 @@ export class GamePrototypeScene {
           const sprite = new THREE.Sprite(material);
 
           sprite.name = hotspot.name;
-          sprite.position.copy(hotspot.position);
-          sprite.scale.set(
-             hotspot.scale,
-             hotspot.scale,
+             sprite.position.copy(hotspot.position);
+             sprite.scale.set(
+             hotspot.scale *
+             GAME_ENVIRONMENT_PROBE_PROFILE.hdrPeakSizeScale,
+             hotspot.scale *
+             GAME_ENVIRONMENT_PROBE_PROFILE.hdrPeakSizeScale,
              1,
           );
           sprite.renderOrder = -850;
@@ -1846,12 +1859,10 @@ export class GamePrototypeScene {
 
                 clonedMaterial.depthWrite = true;
                 clonedMaterial.depthTest = true;
-
-                if ('envMapIntensity' in clonedMaterial) {
-                   clonedMaterial.envMapIntensity = 1.45;
-                }
-
-                clonedMaterial.needsUpdate = true;
+                applyShipMaterialLightingProfile(
+                   clonedMaterial,
+                   FRIGATE_MATERIAL_LIGHTING_PROFILE,
+                );
 
                 return clonedMaterial;
              });
@@ -1861,12 +1872,10 @@ export class GamePrototypeScene {
           item.material = item.material.clone();
           item.material.depthWrite = true;
           item.material.depthTest = true;
-
-          if ('envMapIntensity' in item.material) {
-             item.material.envMapIntensity = 1.45;
-          }
-
-          item.material.needsUpdate = true;
+          applyShipMaterialLightingProfile(
+             item.material,
+             FRIGATE_MATERIAL_LIGHTING_PROFILE,
+          );
        });
 
        return clone;
@@ -2003,8 +2012,6 @@ export class GamePrototypeScene {
                    object.frustumCulled = false;
 
                    if (object.geometry) {
-                      object.geometry.computeVertexNormals();
-
                       /*
                        * AO maps in glTF usually use TEXCOORD_1.
                        * If the export only has uv, duplicate it as uv2

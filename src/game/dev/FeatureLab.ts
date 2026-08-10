@@ -263,6 +263,7 @@ export class FeatureLab {
 			renderer: this.options.renderer,
 			rendererMode: this.options.rendererMode,
 			settings: this.options.settingsStore.getSnapshot(),
+			updateSettings: (patch) => this.options.settingsStore.update(patch),
 			uiRoot: this.sceneUiRoot,
 			report: (entry) => {
 				this.statusEntries.push(entry);

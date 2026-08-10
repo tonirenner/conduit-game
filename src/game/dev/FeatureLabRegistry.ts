@@ -5,6 +5,7 @@ import { TurretTrackingTestScene } from './scenes/combat/TurretTrackingTestScene
 import { ShipCombatTestScene } from './scenes/combat/ShipCombatTestScene';
 import { PlanetLodTestScene } from './scenes/planets/PlanetLodTestScene';
 import { PostFxTestScene } from './scenes/rendering/PostFxTestScene';
+import { StudioLightingTestScene } from './scenes/rendering/StudioLightingTestScene';
 
 const registrations: FeatureTestRegistration[] = [];
 
@@ -70,4 +71,12 @@ registerFeatureTest({
 	category: 'Rendering',
 	description: 'Standard lighting/material scene for GTAO, SSR, Bloom and exposure tuning.',
 	create: () => new PostFxTestScene(),
+});
+
+registerFeatureTest({
+	id: 'rendering-studio-lighting',
+	name: 'Studio Lighting',
+	category: 'Rendering',
+	description: 'Frigate GLB under EXR studio lighting for Blender-look material tuning.',
+	create: () => new StudioLightingTestScene(),
 });

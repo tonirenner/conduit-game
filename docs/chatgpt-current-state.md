@@ -266,6 +266,26 @@ Known limitation:
 
 ## Known Open Visual Issues / Next Work
 
+- Frigate GLB import now keeps exported normals/tangents instead of recomputing vertex normals in the Game loader.
+- Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.
+- Frigate Game rendering and Studio Lighting now share `FRIGATE_MATERIAL_LIGHTING_PROFILE` in `src/game/rendering/ShipMaterialLightingProfile.ts`.
+- Game dynamic environment probe now uses `GAME_ENVIRONMENT_PROBE_PROFILE`:
+  - environmentIntensity `1.35`
+  - HDR peak intensity scale `0.45`
+  - HDR peak size scale `1.4`
+  - HDR peak opacity scale `0.82`
+- Feature Lab now has `rendering-studio-lighting` / `Studio Lighting` for Frigate GLB material tuning against `/models/warm_studio_hangar_4k.exr`.
+- Studio Lighting `Blender Match` preset:
+  - roughnessMultiplier `1.08`
+  - metalnessMultiplier `1.0`
+  - environmentIntensity `1.35`
+  - envMapIntensity `1.1`
+  - normalScale `1.0`
+  - aoMapIntensity `1.0`
+  - exposure `1.03`
+  - GTAO on, SSR off, Bloom on
+  - warm key light at `1.6`, weak cool fill light at `0.85`
+  - includes `Floor Visible` and `Model Y Offset` controls for framing/material inspection
 - Continue checking model forward consistency across real assets and dummy assets.
 - Add more direct weapon test scenes:
   - Railgun test

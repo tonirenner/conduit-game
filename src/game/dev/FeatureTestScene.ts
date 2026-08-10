@@ -18,6 +18,7 @@ export type FeatureTestContext = {
 	renderer: AppRenderer;
 	rendererMode: RendererMode;
 	settings: GameSettings;
+	updateSettings: (patch: Partial<GameSettings>) => GameSettings;
 	uiRoot: HTMLElement;
 	report: (entry: FeatureLabStatusEntry) => void;
 	clearReport: () => void;
