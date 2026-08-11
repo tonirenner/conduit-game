@@ -3,12 +3,16 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun --hot ./index.html",
     "build": "bun build ./index.html --outdir ./dist",
     "preview": "bun ./dist/index.html"
   },
   "dependencies": {
+    "@conduit/web3d": "workspace:*",
     "three": "^0.185.1"
   },
   "devDependencies": {

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import {
 	createDebugLine,
 	createDebugPoint,
 	disposeObject3D,
 	setDebugLinePoints,
-} from '../../DebugPrimitives';
+} from '@conduit/web3d/debug';
+import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import { createInspectableShipModel, createTestShipDefinition } from '../../TestShipFactory';
 import { CombatVfxSystem } from '../../../rendering/CombatVfxSystem';
 

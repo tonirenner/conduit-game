@@ -12,7 +12,7 @@ import type {
 	FeatureTestRegistration,
 	FeatureTestScene,
 } from './FeatureTestScene';
-import { disposeObject3D } from './DebugPrimitives';
+import { disposeObject3D } from '@conduit/web3d/debug';
 
 export type FeatureLabOptions = {
 	scene: THREE.Scene;

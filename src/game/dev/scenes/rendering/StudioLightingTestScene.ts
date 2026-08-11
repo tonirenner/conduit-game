@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { frameObject } from '@conduit/web3d/camera';
+import { disposeObject3D } from '@conduit/web3d/debug';
+import {
+	loadExrEnvironment,
+	type LoadedExrEnvironment,
+} from '@conduit/web3d/environment';
+import {
+	captureMaterialSnapshot,
+	restoreMaterialSnapshot,
+	type MaterialSnapshot,
+} from '@conduit/web3d/materials';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import {
 	FRIGATE_MATERIAL_LIGHTING_PROFILE,
@@ -37,16 +47,6 @@ type StudioState = {
 
 type StudioStateValue = StudioState[keyof StudioState];
 
-type MaterialSnapshot = {
-	material: THREE.Material;
-	roughness?: number;
-	metalness?: number;
-	envMapIntensity?: number;
-	normalScale?: THREE.Vector2;
-	aoMapIntensity?: number;
-	emissiveIntensity?: number;
-};
-
 type SceneSnapshot = {
 	environment: THREE.Texture | null;
 	background: THREE.Color | THREE.Texture | null;
@@ -71,8 +71,7 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	private floor: THREE.Mesh | null = null;
 	private keyLight: THREE.DirectionalLight | null = null;
 	private fillLight: THREE.DirectionalLight | null = null;
-	private exrTexture: THREE.Texture | null = null;
-	private environmentTarget: THREE.WebGLRenderTarget | null = null;
+	private loadedEnvironment: LoadedExrEnvironment | null = null;
 	private readonly modelBasePosition = new THREE.Vector3();
 	private readonly materialSnapshots: MaterialSnapshot[] = [];
 	private loadGeneration = 0;
@@ -117,12 +116,10 @@ export class StudioLightingTestScene implements FeatureTestScene {
 		this.loadGeneration++;
 		this.restoreSceneState();
 		this.context?.scene.remove(this.root);
-		disposeObjectWithAllTextures(this.root);
+		disposeObject3D(this.root);
 		this.root.clear();
-		this.environmentTarget?.dispose();
-		this.environmentTarget = null;
-		this.exrTexture?.dispose();
-		this.exrTexture = null;
+		this.loadedEnvironment?.dispose();
+		this.loadedEnvironment = null;
 		this.materialSnapshots.length = 0;
 		this.model = null;
 		this.floor = null;
@@ -147,24 +144,18 @@ export class StudioLightingTestScene implements FeatureTestScene {
 		}
 
 		try {
-			const texture = await new EXRLoader().loadAsync(STUDIO_EXR_URL);
+			const environment = await loadExrEnvironment(
+				context.renderer as unknown as THREE.WebGLRenderer,
+				STUDIO_EXR_URL,
+			);
 
 			if (generation !== this.loadGeneration) {
-				texture.dispose();
+				environment.dispose();
 				return;
 			}
 
-			texture.mapping = THREE.EquirectangularReflectionMapping;
-			this.exrTexture = texture;
-
-			const pmrem = new THREE.PMREMGenerator(
-				context.renderer as unknown as THREE.WebGLRenderer,
-			);
-			const target = pmrem.fromEquirectangular(texture);
-
-			pmrem.dispose();
-			this.environmentTarget = target;
-			hostScene.environment = target.texture;
+			this.loadedEnvironment = environment;
+			hostScene.environment = environment.environmentMap;
 			this.applyHostSceneState();
 
 			context.report({
@@ -193,7 +184,7 @@ export class StudioLightingTestScene implements FeatureTestScene {
 			const gltf = await new GLTFLoader().loadAsync(FRIGATE_URL);
 
 			if (generation !== this.loadGeneration) {
-				disposeObjectWithAllTextures(gltf.scene);
+				disposeObject3D(gltf.scene);
 				return;
 			}
 
@@ -273,10 +264,8 @@ export class StudioLightingTestScene implements FeatureTestScene {
 
 		const box = new THREE.Box3().setFromObject(model);
 		const center = new THREE.Vector3();
-		const size = new THREE.Vector3();
 
 		box.getCenter(center);
-		box.getSize(size);
 
 		const floorY = box.min.y - 0.08;
 
@@ -285,21 +274,16 @@ export class StudioLightingTestScene implements FeatureTestScene {
 			this.floor.visible = this.state.floorVisible;
 		}
 
-		const target = new THREE.Vector3(
-			center.x,
-			box.min.y + size.y * 0.52,
-			center.z,
+		frameObject(
+			model,
+			context.camera,
+			context.controls,
+			{
+				minDistance: 5.2,
+				distanceMultiplier: 1.45,
+				targetHeightFactor: 0.52,
+			},
 		);
-		const viewDistance = Math.max(5.2, Math.max(size.x, size.y, size.z) * 1.45);
-
-		context.controls.target.copy(target);
-		context.camera.position.set(
-			target.x + viewDistance * 0.35,
-			target.y + viewDistance * 0.22,
-			target.z + viewDistance,
-		);
-		context.camera.lookAt(target);
-		context.controls.update();
 	}
 
 	private cloneMaterial(material: THREE.Material): THREE.Material {
@@ -573,8 +557,8 @@ export class StudioLightingTestScene implements FeatureTestScene {
 				THREE.MathUtils.degToRad(this.state.environmentRotation);
 		}
 
-		if (this.state.environmentVisible && this.exrTexture) {
-			this.hostScene.background = this.exrTexture;
+		if (this.state.environmentVisible && this.loadedEnvironment) {
+			this.hostScene.background = this.loadedEnvironment.sourceTexture;
 		} else {
 			this.hostScene.background = new THREE.Color(this.state.backgroundColor);
 		}
@@ -729,56 +713,6 @@ function captureSceneState(
 	};
 }
 
-function captureMaterialSnapshot(material: THREE.Material): MaterialSnapshot {
-	if (!isStandardMaterial(material)) {
-		return { material };
-	}
-
-	return {
-		material,
-		roughness: material.roughness,
-		metalness: material.metalness,
-		envMapIntensity: material.envMapIntensity,
-		normalScale: material.normalScale?.clone(),
-		aoMapIntensity: material.aoMapIntensity,
-		emissiveIntensity: material.emissiveIntensity,
-	};
-}
-
-function restoreMaterialSnapshot(snapshot: MaterialSnapshot): void {
-	const material = snapshot.material;
-
-	if (!isStandardMaterial(material)) {
-		return;
-	}
-
-	if (snapshot.roughness !== undefined) {
-		material.roughness = snapshot.roughness;
-	}
-
-	if (snapshot.metalness !== undefined) {
-		material.metalness = snapshot.metalness;
-	}
-
-	if (snapshot.envMapIntensity !== undefined) {
-		material.envMapIntensity = snapshot.envMapIntensity;
-	}
-
-	if (snapshot.normalScale) {
-		material.normalScale.copy(snapshot.normalScale);
-	}
-
-	if (snapshot.aoMapIntensity !== undefined) {
-		material.aoMapIntensity = snapshot.aoMapIntensity;
-	}
-
-	if (snapshot.emissiveIntensity !== undefined) {
-		material.emissiveIntensity = snapshot.emissiveIntensity;
-	}
-
-	material.needsUpdate = true;
-}
-
 function isStandardMaterial(
 	material: THREE.Material,
 ): material is THREE.MeshStandardMaterial {
@@ -798,60 +732,4 @@ function directionFromAngles(
 		Math.sin(elevation),
 		Math.cos(azimuth) * horizontal,
 	).normalize();
-}
-
-function disposeObjectWithAllTextures(object: THREE.Object3D): void {
-	const textures = new Set<THREE.Texture>();
-	const materials = new Set<THREE.Material>();
-
-	object.traverse((child) => {
-		if (
-			child instanceof THREE.Mesh ||
-			child instanceof THREE.Line ||
-			child instanceof THREE.Points
-		) {
-			child.geometry.dispose();
-		}
-
-		if (
-			!(
-				child instanceof THREE.Mesh ||
-				child instanceof THREE.Line ||
-				child instanceof THREE.Points ||
-				child instanceof THREE.Sprite
-			)
-		) {
-			return;
-		}
-
-		const childMaterials = Array.isArray(child.material)
-		                       ? child.material
-		                       : [child.material];
-
-		for (const material of childMaterials) {
-			materials.add(material);
-			collectMaterialTextures(material, textures);
-		}
-	});
-
-	for (const material of materials) {
-		material.dispose();
-	}
-
-	for (const texture of textures) {
-		texture.dispose();
-	}
-}
-
-function collectMaterialTextures(
-	material: THREE.Material,
-	textures: Set<THREE.Texture>,
-): void {
-	const record = material as unknown as Record<string, unknown>;
-
-	for (const value of Object.values(record)) {
-		if (value instanceof THREE.Texture) {
-			textures.add(value);
-		}
-	}
 }

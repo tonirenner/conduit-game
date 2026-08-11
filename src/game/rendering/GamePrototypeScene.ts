@@ -9,9 +9,9 @@ import {
     type PlanetRendererMode,
 } from '../../planet/Planet';
 import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
+import { DynamicEnvironmentProbe } from '@conduit/web3d/environment';
 import { SystemNebulaBackdrop } from './SystemNebulaBackdrop';
 import { WormholeNodeVisual } from './WormholeNodeVisual';
-import { DynamicEnvironmentProbe } from './DynamicEnvironmentProbe';
 import {
     applyShipMaterialLightingProfile,
     FRIGATE_MATERIAL_LIGHTING_PROFILE,

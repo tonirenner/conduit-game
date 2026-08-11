@@ -1,13 +1,9 @@
-import * as THREE from 'three';
+import {
+	applyMaterialAdjustmentProfile,
+	type MaterialAdjustmentProfile,
+} from '@conduit/web3d';
 
-export type ShipMaterialLightingProfile = {
-	roughnessMultiplier: number;
-	metalnessMultiplier: number;
-	envMapIntensity: number;
-	normalScale: number;
-	aoMapIntensity: number;
-	emissiveIntensityMultiplier: number;
-};
+export type ShipMaterialLightingProfile = MaterialAdjustmentProfile;
 
 export type GameEnvironmentProbeProfile = {
 	environmentIntensity: number;
@@ -32,34 +28,4 @@ export const GAME_ENVIRONMENT_PROBE_PROFILE: GameEnvironmentProbeProfile = {
 	hdrPeakOpacityScale: 0.72,
 };
 
-export function applyShipMaterialLightingProfile(
-	material: THREE.Material,
-	profile: ShipMaterialLightingProfile,
-): void {
-	if (!(material instanceof THREE.MeshStandardMaterial)) {
-		return;
-	}
-
-	material.roughness = THREE.MathUtils.clamp(
-		material.roughness * profile.roughnessMultiplier,
-		0,
-		1,
-	);
-	material.metalness = THREE.MathUtils.clamp(
-		material.metalness * profile.metalnessMultiplier,
-		0,
-		1,
-	);
-	material.envMapIntensity = profile.envMapIntensity;
-
-	if (material.normalMap) {
-		material.normalScale.multiplyScalar(profile.normalScale);
-	}
-
-	if (material.aoMap) {
-		material.aoMapIntensity *= profile.aoMapIntensity;
-	}
-
-	material.emissiveIntensity *= profile.emissiveIntensityMultiplier;
-	material.needsUpdate = true;
-}
+export const applyShipMaterialLightingProfile = applyMaterialAdjustmentProfile;

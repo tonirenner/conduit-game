@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {RenderQuality} from './render/RenderQuality';
+import {RenderQuality} from '@conduit/web3d/renderer';
 import {createAppRenderer, getPreferredRendererMode, renderFrame,} from './render/RendererFactory';
 import {TerrainTextureBakeManager} from './planet/TerrainTextureBakeManager';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';

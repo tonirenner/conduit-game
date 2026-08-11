@@ -1,6 +1,6 @@
 import * as THREE from 'three';
+import { disposeObject3D } from '@conduit/web3d/debug';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
-import { disposeObject3D } from '../../DebugPrimitives';
 import { Planet } from '../../../../planet/Planet';
 import { generatePlanetDefinition } from '../../../../planet/generation/PlanetGenerator';
 import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';

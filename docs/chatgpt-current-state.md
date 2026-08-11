@@ -266,6 +266,16 @@ Known limitation:
 
 ## Known Open Visual Issues / Next Work
 
+- Initial `@conduit/web3d` workspace package exists under `packages/conduit-web3d`.
+- First extracted Conduit modules:
+  - `renderer/RenderQuality`
+  - `debug/DebugPrimitives`
+  - `materials/MaterialAdjustmentProfile`
+  - `materials/MaterialSnapshot`
+  - `environment/DynamicEnvironmentProbe`
+  - `environment/ExrEnvironmentLoader`
+  - `camera/CameraFraming`
+- Old local paths for `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` are temporary re-export shims.
 - Frigate GLB import now keeps exported normals/tangents instead of recomputing vertex normals in the Game loader.
 - Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.
 - Frigate Game rendering and Studio Lighting now share `FRIGATE_MATERIAL_LIGHTING_PROFILE` in `src/game/rendering/ShipMaterialLightingProfile.ts`.

@@ -1,0 +1,17 @@
+{
+  "name": "@conduit/web3d",
+  "type": "module",
+  "private": true,
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./renderer": "./src/renderer/index.ts",
+    "./environment": "./src/environment/index.ts",
+    "./materials": "./src/materials/index.ts",
+    "./debug": "./src/debug/index.ts",
+    "./camera": "./src/camera/index.ts"
+  },
+  "peerDependencies": {
+    "three": "^0.185.1"
+  }
+}

@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { createBoundingBoxHelper, createDebugLabel, disposeObject3D } from '@conduit/web3d/debug';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
-import { createBoundingBoxHelper, createDebugLabel, disposeObject3D } from '../../DebugPrimitives';
 import {
 	createDummyShipModel,
 	createDummyStationModel,
