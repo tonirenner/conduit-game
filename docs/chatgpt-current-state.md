@@ -290,6 +290,7 @@ Known limitation:
   - HDR peak size scale `1.7`
   - HDR peak opacity scale `0.72`
 - Feature Lab now has `rendering-studio-lighting` / `Studio Lighting` for Frigate GLB material tuning against `/models/warm_studio_hangar_4k.exr`.
+- StarEngine/Star Citizen references were cleaned up in `D:/_repositories/webgl/starcitizen.md` and translated into `docs/planet-rendering-target-architecture.md`.
 - Studio Lighting `Blender Match` preset:
   - roughnessMultiplier `1.14`
   - metalnessMultiplier `1.0`
