@@ -18,14 +18,13 @@ Application / Game
 
 ## Current Package State
 
-The project is currently a single Bun/TypeScript app:
+The project started as a single Bun/TypeScript app and now has an internal workspace package:
 
 - root package: `planet-lod`
+- local package: `@conduit/web3d`
 - dependency: `three`
 - source root: `src`
-- no workspace packages yet
-
-A future local package can live at:
+- package root:
 
 ```text
 packages/conduit-web3d/
@@ -41,7 +40,7 @@ packages/conduit-web3d/
     index.ts
 ```
 
-Recommended initial `package.json` shape:
+Current package shape:
 
 ```json
 {
@@ -58,10 +57,15 @@ Recommended initial `package.json` shape:
 
 ### Renderer
 
-Current files:
+Original files:
 
 - `src/render/RendererFactory.ts`
 - `src/render/RenderQuality.ts`
+
+Current files:
+
+- `packages/conduit-web3d/src/renderer/RendererFactory.ts`
+- `packages/conduit-web3d/src/renderer/RenderQuality.ts`
 
 Assessment:
 
@@ -85,11 +89,17 @@ Notes:
 
 ### Environment
 
-Current files:
+Original files:
 
 - `src/game/rendering/DynamicEnvironmentProbe.ts`
 - EXR/PMREM loading logic inside `src/game/dev/scenes/rendering/StudioLightingTestScene.ts`
 - profile constants in `src/game/rendering/ShipMaterialLightingProfile.ts`
+
+Current files:
+
+- `packages/conduit-web3d/src/environment/DynamicEnvironmentProbe.ts`
+- `packages/conduit-web3d/src/environment/ExrEnvironmentLoader.ts`
+- profile constants remain in `src/game/rendering/ShipMaterialLightingProfile.ts`
 
 Assessment:
 
@@ -538,14 +548,14 @@ Game/app files now using Conduit directly:
 - `GamePrototypeScene`, `ShipModelTestScene`, and `StudioLightingTestScene` use Conduit GLTF/OBJ/MTL asset loading, UV2 fallback, material traversal helpers, and object normalization
 - `ShipMaterialLightingProfile` keeps game-specific Frigate/Game probe constants but reuses Conduit material profile application
 
-Compatibility shims kept for now:
+Compatibility shims removed:
 
 - `src/render/RenderQuality.ts`
 - `src/render/RendererFactory.ts`
 - `src/game/dev/DebugPrimitives.ts`
 - `src/game/rendering/DynamicEnvironmentProbe.ts`
 
-These files now re-export from Conduit so old internal imports do not break during the transition.
+The app and Feature Lab now import these modules directly from `@conduit/web3d`.
 
 Still intentionally not extracted:
 
@@ -557,7 +567,6 @@ Still intentionally not extracted:
 
 Next recommended step:
 
-1. Verify package resolution with the normal dev server.
-2. If stable, remove remaining old compatibility imports over time.
-3. Consider replacing app-level module promise caches with `AssetPromiseCache` where it reduces duplication.
-4. Continue extracting only generic object/material preparation helpers. Asset-specific orientation, scale profiles, weapon nodes, engine nodes, and gameplay rules stay in the Game.
+1. Verify package resolution with the normal dev server after each extraction step.
+2. Consider replacing app-level module promise caches with `AssetPromiseCache` only where it reduces duplication without hiding asset-specific fallback behavior.
+3. Continue extracting only generic object/material preparation helpers. Asset-specific orientation, scale profiles, weapon nodes, engine nodes, and gameplay rules stay in the Game.

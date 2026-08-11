@@ -11,7 +11,7 @@ This document captures the current prototype architecture before the singleplaye
   - no `?game=1`: planet viewer / debug planet mode
   - `?game=1`: game prototype
   - renderer and debug options are also URL-driven.
-- `src/render/RendererFactory.ts` creates either WebGL or WebGPU. WebGPU is opt-in through URL parameters and falls back to WebGL when unavailable.
+- `packages/conduit-web3d/src/renderer/RendererFactory.ts` creates either WebGL or WebGPU. WebGPU is opt-in through settings/URL boot parameters and falls back to WebGL when unavailable.
 - `src/postprocessing/PostProcessingPipeline.ts` dynamically loads WebGPU/TSL post-processing. It currently supports GTAO, SSR, Bloom, tone mapping, and a normal-render fallback.
 
 ## Important Modules
@@ -65,7 +65,8 @@ This document captures the current prototype architecture before the singleplaye
   - Canvas-based system minimap with points and viewport rectangle.
 - `src/game/ui/BuildMenu.ts`
   - DOM build/production menu. It is UI-only but currently wired directly from `GamePrototypeScene`.
-- `src/game/rendering/SystemNebulaBackdrop.ts`, `WormholeNodeVisual.ts`, `DynamicEnvironmentProbe.ts`
+- `src/game/rendering/SystemNebulaBackdrop.ts`, `WormholeNodeVisual.ts`
+- `packages/conduit-web3d/src/environment/DynamicEnvironmentProbe.ts`
   - Render-only environment, wormhole, and reflection-probe helpers.
 
 ### Planet Renderer
@@ -120,7 +121,7 @@ This document captures the current prototype architecture before the singleplaye
 
 ## Current Render Flow
 
-1. `RendererFactory` creates WebGL or WebGPU renderer.
+1. `@conduit/web3d/renderer` creates WebGL or WebGPU renderer.
 2. `main.ts` creates one Three scene and one camera.
 3. Planet viewer and game prototype both render into the same scene infrastructure.
 4. `GamePrototypeScene` has separate groups:

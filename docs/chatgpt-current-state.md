@@ -277,7 +277,7 @@ Known limitation:
   - `environment/DynamicEnvironmentProbe`
   - `environment/ExrEnvironmentLoader`
   - `camera/CameraFraming`
-- Old local paths for `RendererFactory`, `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` are temporary re-export shims.
+- Old local re-export shims for `RendererFactory`, `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` were removed after all app imports moved to `@conduit/web3d`.
 - GamePrototypeScene, ShipModelTestScene and StudioLightingTestScene now use Conduit GLTF/OBJ/MTL asset loaders.
 - Shared Conduit helpers now cover generic UV2 fallback, material traversal for material arrays, and object normalization used by both Game and Feature Lab model views.
 - Asset-specific orientation/scale profiles, gameplay nodes, engine FX logic, turret behavior, combat state, and production rules remain in the Game.
