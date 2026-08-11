@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import { disposeObject3D } from '@conduit/web3d/debug';
+import type { PostProcessingQuality } from '@conduit/web3d/postprocessing';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
+
+type PostFxState = {
+	enabled: boolean;
+	quality: PostProcessingQuality;
+	gtao: boolean;
+	ssr: boolean;
+	bloom: boolean;
+	exposure: number;
+	emissiveStrength: number;
+};
 
 export class PostFxTestScene implements FeatureTestScene {
 	readonly id = 'rendering-postfx';
@@ -11,10 +22,19 @@ export class PostFxTestScene implements FeatureTestScene {
 	private context: FeatureTestContext | null = null;
 	private readonly root = new THREE.Group();
 	private emissive: THREE.Mesh | null = null;
-	private bloomStrength = 0.70;
+	private state: PostFxState = {
+		enabled: true,
+		quality: 'high',
+		gtao: true,
+		ssr: true,
+		bloom: true,
+		exposure: 1,
+		emissiveStrength: 0.70,
+	};
 
 	init(context: FeatureTestContext): void {
 		this.context = context;
+		this.state = createInitialPostFxState(context);
 		this.root.name = 'PostFxTestScene';
 		context.scene.add(this.root);
 		context.camera.position.set(0, 4.2, 9);
@@ -29,9 +49,12 @@ export class PostFxTestScene implements FeatureTestScene {
 		});
 		context.report({
 			status: 'info',
-			label: 'startup settings',
-			detail: `GTAO ${context.settings.gtao ? 'on' : 'off'}, SSR ${context.settings.ssr ? 'on' : 'off'}, Bloom ${context.settings.bloom ? 'on' : 'off'}`,
+			label: 'runtime controls',
+			detail: context.postProcessing
+				? 'Live PostFX updates are applied to the active pipeline.'
+				: 'No active PostProcessingPipeline was provided.',
 		});
+		this.applyPostFxState();
 	}
 
 	update(deltaSeconds: number): void {
@@ -39,7 +62,7 @@ export class PostFxTestScene implements FeatureTestScene {
 			this.emissive.rotation.y += deltaSeconds * 0.6;
 			const material = this.emissive.material as THREE.MeshStandardMaterial;
 			material.emissiveIntensity =
-				this.bloomStrength +
+				this.state.emissiveStrength +
 				Math.sin(performance.now() * 0.002) * 0.05;
 		}
 	}
@@ -77,7 +100,7 @@ export class PostFxTestScene implements FeatureTestScene {
 		(this.emissive.material as THREE.MeshStandardMaterial).emissive =
 			new THREE.Color(0x35c5ff);
 		(this.emissive.material as THREE.MeshStandardMaterial).emissiveIntensity =
-			this.bloomStrength;
+			this.state.emissiveStrength;
 		this.root.add(this.emissive);
 
 		const key = new THREE.DirectionalLight(0xffffff, 2.8);
@@ -110,13 +133,140 @@ export class PostFxTestScene implements FeatureTestScene {
 
 	private createUi(root: HTMLElement): void {
 		root.innerHTML =
-			`<label style="display:block;margin:6px 0;">Emissive Strength ` +
-			`<input data-bloom-proxy type="range" min="0" max="2" step="0.05" value="${this.bloomStrength}" style="width:150px;"></label>` +
-			`<div style="opacity:.62;margin-top:8px;">PostFX toggles are currently applied at startup through Settings.</div>`;
+			this.checkbox('enabled', 'PostFX Enabled') +
+			this.selectQuality() +
+			this.checkbox('gtao', 'GTAO') +
+			this.checkbox('ssr', 'SSR') +
+			this.checkbox('bloom', 'Bloom') +
+			this.range('exposure', 'Exposure', 0.2, 2.2, 0.02) +
+			this.range('emissiveStrength', 'Emissive Strength', 0, 2, 0.05) +
+			`<div style="opacity:.62;margin-top:8px;">Effect toggles rebuild the WebGPU pipeline. Exposure updates immediately.</div>`;
 
-		root.querySelector<HTMLInputElement>('[data-bloom-proxy]')
-			?.addEventListener('input', (event) => {
-				this.bloomStrength = Number((event.currentTarget as HTMLInputElement).value);
+		for (const input of root.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-postfx]')) {
+			input.addEventListener('input', () => {
+				this.readStateFromUi(root);
+				this.applyPostFxState();
 			});
+		}
 	}
+
+	private checkbox(key: keyof PostFxState, label: string): string {
+		return (
+			`<label style="display:block;margin:6px 0;">` +
+			`<input data-postfx="${key}" type="checkbox" ${this.state[key] ? 'checked' : ''}> ${label}` +
+			`</label>`
+		);
+	}
+
+	private range(
+		key: keyof PostFxState,
+		label: string,
+		min: number,
+		max: number,
+		step: number,
+	): string {
+		const value = this.state[key];
+
+		return (
+			`<label style="display:block;margin:7px 0;">${label}<br>` +
+			`<input data-postfx="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" style="width:170px;"> ` +
+			`<span data-value="${key}" style="opacity:.72">${value}</span>` +
+			`</label>`
+		);
+	}
+
+	private selectQuality(): string {
+		const options: PostProcessingQuality[] = ['low', 'medium', 'high', 'ultra'];
+
+		return (
+			`<label style="display:block;margin:7px 0;">Quality<br>` +
+			`<select data-postfx="quality" style="min-width:120px;">` +
+			options.map((quality) => (
+				`<option value="${quality}" ${quality === this.state.quality ? 'selected' : ''}>${quality}</option>`
+			)).join('') +
+			`</select></label>`
+		);
+	}
+
+	private readStateFromUi(root: HTMLElement): void {
+		for (const input of root.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-postfx]')) {
+			const key = input.dataset.postfx as keyof PostFxState;
+
+			if (input instanceof HTMLInputElement && input.type === 'checkbox') {
+				this.setBooleanState(key, input.checked);
+			} else if (input instanceof HTMLInputElement && input.type === 'range') {
+				const value = Number(input.value);
+
+				this.setNumberState(key, value);
+
+				const valueLabel = root.querySelector<HTMLElement>(`[data-value="${key}"]`);
+
+				if (valueLabel) {
+					valueLabel.textContent = value.toFixed(2);
+				}
+			} else if (key === 'quality') {
+				this.state.quality = input.value as PostProcessingQuality;
+			}
+		}
+	}
+
+	private setBooleanState(key: keyof PostFxState, value: boolean): void {
+		switch (key) {
+			case 'enabled':
+				this.state.enabled = value;
+				break;
+			case 'gtao':
+				this.state.gtao = value;
+				break;
+			case 'ssr':
+				this.state.ssr = value;
+				break;
+			case 'bloom':
+				this.state.bloom = value;
+				break;
+		}
+	}
+
+	private setNumberState(key: keyof PostFxState, value: number): void {
+		switch (key) {
+			case 'exposure':
+				this.state.exposure = value;
+				break;
+			case 'emissiveStrength':
+				this.state.emissiveStrength = value;
+				break;
+		}
+	}
+
+	private applyPostFxState(): void {
+		this.context?.postProcessing?.updateOptions({
+			enabled: this.state.enabled,
+			quality: this.state.quality,
+			enableGTAO: this.state.gtao,
+			enableSSR: this.state.ssr,
+			enableBloom: this.state.bloom,
+			toneMappingExposure: this.state.exposure,
+		});
+
+		this.context?.updateSettings({
+			graphicsQuality: this.state.quality,
+			gtao: this.state.gtao,
+			ssr: this.state.ssr,
+			bloom: this.state.bloom,
+		});
+	}
+}
+
+function createInitialPostFxState(context: FeatureTestContext): PostFxState {
+	const pipelineOptions = context.postProcessing?.getOptions();
+
+	return {
+		enabled: pipelineOptions?.enabled ?? true,
+		quality: pipelineOptions?.quality ?? context.settings.graphicsQuality,
+		gtao: pipelineOptions?.enableGTAO ?? context.settings.gtao,
+		ssr: pipelineOptions?.enableSSR ?? context.settings.ssr,
+		bloom: pipelineOptions?.enableBloom ?? context.settings.bloom,
+		exposure: pipelineOptions?.toneMappingExposure ?? 1,
+		emissiveStrength: 0.70,
+	};
 }

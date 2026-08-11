@@ -85,6 +85,7 @@ export class StudioLightingTestScene implements FeatureTestScene {
 		this.createUi(context.uiRoot);
 		this.applyLighting();
 		this.applyHostSceneState();
+		this.persistPostFxSettings();
 
 		await Promise.all([
 			this.loadEnvironment(),
@@ -319,7 +320,7 @@ export class StudioLightingTestScene implements FeatureTestScene {
 				this.checkbox('gtaoEnabled', 'GTAO'),
 				this.checkbox('ssrEnabled', 'SSR'),
 				this.checkbox('bloomEnabled', 'Bloom'),
-				`<div style="opacity:.62;margin-top:6px;">Stored in Settings. Existing PostFX pipeline applies these after reload/recreate.</div>`,
+				`<div style="opacity:.62;margin-top:6px;">Applied live to the active PostFX pipeline and stored in Settings.</div>`,
 			]);
 
 		for (const button of root.querySelectorAll<HTMLButtonElement>('button')) {
@@ -554,6 +555,13 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	}
 
 	private persistPostFxSettings(): void {
+		this.context?.postProcessing?.updateOptions({
+			enableGTAO: this.state.gtaoEnabled,
+			enableSSR: this.state.ssrEnabled,
+			enableBloom: this.state.bloomEnabled,
+			toneMappingExposure: this.state.exposure,
+		});
+
 		this.context?.updateSettings({
 			gtao: this.state.gtaoEnabled,
 			ssr: this.state.ssrEnabled,

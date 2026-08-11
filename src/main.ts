@@ -274,6 +274,12 @@ settingsMenu = new SettingsMenu({
 	store: settingsStore,
 	activeRendererMode: rendererMode,
 	onSettingsChanged: (settings) => {
+		postProcessing.updateOptions({
+			quality: settings.graphicsQuality,
+			enableGTAO: settings.gtao,
+			enableSSR: settings.ssr,
+			enableBloom: settings.bloom,
+		});
 		hudVisible = settings.hud;
 		hud.style.display = hudVisible ? 'block' : 'none';
 		document.documentElement.style.setProperty(
@@ -700,6 +706,7 @@ if (testMode) {
 		controls,
 		renderer,
 		rendererMode,
+		postProcessing,
 		settingsStore,
 		initialSceneId: new URLSearchParams(window.location.search).get('scene'),
 	});

@@ -20,10 +20,15 @@ export type PostProcessingPipelineOptions = {
 	toneMappingExposure?: number;
 };
 
+export type PostProcessingPipelineUpdateOptions = Partial<
+	Omit<PostProcessingPipelineOptions, 'rendererMode'>
+>;
+
 type RenderPipelineLike = {
 	outputNode: unknown;
 	needsUpdate?: boolean;
 	render: () => void;
+	dispose?: () => void;
 };
 
 type PipelineRuntime = {
@@ -31,16 +36,18 @@ type PipelineRuntime = {
 };
 
 export class PostProcessingPipeline {
-	private readonly enabled: boolean;
-	private readonly quality: PostProcessingQuality;
-	private readonly enableGTAO: boolean;
-	private readonly enableSSR: boolean;
-	private readonly enableBloom: boolean;
-	private readonly toneMappingExposure: number;
+	private readonly rendererMode: PostProcessingRendererMode;
+	private enabled: boolean;
+	private quality: PostProcessingQuality;
+	private enableGTAO: boolean;
+	private enableSSR: boolean;
+	private enableBloom: boolean;
+	private toneMappingExposure: number;
 
 	private runtime: PipelineRuntime | null = null;
 	private initializationPromise: Promise<void> | null = null;
 	private initializationFailed = false;
+	private runtimeGeneration = 0;
 
 	constructor(
 		private readonly renderer: Web3DRenderer,
@@ -50,6 +57,7 @@ export class PostProcessingPipeline {
 	) {
 		const params = new URLSearchParams(window.location.search);
 
+		this.rendererMode = options.rendererMode;
 		this.enabled =
 			options.enabled !== false &&
 			params.get('postfx') !== '0';
@@ -88,7 +96,7 @@ export class PostProcessingPipeline {
 
 		if (
 			this.enabled &&
-			options.rendererMode === 'webgpu'
+			this.rendererMode === 'webgpu'
 		) {
 			this.startInitialization();
 		}
@@ -118,6 +126,7 @@ export class PostProcessingPipeline {
 				 * instead of throwing the same error every frame.
 				 */
 				this.initializationFailed = true;
+				this.runtime.renderPipeline.dispose?.();
 				this.runtime = null;
 
 				console.warn(
@@ -149,8 +158,73 @@ export class PostProcessingPipeline {
 		return this.quality;
 	}
 
+	getOptions(): Required<PostProcessingPipelineOptions> {
+		return {
+			enabled: this.enabled,
+			rendererMode: this.rendererMode,
+			quality: this.quality,
+			enableGTAO: this.enableGTAO,
+			enableSSR: this.enableSSR,
+			enableBloom: this.enableBloom,
+			toneMappingExposure: this.toneMappingExposure,
+		};
+	}
+
 	isReady(): boolean {
 		return Boolean(this.runtime);
+	}
+
+	updateOptions(options: PostProcessingPipelineUpdateOptions): void {
+		const nextQuality = resolveQuality(
+			null,
+			options.quality ?? this.quality,
+		);
+		const nextProfile = getQualityProfile(nextQuality);
+		const nextEnabled = options.enabled ?? this.enabled;
+		const nextGTAO = options.enableGTAO ?? this.enableGTAO;
+		const nextSSR = options.enableSSR ?? this.enableSSR;
+		const nextBloom = options.enableBloom ?? this.enableBloom;
+		const nextExposure =
+			options.toneMappingExposure ??
+			(
+				options.quality !== undefined &&
+				this.toneMappingExposure === getQualityProfile(this.quality).exposure
+					? nextProfile.exposure
+					: this.toneMappingExposure
+			);
+
+		const requiresRebuild =
+			nextEnabled !== this.enabled ||
+			nextQuality !== this.quality ||
+			nextGTAO !== this.enableGTAO ||
+			nextSSR !== this.enableSSR ||
+			nextBloom !== this.enableBloom;
+
+		this.enabled = nextEnabled;
+		this.quality = nextQuality;
+		this.enableGTAO = nextGTAO;
+		this.enableSSR = nextSSR;
+		this.enableBloom = nextBloom;
+		this.toneMappingExposure = nextExposure;
+
+		this.renderer.toneMappingExposure = this.toneMappingExposure;
+
+		if (!requiresRebuild) {
+			return;
+		}
+
+		this.resetRuntime();
+
+		if (
+			this.enabled &&
+			this.rendererMode === 'webgpu'
+		) {
+			this.startInitialization();
+		}
+	}
+
+	dispose(): void {
+		this.resetRuntime();
 	}
 
 	private startInitialization(): void {
@@ -162,9 +236,21 @@ export class PostProcessingPipeline {
 			return;
 		}
 
+		const generation = this.runtimeGeneration;
+
 		this.initializationPromise =
-			this.initializeWebGPUPipeline()
+			this.initializeWebGPUPipeline(generation)
+				.then(() => {
+					if (generation === this.runtimeGeneration) {
+						this.initializationPromise = null;
+					}
+				})
 				.catch((error) => {
+					if (generation !== this.runtimeGeneration) {
+						return;
+					}
+
+					this.initializationPromise = null;
 					this.initializationFailed = true;
 
 					console.warn(
@@ -175,7 +261,7 @@ export class PostProcessingPipeline {
 				});
 	}
 
-	private async initializeWebGPUPipeline(): Promise<void> {
+	private async initializeWebGPUPipeline(generation: number): Promise<void> {
 		const [
 			webgpu,
 			tsl,
@@ -189,6 +275,10 @@ export class PostProcessingPipeline {
 			import('three/addons/tsl/display/SSRNode.js'),
 			import('three/addons/tsl/display/BloomNode.js'),
 		]);
+
+		if (generation !== this.runtimeGeneration) {
+			return;
+		}
 
 		const RenderPipeline = (webgpu as any).RenderPipeline;
 
@@ -231,6 +321,11 @@ export class PostProcessingPipeline {
 			new RenderPipeline(
 				this.renderer as any,
 			) as RenderPipelineLike;
+
+		if (generation !== this.runtimeGeneration) {
+			renderPipeline.dispose?.();
+			return;
+		}
 
 		/*
 		 * r184-compatible MRT layout.
@@ -462,6 +557,18 @@ export class PostProcessingPipeline {
 				exposure: this.toneMappingExposure,
 			},
 		);
+	}
+
+	private resetRuntime(): void {
+		this.runtimeGeneration++;
+
+		if (this.runtime?.renderPipeline.dispose) {
+			this.runtime.renderPipeline.dispose();
+		}
+
+		this.runtime = null;
+		this.initializationPromise = null;
+		this.initializationFailed = false;
 	}
 }
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type { PostProcessingPipeline } from '@conduit/web3d/postprocessing';
 import type { AppRenderer, RendererMode } from '@conduit/web3d/renderer';
 import type { SettingsStore } from '../settings/GameSettings';
 import {
@@ -20,6 +21,7 @@ export type FeatureLabOptions = {
 	controls: OrbitControls;
 	renderer: AppRenderer;
 	rendererMode: RendererMode;
+	postProcessing?: PostProcessingPipeline;
 	settingsStore: SettingsStore;
 	initialSceneId?: string | null;
 };
@@ -262,6 +264,7 @@ export class FeatureLab {
 			controls: this.options.controls,
 			renderer: this.options.renderer,
 			rendererMode: this.options.rendererMode,
+			postProcessing: this.options.postProcessing,
 			settings: this.options.settingsStore.getSnapshot(),
 			updateSettings: (patch) => this.options.settingsStore.update(patch),
 			uiRoot: this.sceneUiRoot,

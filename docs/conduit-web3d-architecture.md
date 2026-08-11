@@ -289,7 +289,8 @@ Assessment:
 
 - It is mostly generic and now lives in `@conduit/web3d/postprocessing`.
 - It has fragile WebGPU/TSL version-specific code and fallbacks.
-- It currently has static startup options; live tuning from Feature Lab is not fully supported yet.
+- It now supports runtime option updates for enabled state, quality, GTAO, SSR, Bloom, and exposure.
+- Effect toggles and quality changes invalidate/rebuild the WebGPU pipeline; exposure updates directly.
 
 Conduit API:
 
@@ -297,13 +298,14 @@ Conduit API:
 @conduit/web3d/postprocessing
   PostProcessingPipeline
   PostProcessingQuality
+  PostProcessingPipelineUpdateOptions
 ```
 
 Remaining work:
 
-- Add a stable public API for updating exposure and effect toggles or rebuilding the pipeline safely.
 - Keep quality profiles generic.
 - Split preset/profile data from the pipeline class once live Feature Lab tuning needs direct access.
+- Add finer-grained live sliders for AO/SSR/Bloom profile internals once the public profile API is split out.
 
 ## Later / Riskier Candidates
 

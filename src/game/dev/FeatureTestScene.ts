@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type { PostProcessingPipeline } from '@conduit/web3d/postprocessing';
 import type { AppRenderer, RendererMode } from '@conduit/web3d/renderer';
 import type { GameSettings } from '../settings/GameSettings';
 
@@ -17,6 +18,7 @@ export type FeatureTestContext = {
 	controls: OrbitControls;
 	renderer: AppRenderer;
 	rendererMode: RendererMode;
+	postProcessing?: PostProcessingPipeline;
 	settings: GameSettings;
 	updateSettings: (patch: Partial<GameSettings>) => GameSettings;
 	uiRoot: HTMLElement;

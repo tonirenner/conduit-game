@@ -139,10 +139,14 @@ File: `packages/conduit-web3d/src/postprocessing/PostProcessingPipeline.ts`
 - Bloom is intended only for bright emissive details, not large glow fields.
 - PostProcessing is now exported as `@conduit/web3d/postprocessing`.
 - `src/main.ts` and `src/game/settings/GameSettings.ts` import the pipeline/types from Conduit instead of the old app-local path.
+- `PostProcessingPipeline.updateOptions()` can now live-update exposure and rebuild the WebGPU pipeline for enabled/quality/GTAO/SSR/Bloom changes.
+- Feature Lab context now exposes the active PostProcessingPipeline to test scenes.
+- Normal game Settings now live-apply PostFX quality/GTAO/SSR/Bloom through the active pipeline; only renderer changes still require reload.
 
 PostFX test scene:
 
 - `src/game/dev/scenes/rendering/PostFxTestScene.ts`
+- PostFX test scene now has live controls for PostFX enabled, quality, GTAO, SSR, Bloom, exposure, and emissive strength.
 - Emissive and lighting defaults were reduced after visual inspection.
 
 ## Planet LOD Scene

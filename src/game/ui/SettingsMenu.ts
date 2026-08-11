@@ -146,7 +146,7 @@ export class SettingsMenu {
 
 	private renderHeader(rendererChanged: boolean): string {
 		const reloadNote = rendererChanged
-			? `<div style="margin-top:6px;color:#ffd28f">Reload required for renderer/PostFX changes.</div>`
+			? `<div style="margin-top:6px;color:#ffd28f">Reload required for renderer changes.</div>`
 			: '';
 
 		return (
