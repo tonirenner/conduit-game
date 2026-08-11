@@ -150,10 +150,10 @@ export class WebGPUAtmosphereLayer {
 		);
 
 		if (isLavaAtmosphere) {
-			this.profileSunIntensity *= 0.82;
-			this.profileAtmosphereAlpha *= 0.82;
-			this.profileScatteringBoost *= 0.88;
-			this.profileOpacity *= 0.78;
+			this.profileSunIntensity *= 0.90;
+			this.profileAtmosphereAlpha *= 0.96;
+			this.profileScatteringBoost *= 0.95;
+			this.profileOpacity *= 0.86;
 		}
 
 		this.sunIntensity.value = this.profileSunIntensity;

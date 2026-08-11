@@ -167,10 +167,14 @@ export class PlanetLodTestScene implements FeatureTestScene {
 
 		this.stats.innerHTML =
 			`class: ${this.planetClass}<br>` +
-			`surface: ${this.profile.surfacePalette} / atmosphere: ${this.profile.atmospherePalette}<br>` +
+			`renderer: ${this.context.rendererMode} / kind: ${this.profile.rendererKind}<br>` +
+			`surface: ${this.profile.surfacePalette} / atmosphere: ${this.profile.atmospherePalette} / clouds: ${this.profile.cloudPalette}<br>` +
+			`features: terrain ${formatBool(this.profile.enableTerrain)}, ocean ${formatBool(this.profile.enableOcean)}, atmosphere ${formatBool(this.profile.enableAtmosphere)}, clouds ${formatBool(this.profile.enableClouds)}, rings ${formatBool(this.profile.enableRings)}<br>` +
 			`real radius: ${formatKilometers(labScale.physicalRadiusKilometers)} km<br>` +
 			`lab radius: ${labRenderRadius.toFixed(1)}u (${formatKilometers(labScale.kilometersPerRenderedUnit)} km/u)<br>` +
 			`game radius: ${gameRenderRadius.toFixed(1)}u (${formatKilometers(gameScale.kilometersPerRenderedUnit)} km/u, ${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>` +
+			`ocean level: ${format01(this.profile.oceanLevel)} terrain roughness: ${format01(this.profile.terrainRoughness)} mountain: ${format01(this.profile.mountainScale)}<br>` +
+			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
 			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
 			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +
 			`ash: ${format01(climate.ashLoad)} season: ${format01(climate.seasonality)}<br>` +
@@ -195,6 +199,10 @@ function formatPlanetClass(planetClass: PlanetClass): string {
 
 function format01(value: number): string {
 	return value.toFixed(2);
+}
+
+function formatBool(value: boolean): string {
+	return value ? 'on' : 'off';
 }
 
 function formatKilometers(value: number): string {

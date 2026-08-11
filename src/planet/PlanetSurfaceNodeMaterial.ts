@@ -23,6 +23,7 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
+import { getPlanetClassVisualProfile } from './rendering/PlanetClassVisualProfile';
 import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
 
 /**
@@ -104,6 +105,14 @@ export function createPlanetSurfaceNodeMaterial(
 
 	const forcedLavaSurface = uniform(initialForcedLavaSurface);
 	const terrainSeedOffset = uniform(new THREE.Vector3(0, 0, 0));
+	const visualNightAlbedo = uniform(0.28);
+	const visualAmbientBoost = uniform(0.0);
+	const visualDirectLightScale = uniform(1.08);
+	const visualShadowFill = uniform(0.08);
+	const visualVisibilityFloor = uniform(0.04);
+	const visualFillColor = uniform(new THREE.Color(0x4a463d));
+	const visualEnvironmentReflection = uniform(0.12);
+	const visualEnvironmentPeak = uniform(0.0);
 
 	const nightTint = color(0x18395c);
 	const twilightTint = color(0x4f8bc2);
@@ -704,66 +713,66 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const waterHint = oneMinus(
 		smoothstep(
-			0.46,
-			0.66,
+			0.50,
+			0.61,
 			landMask,
 		),
 	);
 
 	const landOnly = smoothstep(
-		0.62,
+		0.64,
 		0.72,
 		landMask,
 	);
 
 	const shallowWater = waterHint.mul(
 		smoothstep(
-			0.34,
-			0.66,
+			0.38,
+			0.61,
 			landMask,
 		),
 	);
 
 	const deepWater = waterHint.mul(
 		oneMinus(
-			smoothstep(
-				0.14,
-				0.54,
-				landMask,
+				smoothstep(
+					0.16,
+					0.50,
+					landMask,
+				),
 			),
-		),
 	);
 
 	const shelfWater = waterHint.mul(
 		smoothstep(
-			0.40,
-			0.62,
+			0.44,
+			0.58,
 			landMask,
 		),
 	).mul(
 		oneMinus(
 			smoothstep(
-				0.68,
-				0.84,
+				0.64,
+				0.76,
 				landMask,
 			),
 		),
 	);
 
-	const coastDistance = landMask.sub(0.58).abs();
+	const coastDistance = landMask.sub(0.60).abs();
 
 	const coastMask = oneMinus(
 		smoothstep(
-			0.025,
-			0.125,
+			0.018,
+			0.082,
 			coastDistance,
 		),
 	);
 
 	const softCoastMask = oneMinus(
 		smoothstep(
-			0.045,
-			0.175,
+			0.036,
+			0.132,
 			coastDistance,
 		),
 	);
@@ -951,53 +960,69 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const earthlikeLand = mix(
-		color(0x245b32),
-		color(0x7b9858),
+		color(0x1d4a31),
+		color(0x668352),
 		smoothstep(
 			0.00,
-			0.18,
-			terrainHeight,
+			0.20,
+			terrainHeight.add(mountainMask.mul(0.05)),
 		),
 	);
 
 	const earthlikeWater = mix(
-		color(0x052542),
-		color(0x126f92),
+		color(0x05233c),
+		color(0x0b5f77),
 		smoothstep(
-			0.16,
-			0.62,
+			0.20,
+			0.58,
 			landMask,
 		),
 	);
 
-	const earthlikeColor = mix(
+	let earthlikeColor = mix(
 		earthlikeWater,
 		earthlikeLand,
 		smoothstep(
-			0.54,
-			0.74,
+			0.58,
+			0.76,
 			landMask,
 		),
 	);
 
-	const barrenLand = mix(
-		color(0x40382f),
-		color(0xb5a184),
+	earthlikeColor = mix(
+		earthlikeColor,
+		color(0x062a3d),
+		waterHint.mul(0.18),
+	);
+
+	earthlikeColor = mix(
+		earthlikeColor,
+		color(0x81906f),
+		mountainPeak.mul(0.16),
+	);
+
+	let barrenColor = mix(
+		color(0x41392f),
+		color(0x9c8767),
 		smoothstep(
 			0.00,
 			0.24,
-			terrainHeight,
+			terrainHeight.add(mountainMask.mul(0.08)),
 		),
 	);
 
-	const barrenColor = mix(
-		color(0x2c2823),
-		barrenLand,
-		smoothstep(
-			0.30,
-			0.56,
-			landMask,
-		),
+	barrenColor = mix(
+		barrenColor,
+		color(0xb7a88a),
+		mountainPeak.mul(0.28),
+	);
+
+	barrenColor = barrenColor.add(
+		coastMask
+			.add(terrainHeight.mul(2.2))
+			.sub(0.5)
+			.mul(color(0x1b1712))
+			.mul(0.16),
 	);
 
 	const desertLand = mix(
@@ -1082,23 +1107,23 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const oceanShelfMask = smoothstep(
-		0.46,
-		0.58,
+		0.48,
+		0.56,
 		landMask,
 	).mul(
 		oneMinus(
 			smoothstep(
-				0.62,
-				0.76,
+				0.60,
+				0.70,
 				landMask,
 			),
 		),
 	);
 
 	const oceanIslandMask = smoothstep(
-		0.76,
-		0.86,
-		landMask.add(terrainHeight.mul(0.18)),
+		0.78,
+		0.83,
+		landMask.add(terrainHeight.mul(0.12)),
 	);
 
 	const oceanPolarIce = smoothstep(
@@ -1148,29 +1173,35 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const rockyLand = mix(
-		color(0x4a4640),
-		color(0xc1aa87),
+		color(0x3f403c),
+		color(0x9c957f),
 		smoothstep(
 			0.00,
-			0.22,
-			terrainHeight,
+			0.24,
+			terrainHeight.add(mountainMask.mul(0.07)),
 		),
 	);
 
 	const rockyWater = mix(
-		color(0x37322e),
-		color(0x7d6c5a),
+		color(0x252724),
+		color(0x5f5a4c),
 		waterHint,
 	);
 
-	const rockyColor = mix(
+	let rockyColor = mix(
 		rockyWater,
 		rockyLand,
 		smoothstep(
-			0.38,
-			0.66,
+			0.34,
+			0.62,
 			landMask,
 		),
+	);
+
+	rockyColor = mix(
+		rockyColor,
+		color(0xc4b899),
+		mountainPeak.mul(0.24),
 	);
 
 	const lavaSurfaceStrength = max(
@@ -1301,34 +1332,40 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const metallicLand = mix(
-		color(0x2c3236),
-		color(0xb5b2a6),
+		color(0x20272b),
+		color(0x6f7167),
 		smoothstep(
 			0.00,
 			0.24,
-			terrainHeight,
+			terrainHeight.add(mountainMask.mul(0.07)),
 		),
 	);
 
-	const metallicColor = mix(
-		color(0x171c20),
+	let metallicColor = mix(
+		color(0x10171b),
 		metallicLand,
 		smoothstep(
-			0.34,
-			0.68,
+			0.30,
+			0.62,
 			landMask,
 		),
 	);
 
+	metallicColor = mix(
+		metallicColor,
+		color(0x9a9788),
+		mountainPeak.mul(0.18),
+	);
+
 	const carbonLowland = mix(
-		color(0x111112),
-		color(0x3a342f),
+		color(0x0d0f10),
+		color(0x2a2925),
 		smoothstep(0.00, 0.10, terrainHeight),
 	);
 
 	const carbonHighland = mix(
-		color(0x453e37),
-		color(0x8c8174),
+		color(0x2f2b25),
+		color(0x5d5144),
 		smoothstep(
 			0.04,
 			0.23,
@@ -1358,14 +1395,14 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	carbonColor = mix(
 		carbonColor,
-		color(0xb2a89c),
-		carbonRidgeVeins.mul(0.46),
+		color(0x756b5c),
+		carbonRidgeVeins.mul(0.22),
 	);
 
 	carbonColor = mix(
 		carbonColor,
-		color(0x4f4136),
-		carbonDust.mul(0.12),
+		color(0x3a3028),
+		carbonDust.mul(0.10),
 	);
 
 	let paletteColor = proceduralColor;
@@ -1865,7 +1902,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		profileMetalInfluence.mul(0.84),
 	);
 
-	const carbonEnvironmentStrength = paletteCarbon.mul(0.16);
+	const carbonEnvironmentStrength = paletteCarbon.mul(0.07);
 	const rockyEnvironmentStrength = paletteRocky.mul(0.10);
 	const barrenEnvironmentStrength = paletteBarren.mul(0.07);
 
@@ -2080,10 +2117,11 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	).mul(exposure.mul(1.05));
 
 	const desertTypeColor = mix(
-		color(0x241408).add(desertColor.mul(0.20)),
+		color(0x241408).add(desertColor.mul(visualNightAlbedo)),
 		desertColor
-			.mul(ambient.add(directLight.mul(1.28)))
+			.mul(ambient.add(visualAmbientBoost).add(directLight.mul(visualDirectLightScale)))
 			.add(color(0xf1bc6b).mul(lowSunHaze).mul(0.24))
+			.add(desertColor.mul(oneMinus(day).mul(visualShadowFill)))
 			.add(color(0xd4a159).mul(mountainPeak).mul(day).mul(0.14)),
 		day,
 	).add(
@@ -2093,24 +2131,26 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	).mul(exposure.mul(1.08));
 
 	const barrenTypeColor = mix(
-		color(0x15120f).add(barrenColor.mul(0.22)),
+		color(0x15120f).add(barrenColor.mul(visualNightAlbedo)),
 		barrenColor
-			.mul(ambient.add(directLight.mul(1.24)))
+			.mul(ambient.add(visualAmbientBoost).add(directLight.mul(visualDirectLightScale)))
 			.add(mountainLightTint.mul(mountainPeak).mul(day).mul(0.18))
+			.add(barrenColor.mul(oneMinus(day).mul(visualShadowFill)))
 			.add(color(0xb9a789).mul(rim).mul(day.mul(0.08).add(0.02))),
 		day,
 	).mul(exposure.mul(1.10));
 
 	const rockyTypeColor = mix(
-		color(0x141210).add(rockyColor.mul(0.20)),
+		color(0x141210).add(rockyColor.mul(visualNightAlbedo)),
 		rockyColor
-			.mul(ambient.add(directLight.mul(1.18)))
-			.add(mountainLightTint.mul(mountainPeak).mul(day).mul(0.20))
-			.add(color(0xa68d70).mul(rim).mul(day.mul(0.06).add(0.015))),
+			.mul(ambient.add(visualAmbientBoost).add(directLight.mul(visualDirectLightScale)))
+			.add(color(0xd1c5a5).mul(mountainPeak).mul(day).mul(0.24))
+			.add(rockyColor.mul(oneMinus(day).mul(visualShadowFill)))
+			.add(color(0x8d8878).mul(rim).mul(day.mul(0.045).add(0.012))),
 		day,
 	).add(
-		solidEnvironmentReflection.mul(0.18),
-	).mul(exposure.mul(1.06));
+		solidEnvironmentReflection.mul(visualEnvironmentReflection),
+	).mul(exposure.mul(1.04));
 
 	const toxicTypeColor = mix(
 		color(0x16211d).add(toxicColor.mul(0.28)),
@@ -2131,31 +2171,33 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	).mul(exposure.mul(1.08));
 
 	const metallicTypeColor = mix(
-		color(0x0c0f12).add(metallicColor.mul(0.24)),
+		color(0x0c0f12).add(metallicColor.mul(visualNightAlbedo)),
 		metallicColor
-			.mul(ambient.add(directLight.mul(1.34)))
-			.add(color(0xe8e3d2).mul(tightSpecular).mul(0.50))
-			.add(color(0xc6c3ba).mul(mountainPeak).mul(day).mul(0.20))
-			.add(color(0xb99a55).mul(mountainMask).mul(day).mul(0.08))
-			.add(color(0x9ea8af).mul(rim).mul(day.mul(0.04).add(0.010))),
+			.mul(ambient.add(visualAmbientBoost).add(directLight.mul(visualDirectLightScale)))
+			.add(color(0xb8b6aa).mul(tightSpecular).mul(0.20))
+			.add(color(0xa9a494).mul(mountainPeak).mul(day).mul(0.14))
+			.add(color(0x7f7562).mul(mountainMask).mul(day).mul(0.045))
+			.add(metallicColor.mul(oneMinus(day).mul(visualShadowFill)))
+			.add(color(0x78838a).mul(rim).mul(day.mul(0.024).add(0.006))),
 		day,
 	).add(
-		solidEnvironmentReflection.mul(0.62),
+		solidEnvironmentReflection.mul(visualEnvironmentReflection),
 	).add(
-		metallicEnvironmentPeak.mul(1.18),
-	).mul(exposure.mul(1.14));
+		metallicEnvironmentPeak.mul(visualEnvironmentPeak),
+	).mul(exposure.mul(1.04));
 
 	const carbonTypeColor = mix(
-		color(0x0d0d0d).add(carbonColor.mul(0.28)),
+		color(0x070808).add(carbonColor.mul(visualNightAlbedo)),
 		carbonColor
-			.mul(ambient.add(directLight.mul(1.36)))
-			.add(color(0xc9bfb2).mul(carbonRidgeVeins).mul(day).mul(0.28))
-			.add(color(0x92735d).mul(mountainMask).mul(day).mul(0.10))
-			.add(color(0x9f9488).mul(rim).mul(day.mul(0.04).add(0.010))),
+			.mul(ambient.add(visualAmbientBoost).add(directLight.mul(visualDirectLightScale)))
+			.add(color(0x756b5c).mul(carbonRidgeVeins).mul(day).mul(0.12))
+			.add(color(0x5a4437).mul(mountainMask).mul(day).mul(0.055))
+			.add(carbonColor.mul(oneMinus(day).mul(visualShadowFill)))
+			.add(color(0x6d665e).mul(rim).mul(day.mul(0.024).add(0.006))),
 		day,
 	).add(
-		solidEnvironmentReflection.mul(0.22),
-	).mul(exposure.mul(1.24));
+		solidEnvironmentReflection.mul(visualEnvironmentReflection),
+	).mul(exposure.mul(1.06));
 
 	const lavaCrustColor = mix(
 		color(0x080403),
@@ -2230,6 +2272,34 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		surfaceColor,
 		carbonTypeColor,
 		paletteCarbon,
+	);
+
+	const drySolidVisibilityMask = max(
+		max(
+			paletteRocky,
+			paletteBarren,
+		),
+		max(
+			paletteCarbon,
+			max(
+				paletteMetallic,
+				paletteDesert.mul(0.55),
+			),
+		),
+	);
+
+	const drySolidVisibility =
+		oneMinus(day)
+			.mul(visualVisibilityFloor.mul(2.45))
+			.add(twilight.mul(0.18))
+			.add(rim.mul(0.08))
+			.add(visualVisibilityFloor);
+
+	surfaceColor = surfaceColor.add(
+		visualFillColor
+			.mul(drySolidVisibilityMask)
+			.mul(drySolidVisibility)
+			.mul(exposure),
 	);
 
 	const iceDayColor = iceColor
@@ -2329,6 +2399,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	(material as any).setSurfaceProfile = (
 		profile: SurfaceRenderProfile,
 	): void => {
+		const visualProfile = getPlanetClassVisualProfile(profile.palette);
+
 		profileOceanLevel.value = profile.oceanLevel;
 		profileMountainScale.value = profile.mountainScale;
 		profileTerrainRoughness.value = profile.terrainRoughness;
@@ -2348,6 +2420,15 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		paletteEarthlike.value = profile.palette === 'earthlike' ? 1.0 : 0.0;
 		paletteRocky.value = profile.palette === 'rocky' ? 1.0 : 0.0;
 		paletteBarren.value = profile.palette === 'barren' ? 1.0 : 0.0;
+
+		visualNightAlbedo.value = visualProfile.nightAlbedo;
+		visualAmbientBoost.value = visualProfile.ambientBoost;
+		visualDirectLightScale.value = visualProfile.directLightScale;
+		visualShadowFill.value = visualProfile.shadowFill;
+		visualVisibilityFloor.value = visualProfile.visibilityFloor;
+		visualFillColor.value.copy(visualProfile.visibilityFillColor);
+		visualEnvironmentReflection.value = visualProfile.environmentReflection;
+		visualEnvironmentPeak.value = visualProfile.environmentPeak;
 
 		surfaceRaymarchStrength.value = profile.raymarchOcclusionStrength;
 	};

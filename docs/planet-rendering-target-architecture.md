@@ -174,6 +174,26 @@ Planet LOD scene should continue to grow into the main validation tool:
 5. Make Planet LOD scene the canonical comparison tool for all planet classes.
 6. Document which values are planet-class defaults and which are render-quality overrides.
 
+## Current Implementation Direction
+
+Planet class look tuning should live in one shared profile layer:
+
+```text
+PlanetClassVisualProfile
+  -> WebGL uniforms
+  -> WebGPU/TSL uniforms
+```
+
+Class-specific color identity, dry-surface visibility, shadow fill, direct-light scale, and environment contribution should be changed in that profile first. The WebGL and WebGPU shader paths may still implement the math differently, but they should consume the same profile values instead of duplicating independent hardcoded look constants.
+
+The current dry-class tuning order is:
+
+1. Adjust `PlanetClassVisualProfile` first.
+2. Compare WebGPU and WebGL in Planet LOD with the same class/seed.
+3. Only touch shader math if a shared profile value cannot express the difference.
+
+Carbon currently has strong visibility/fill compensation because its WebGPU path was still reading as nearly black. Rocky is already close enough for a first pass. Metal-Rich now gets the strongest matte night/fill lift of the dry classes, while keeping reduced environment peak/reflection to avoid a chrome look.
+
 ## Long-Term Work
 
 1. Patch/chunk LOD for terrain.

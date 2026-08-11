@@ -532,14 +532,14 @@ export class Planet {
 			case 'lava':
 				return {
 					density: Math.max(
-						0.18,
-						density * 0.42,
+						0.28,
+						density * 0.68,
 					),
 					haze: Math.max(
-						0.24,
-						haze * 0.70,
+						0.34,
+						haze * 0.90,
 					),
-					color: '#ef3a1f',
+					color: '#ff3a16',
 					palette: 'lava',
 				};
 

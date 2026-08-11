@@ -139,11 +139,11 @@ export class GasGiantLayer {
 			      Math.max(0.0001, this.options.radius);
 		const farFade = THREE.MathUtils.smoothstep(
 			distanceRatio,
-			7.5,
-			22.0,
+			4.5,
+			14.0,
 		);
-		const opacityMultiplier = THREE.MathUtils.lerp(1.0, 0.18, farFade);
-		const sizeMultiplier = THREE.MathUtils.lerp(1.0, 0.52, farFade);
+		const opacityMultiplier = THREE.MathUtils.lerp(1.0, 0.06, farFade);
+		const sizeMultiplier = THREE.MathUtils.lerp(1.0, 0.35, farFade);
 
 		this.cloudParticleLayer.material.opacity =
 			this.cloudParticleLayer.baseOpacity * opacityMultiplier;

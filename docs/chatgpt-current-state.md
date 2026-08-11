@@ -291,6 +291,25 @@ Known limitation:
   - HDR peak opacity scale `0.72`
 - Feature Lab now has `rendering-studio-lighting` / `Studio Lighting` for Frigate GLB material tuning against `/models/warm_studio_hangar_4k.exr`.
 - StarEngine/Star Citizen references were cleaned up in `D:/_repositories/webgl/starcitizen.md` and translated into `docs/planet-rendering-target-architecture.md`.
+- First Planet target pass:
+  - Planet LOD scene now reports renderer mode, renderer kind, feature flags, palettes, terrain/ocean/atmosphere/cloud profile values.
+  - WebGL and WebGPU ocean masks use tighter coast/island thresholds to reduce frayed Ocean land transitions.
+  - Lava atmosphere profile is redder/stronger across WebGL and WebGPU atmosphere layers.
+  - Gas/Ice Giant cloud particles fade earlier and harder with distance so far views are less point-heavy.
+- WebGL PlanetSurfaceMaterial now receives and renders class palettes for Desert, Ice, Lava, Metallic, Rocky, and Barren instead of falling back to the generic terrestrial look. Ocean/Toxic/Carbon were already wired.
+- WebGL PlanetSurfaceMaterial also applies profile-driven terrain ocean bias, height scale, and mountain scale, so Ocean planets reduce continent generation structurally instead of only recoloring large landmasses.
+- WebGPU Barren palette was adjusted toward the accepted WebGL Barren look: drier brown/gray base, brighter highlands, less generic landMask darkening.
+- WebGPU Terrestrial/Earthlike palette was adjusted toward the accepted WebGL look: darker oceans, muted green land, slightly softer coast transition, less saturated bright land.
+- WebGPU Rocky palette was adjusted toward the accepted WebGL look: neutral gray-brown rock, brighter relief edges, less sandy warmth.
+- WebGPU Carbon palette was adjusted toward the accepted WebGL look: darker graphite base, muted brown detail, reduced bright ridge veins and weaker environment reflection.
+- WebGPU Metal-Rich palette was adjusted toward the accepted WebGL look: darker cool ore base, muted gray highlights, reduced chrome-like specular and weaker environment peaks.
+- WebGPU Rocky, Carbon, and Metal-Rich now have extra matte fill/visibility lift in their type lighting blocks so they do not collapse into near-black compared to WebGL.
+- WebGPU solid dry classes now also get a stronger post-type visibility floor and brighter night-base albedo for Rocky/Barren/Carbon/Metal-Rich/Desert, so shadowed surfaces remain readable instead of near-black.
+- `src/planet/rendering/PlanetClassVisualProfile.ts` now centralizes class visual lighting values. WebGPU dry-class type lighting and visibility floor read these uniforms from the shared profile; WebGL also reads the shared profile for direct-light/ambient profile input.
+- Latest WebGPU readability pass only changed `PlanetClassVisualProfile`: Rocky was lifted slightly, Metal-Rich got more matte shadow/fill visibility, and Carbon got the strongest fill/ambient lift because it was still collapsing to black in the comparison screenshots.
+- Follow-up Metal-Rich pass: `metallic` profile now has stronger night/fill/visibility compensation and weaker environment peak/reflection, targeting readable matte ore instead of a bright top with a nearly black lower hemisphere.
+- Second Metal-Rich pass: `metallic` was lifted again after the WebGPU screenshot still showed near-black lower/terminator patches. The class now prioritizes neutral matte readability over shiny high-contrast metal.
+- WebGL Lava was adjusted toward the WebGPU look: dark red basalt crust, subtle diffuse red glow, strongly reduced yellow/white hotspots, and weaker post-lighting emission.
 - Studio Lighting `Blender Match` preset:
   - roughnessMultiplier `1.14`
   - metalnessMultiplier `1.0`
