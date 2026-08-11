@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import {
-	configureObjectMaterials,
-	ensureUv2FromUv,
+	collectNodeNames,
+	countMeshes,
+	countTriangles,
+	findNamedNodes,
 	loadGltfObject,
 	loadObjMtlObject,
+	prepareModelForRuntime,
+	type NamedNodeMatch,
 } from '@conduit/web3d/assets';
 import { normalizeObjectToSize } from '@conduit/web3d/camera';
 import { createBoundingBoxHelper, createDebugLabel, disposeObject3D } from '@conduit/web3d/debug';
@@ -178,7 +182,12 @@ export class ShipModelTestScene implements FeatureTestScene {
 			this.model = object;
 			this.model.name = this.model.name || asset.label;
 			applyAssetOrientation(this.model, asset.orientation);
-			configureInspectableModel(this.model);
+			prepareModelForRuntime(this.model, {
+				ensureUv2: true,
+				castShadow: false,
+				receiveShadow: false,
+				frustumCulled: false,
+			});
 			normalizeObjectToSize(this.model, 3.0);
 			this.root.add(this.model);
 
@@ -186,12 +195,12 @@ export class ShipModelTestScene implements FeatureTestScene {
 			this.root.add(box);
 
 			const nodeNames = collectNodeNames(this.model);
-			const interestingNodes = findInterestingNodes(this.model);
+			const interestingNodes = findNamedNodes(this.model);
 
 			if (this.showLabels) {
-				for (const node of interestingNodes) {
-					const label = createDebugLabel(node.name);
-					node.getWorldPosition(label.position);
+				for (const match of interestingNodes) {
+					const label = createDebugLabel(match.name);
+					match.node.getWorldPosition(label.position);
 					label.position.y += 0.18;
 					this.root.add(label);
 				}
@@ -205,15 +214,15 @@ export class ShipModelTestScene implements FeatureTestScene {
 				detail: asset.label,
 			});
 			context.report({
-				status: nodeNames.some((name) => name.includes('turret')) ? 'pass' : 'warn',
+				status: interestingNodes.some((match) => match.kind === 'turretYaw') ? 'pass' : 'warn',
 				label: 'turret node',
 			});
 			context.report({
-				status: nodeNames.some((name) => name.includes('muzzle')) ? 'pass' : 'warn',
+				status: interestingNodes.some((match) => match.kind === 'muzzle' || match.kind === 'launcherMuzzle') ? 'pass' : 'warn',
 				label: 'muzzle node',
 			});
 			context.report({
-				status: nodeNames.some((name) => name.includes('engine')) ? 'pass' : 'warn',
+				status: interestingNodes.some((match) => match.kind === 'engine') ? 'pass' : 'warn',
 				label: 'engine node',
 			});
 
@@ -255,31 +264,6 @@ async function loadObj(
 	name: string,
 ): Promise<THREE.Object3D> {
 	return loadObjMtlObject(objUrl, mtlUrl, { name });
-}
-
-function configureInspectableModel(model: THREE.Object3D): void {
-	ensureUv2FromUv(model);
-
-	model.traverse((object) => {
-		if (!(object instanceof THREE.Mesh)) {
-			return;
-		}
-
-		object.castShadow = false;
-		object.receiveShadow = false;
-		object.frustumCulled = false;
-
-		if (object.geometry) {
-			object.geometry.computeBoundingBox();
-			object.geometry.computeBoundingSphere();
-		}
-	});
-
-	configureObjectMaterials(model, (material) => {
-		material.depthWrite = true;
-		material.depthTest = true;
-		material.needsUpdate = true;
-	});
 }
 
 function applyAssetOrientation(
@@ -335,42 +319,6 @@ function createForwardAxisOverlay(): THREE.Group {
 	return group;
 }
 
-function collectNodeNames(root: THREE.Object3D): string[] {
-	const nodeNames: string[] = [];
-
-	root.traverse((node) => {
-		if (node.name) {
-			nodeNames.push(node.name);
-		}
-	});
-
-	return nodeNames;
-}
-
-function findInterestingNodes(root: THREE.Object3D): THREE.Object3D[] {
-	const nodes: THREE.Object3D[] = [];
-
-	root.traverse((node) => {
-		const name = node.name.toLowerCase();
-
-		if (
-			name.includes('turret') ||
-			name.includes('muzzle') ||
-			name.includes('launcher') ||
-			name.includes('rocket') ||
-			name.includes('missile') ||
-			name.includes('engine') ||
-			name.includes('spawn') ||
-			name.includes('dock') ||
-			name.includes('rally')
-		) {
-			nodes.push(node);
-		}
-	});
-
-	return nodes;
-}
-
 function renderAssetOptions(selectedId: string): string {
 	const categories = [...new Set(MODEL_ASSETS.map((entry) => entry.category))];
 
@@ -389,13 +337,13 @@ function renderAssetOptions(selectedId: string): string {
 function renderModelInfo(
 	model: THREE.Object3D,
 	nodeNames: string[],
-	interestingNodes: THREE.Object3D[],
+	interestingNodes: NamedNodeMatch[],
 ): string {
 	const meshCount = countMeshes(model);
 	const triangles = countTriangles(model);
 	const interesting = interestingNodes
 		.slice(0, 18)
-		.map((node) => escapeHtml(node.name))
+		.map((match) => `${escapeHtml(match.kind)}: ${escapeHtml(match.name)}`)
 		.join('<br>');
 
 	return (
@@ -406,40 +354,6 @@ function renderModelInfo(
 			? `<div style="margin-top:8px;color:#8fe7ff;">Interesting Nodes</div>${interesting}`
 			: '<div style="margin-top:8px;">No named turret/muzzle/engine/spawn nodes found.</div>')
 	);
-}
-
-function countMeshes(root: THREE.Object3D): number {
-	let count = 0;
-
-	root.traverse((node) => {
-		if (node instanceof THREE.Mesh) {
-			count++;
-		}
-	});
-
-	return count;
-}
-
-function countTriangles(root: THREE.Object3D): number {
-	let triangles = 0;
-
-	root.traverse((node) => {
-		if (!(node instanceof THREE.Mesh)) {
-			return;
-		}
-
-		const geometry = node.geometry;
-		const index = geometry.getIndex();
-		const position = geometry.getAttribute('position');
-
-		if (index) {
-			triangles += index.count / 3;
-		} else if (position) {
-			triangles += position.count / 3;
-		}
-	});
-
-	return Math.round(triangles);
 }
 
 function escapeHtml(value: string): string {

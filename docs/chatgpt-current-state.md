@@ -286,6 +286,10 @@ Known limitation:
 - Old local re-export shims for `RendererFactory`, `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` were removed after all app imports moved to `@conduit/web3d`.
 - GamePrototypeScene, ShipModelTestScene and StudioLightingTestScene now use Conduit GLTF/OBJ/MTL asset loaders.
 - Shared Conduit helpers now cover generic UV2 fallback, material traversal for material arrays, and object normalization used by both Game and Feature Lab model views.
+- Conduit assets now also include `ModelPreparation` and `NodeDiscovery` helpers:
+  - `prepareModelForRuntime()` handles UV2 fallback, optional geometry/material cloning, shadow/frustum flags, bounds recompute, and optional material snapshots.
+  - `findNamedNodes()` / `findNodesByKind()` centralize technical node patterns for engine, turret yaw, muzzle, launcher muzzle, spawn, dock, and rally nodes.
+- Ship Model Viewer, Engine VFX test, Studio Lighting, EngineVfxSystem, and CombatVfxSystem now use the shared Conduit asset/node helpers where applicable.
 - Asset-specific orientation/scale profiles, gameplay nodes, engine FX logic, turret behavior, combat state, and production rules remain in the Game.
 - Frigate GLB import now keeps exported normals/tangents instead of recomputing vertex normals in the Game loader.
 - Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.

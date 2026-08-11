@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { ensureUv2FromUv, loadGltfObject } from '@conduit/web3d/assets';
+import {
+	loadGltfObject,
+	prepareModelForRuntime,
+} from '@conduit/web3d/assets';
 import { frameObject, normalizeObjectToSize } from '@conduit/web3d/camera';
 import { disposeObject3D } from '@conduit/web3d/debug';
 import {
@@ -7,7 +10,6 @@ import {
 } from '@conduit/web3d/environment';
 import { StudioLightingRig } from '@conduit/web3d/lighting';
 import {
-	captureMaterialSnapshot,
 	restoreMaterialSnapshot,
 	type MaterialSnapshot,
 } from '@conduit/web3d/materials';
@@ -194,25 +196,17 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	}
 
 	private prepareModel(model: THREE.Object3D): void {
-		ensureUv2FromUv(model);
-
-		model.traverse((object) => {
-			if (!(object instanceof THREE.Mesh)) {
-				return;
-			}
-
-			object.geometry = object.geometry.clone();
-			object.castShadow = false;
-			object.receiveShadow = false;
-			object.frustumCulled = false;
-
-			if (Array.isArray(object.material)) {
-				object.material = object.material.map((material) => this.cloneMaterial(material));
-			} else {
-				object.material = this.cloneMaterial(object.material);
-			}
+		const prepared = prepareModelForRuntime(model, {
+			ensureUv2: true,
+			cloneGeometry: true,
+			cloneMaterials: true,
+			castShadow: false,
+			receiveShadow: false,
+			frustumCulled: false,
+			captureMaterialSnapshots: true,
 		});
 
+		this.materialSnapshots.push(...prepared.materialSnapshots);
 		normalizeObjectToSize(model, 4.6);
 	}
 
@@ -245,17 +239,6 @@ export class StudioLightingTestScene implements FeatureTestScene {
 				targetHeightFactor: 0.52,
 			},
 		);
-	}
-
-	private cloneMaterial(material: THREE.Material): THREE.Material {
-		const clone = material.clone();
-
-		clone.depthWrite = true;
-		clone.depthTest = true;
-		clone.needsUpdate = true;
-		this.materialSnapshots.push(captureMaterialSnapshot(clone));
-
-		return clone;
 	}
 
 	private createLighting(): void {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { findNodesByKind } from '@conduit/web3d/assets';
 import { createDebugPoint, disposeObject3D } from '@conduit/web3d/debug';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import { createInspectableShipModel, createTestShipDefinition } from '../../TestShipFactory';
@@ -90,14 +91,6 @@ export class EngineVfxTestScene implements FeatureTestScene {
 	}
 
 	private findEngineNodes(root: THREE.Object3D): THREE.Object3D[] {
-		const nodes: THREE.Object3D[] = [];
-
-		root.traverse((node) => {
-			if (node.name.startsWith('engine_')) {
-				nodes.push(node);
-			}
-		});
-
-		return nodes;
+		return findNodesByKind(root, 'engine');
 	}
 }

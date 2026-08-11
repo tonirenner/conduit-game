@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { findNodesByKind } from '@conduit/web3d/assets';
 
 import type {
 	ShipDefinition,
@@ -434,33 +435,7 @@ function createPlumeTexture(): THREE.CanvasTexture {
 }
 
 function findEngineNodes(root: THREE.Object3D): THREE.Object3D[] {
-	const nodes: THREE.Object3D[] = [];
-
-	root.traverse((node) => {
-		if (isEngineAnchorNode(node)) {
-			nodes.push(node);
-		}
-	});
-
-	return nodes;
-}
-
-function isEngineAnchorNode(node: THREE.Object3D): boolean {
-	const name = node.name.toLowerCase();
-
-	if (
-		name === ENGINE_ROOT_NAME.toLowerCase() ||
-		name.startsWith('engine_core_') ||
-		name.startsWith('engine_plume_')
-	) {
-		return false;
-	}
-
-	return (
-		/^engine_\d+$/.test(name) ||
-		/^engine_main_\d+$/.test(name) ||
-		/^engine[-_][-\d.]+$/.test(name)
-	);
+	return findNodesByKind(root, 'engine');
 }
 
 function getNodeCoreRadius(

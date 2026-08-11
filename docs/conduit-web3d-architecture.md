@@ -161,15 +161,17 @@ Notes:
 Current files:
 
 - `src/game/rendering/ShipMaterialLightingProfile.ts`
-- material snapshot/restore logic inside `StudioLightingTestScene.ts`
+- `packages/conduit-web3d/src/materials/MaterialSnapshot.ts`
+- `packages/conduit-web3d/src/materials/MaterialAdjustmentProfile.ts`
+- model preparation now uses `packages/conduit-web3d/src/assets/ModelPreparation.ts`
 - material cloning/traversal logic in `GamePrototypeScene.ts`
-- material configuration logic in `ShipModelTestScene.ts`
 
 Assessment:
 
 - `applyShipMaterialLightingProfile()` is technically generic but currently named for ships and stored under `game/rendering`.
 - The concrete `FRIGATE_MATERIAL_LIGHTING_PROFILE` is asset/game-specific.
-- Snapshot/restore and safe traversal over material arrays are reusable and should be extracted.
+- Snapshot/restore and safe traversal over material arrays are reusable and are now partly extracted.
+- `prepareModelForRuntime()` covers UV2 fallback, optional geometry/material cloning, shadow flags, frustum culling, bounds recompute, and material snapshot capture.
 
 Conduit target:
 
@@ -177,10 +179,10 @@ Conduit target:
 @conduit/web3d/materials
   MaterialAdjustmentProfile
   applyMaterialAdjustmentProfile()
-  cloneObjectMaterials()
+  prepareModelForRuntime()
+  cloneMaterialOrArray()
   captureMaterialSnapshot()
   restoreMaterialSnapshot()
-  traverseMaterials()
 ```
 
 Game target:
@@ -201,13 +203,15 @@ Notes:
 Current files:
 
 - GLTF/OBJ/MTL loading inside `GamePrototypeScene.ts`
-- GLTF/OBJ/MTL loading inside `ShipModelTestScene.ts`
+- `packages/conduit-web3d/src/assets/AssetLoaders.ts`
+- `packages/conduit-web3d/src/assets/ModelPreparation.ts`
+- `packages/conduit-web3d/src/assets/NodeDiscovery.ts`
 - EXR loading inside `StudioLightingTestScene.ts`
 
 Assessment:
 
-- Loader setup is duplicated across game and lab scenes.
-- Good candidate after materials/environment extraction.
+- Loader setup is now shared for Game and Feature Lab.
+- Model preparation and named-node discovery are now shared by Model Viewer, Studio Lighting, Engine VFX, and Combat VFX.
 
 Conduit target:
 
@@ -217,12 +221,16 @@ Conduit target:
   loadObjMtl()
   AssetCache
   cloneLoadedObject()
+  prepareModelForRuntime()
+  findNamedNodes()
+  findNodesByKind()
 ```
 
 Notes:
 
 - Do not move game asset catalogs or gameplay decisions into Conduit.
 - Conduit can provide loaders and cache; the game decides which URL maps to which ship/station.
+- Node discovery is intentionally technical only. Engine thrust behavior, turret behavior, weapon choice, station spawning, and production rules stay in the game.
 
 ### Debug
 

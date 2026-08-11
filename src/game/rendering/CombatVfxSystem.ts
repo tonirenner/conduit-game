@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+	findFirstNodeByKind,
+	matchesNamedNodeKind,
+} from '@conduit/web3d/assets';
 import type { CombatEvent, ShipDefinition } from '../model/GameWorld';
 
 export type CombatVfxSystemOptions = {
@@ -335,23 +339,11 @@ export class CombatVfxSystem {
         source: THREE.Object3D,
         weaponKind: CombatEvent['weaponKind'],
     ): THREE.Vector3 {
-        let node: THREE.Object3D | null = null;
         const wantsLauncher = weaponKind === 'missile' || weaponKind === 'rocket';
-
-        source.traverse((object) => {
-            if (node) {
-                return;
-            }
-
-            if (wantsLauncher && isLauncherMuzzleNode(object)) {
-                node = object;
-                return;
-            }
-
-            if (!wantsLauncher && isMuzzleNode(object)) {
-                node = object;
-            }
-        });
+        const node = findFirstNodeByKind(
+            source,
+            wantsLauncher ? 'launcherMuzzle' : 'muzzle',
+        );
 
         const position = new THREE.Vector3();
         (node ?? source).getWorldPosition(position);
@@ -376,30 +368,7 @@ function getBeamColor(weaponKind: CombatEvent['weaponKind']): THREE.ColorReprese
 }
 
 function isTurretYawNode(object: THREE.Object3D): boolean {
-    return object.name === 'turret_yaw' || /^turret_\d+_yaw$/.test(object.name);
-}
-
-function isMuzzleNode(object: THREE.Object3D): boolean {
-    const name = object.name.toLowerCase();
-
-    return (
-        name === 'muzzle' ||
-        /^muzzle_\d+$/.test(name) ||
-        /^turret_\d+_muzzle(?:_(?:left|right))?$/.test(name)
-    );
-}
-
-function isLauncherMuzzleNode(object: THREE.Object3D): boolean {
-    const name = object.name.toLowerCase();
-
-    return (
-        name === 'launcher_muzzle' ||
-        name === 'rocket_muzzle' ||
-        /^launcher_\d+_muzzle$/.test(name) ||
-        /^rocket_muzzle_\d+$/.test(name) ||
-        /^missile_muzzle_\d+$/.test(name) ||
-        /^rocket_launcher_\d+$/.test(name)
-    );
+    return matchesNamedNodeKind(object, 'turretYaw');
 }
 
 function easeOutCubic(value: number): number {
