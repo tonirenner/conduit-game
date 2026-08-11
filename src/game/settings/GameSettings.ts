@@ -1,4 +1,4 @@
-import type { PostProcessingQuality } from '../../postprocessing/PostProcessingPipeline';
+import type { PostProcessingQuality } from '@conduit/web3d/postprocessing';
 import type { RendererMode } from '@conduit/web3d/renderer';
 
 export type EffectsQuality =

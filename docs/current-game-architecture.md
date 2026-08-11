@@ -12,7 +12,7 @@ This document captures the current prototype architecture before the singleplaye
   - `?game=1`: game prototype
   - renderer and debug options are also URL-driven.
 - `packages/conduit-web3d/src/renderer/RendererFactory.ts` creates either WebGL or WebGPU. WebGPU is opt-in through settings/URL boot parameters and falls back to WebGL when unavailable.
-- `src/postprocessing/PostProcessingPipeline.ts` dynamically loads WebGPU/TSL post-processing. It currently supports GTAO, SSR, Bloom, tone mapping, and a normal-render fallback.
+- `packages/conduit-web3d/src/postprocessing/PostProcessingPipeline.ts` dynamically loads WebGPU/TSL post-processing. It currently supports GTAO, SSR, Bloom, tone mapping, and a normal-render fallback.
 
 ## Important Modules
 

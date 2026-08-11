@@ -14,7 +14,7 @@ import {generatePlanetDefinition} from './planet/generation/PlanetGenerator';
 import {createPlanetRenderProfile} from './planet/rendering/PlanetRenderProfile';
 import {resolveTerrainProfileKind} from './planet/rendering/TerrainRenderProfile';
 import {SUN_DIRECTION, SUN_DISTANCE} from './planet/Sun';
-import {PostProcessingPipeline} from './postprocessing/PostProcessingPipeline';
+import {PostProcessingPipeline} from '@conduit/web3d/postprocessing';
 import {RenderTuningPanel} from './debug/RenderTuningPanel';
 import type {PlanetClass} from './planet/model/PlanetDefinition';
 import {GamePrototypeScene} from './game/rendering/GamePrototypeScene';

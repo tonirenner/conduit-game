@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 
+import type { RendererMode, Web3DRenderer } from '../renderer';
+
 export type PostProcessingQuality =
 	| 'low'
 	| 'medium'
 	| 'high'
 	| 'ultra';
 
-export type PostProcessingRendererMode =
-	| 'webgl'
-	| 'webgpu';
+export type PostProcessingRendererMode = RendererMode;
 
 export type PostProcessingPipelineOptions = {
 	enabled?: boolean;
@@ -17,15 +17,6 @@ export type PostProcessingPipelineOptions = {
 	enableGTAO?: boolean;
 	enableSSR?: boolean;
 	enableBloom?: boolean;
-	toneMappingExposure?: number;
-};
-
-type RendererLike = {
-	render: (
-		scene: THREE.Scene,
-		camera: THREE.Camera,
-	) => void;
-	toneMapping?: THREE.ToneMapping;
 	toneMappingExposure?: number;
 };
 
@@ -52,7 +43,7 @@ export class PostProcessingPipeline {
 	private initializationFailed = false;
 
 	constructor(
-		private readonly renderer: RendererLike,
+		private readonly renderer: Web3DRenderer,
 		private readonly scene: THREE.Scene,
 		private readonly camera: THREE.PerspectiveCamera,
 		options: PostProcessingPipelineOptions,

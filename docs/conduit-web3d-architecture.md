@@ -32,6 +32,7 @@ packages/conduit-web3d/
   src/
     renderer/
     environment/
+    lighting/
     materials/
     assets/
     debug/
@@ -99,12 +100,14 @@ Current files:
 
 - `packages/conduit-web3d/src/environment/DynamicEnvironmentProbe.ts`
 - `packages/conduit-web3d/src/environment/ExrEnvironmentLoader.ts`
+- `packages/conduit-web3d/src/environment/SceneEnvironmentManager.ts`
 - profile constants remain in `src/game/rendering/ShipMaterialLightingProfile.ts`
 
 Assessment:
 
 - `DynamicEnvironmentProbe` is almost generic. It only has a comment mentioning the current skydome/backdrop behavior.
-- EXR environment loading is currently embedded in a test scene and should be extracted.
+- EXR environment loading is extracted.
+- `SceneEnvironmentManager` now owns reusable scene environment application: EXR environment map, optional visible background, environment intensity, environment/background rotation, tone mapping, exposure, snapshot/restore, and cleanup.
 - `GAME_ENVIRONMENT_PROBE_PROFILE` is game-specific as a concrete preset, but the profile type itself is generic.
 
 Conduit target:
@@ -113,8 +116,7 @@ Conduit target:
 @conduit/web3d/environment
   DynamicEnvironmentProbe
   loadExrEnvironment()
-  EnvironmentProfile
-  applySceneEnvironment()
+  SceneEnvironmentManager
 ```
 
 Game target:
@@ -129,6 +131,30 @@ Notes:
 - Conduit should provide the mechanism.
 - The game should own the concrete space-look preset values.
 - `DynamicEnvironmentProbe` should accept `renderer: THREE.WebGLRenderer` or a typed renderer interface instead of `unknown` where possible.
+
+### Lighting
+
+Current files:
+
+- `packages/conduit-web3d/src/lighting/StudioLightingRig.ts`
+
+Assessment:
+
+- Studio-style Key/Fill setup is generic enough for model viewers, material labs, product viewers, and game asset inspection.
+- Concrete intensity/color presets still live in the app/game.
+
+Conduit target:
+
+```text
+@conduit/web3d/lighting
+  StudioLightingRig
+  directionFromAngles()
+```
+
+Notes:
+
+- `StudioLightingRig` provides reusable light objects and direction math only.
+- It does not know about ships, weapons, game state, or Feature Lab UI.
 
 ### Materials
 
@@ -248,35 +274,42 @@ Conduit target:
   createOrbitCameraPreset()
 ```
 
-## Later / Riskier Candidates
-
 ### Postprocessing
 
-Current file:
+Original file:
 
 - `src/postprocessing/PostProcessingPipeline.ts`
 
+Current files:
+
+- `packages/conduit-web3d/src/postprocessing/PostProcessingPipeline.ts`
+- `packages/conduit-web3d/src/postprocessing/index.ts`
+
 Assessment:
 
-- It is mostly generic and already outside `game`.
+- It is mostly generic and now lives in `@conduit/web3d/postprocessing`.
 - It has fragile WebGPU/TSL version-specific code and fallbacks.
 - It currently has static startup options; live tuning from Feature Lab is not fully supported yet.
 
-Conduit target:
+Conduit API:
 
 ```text
 @conduit/web3d/postprocessing
   PostProcessingPipeline
-  PostProcessingProfiles
+  PostProcessingQuality
 ```
 
-Before extraction:
+Remaining work:
 
 - Add a stable public API for updating exposure and effect toggles or rebuilding the pipeline safely.
 - Keep quality profiles generic.
-- Do not move until the current WebGPU/TSL behavior is stable.
+- Split preset/profile data from the pipeline class once live Feature Lab tuning needs direct access.
+
+## Later / Riskier Candidates
 
 ### Generic Effects
+
+Current files:
 
 Current files:
 

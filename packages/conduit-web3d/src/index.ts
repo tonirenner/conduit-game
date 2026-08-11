@@ -4,3 +4,5 @@ export * from './materials';
 export * from './assets';
 export * from './debug';
 export * from './camera';
+export * from './lighting';
+export * from './postprocessing';

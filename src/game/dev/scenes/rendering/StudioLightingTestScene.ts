@@ -3,9 +3,9 @@ import { ensureUv2FromUv, loadGltfObject } from '@conduit/web3d/assets';
 import { frameObject, normalizeObjectToSize } from '@conduit/web3d/camera';
 import { disposeObject3D } from '@conduit/web3d/debug';
 import {
-	loadExrEnvironment,
-	type LoadedExrEnvironment,
+	SceneEnvironmentManager,
 } from '@conduit/web3d/environment';
+import { StudioLightingRig } from '@conduit/web3d/lighting';
 import {
 	captureMaterialSnapshot,
 	restoreMaterialSnapshot,
@@ -47,16 +47,6 @@ type StudioState = {
 
 type StudioStateValue = StudioState[keyof StudioState];
 
-type SceneSnapshot = {
-	environment: THREE.Texture | null;
-	background: THREE.Color | THREE.Texture | null;
-	environmentIntensity?: number;
-	environmentRotation?: THREE.Euler;
-	backgroundRotation?: THREE.Euler;
-	toneMapping: THREE.ToneMapping;
-	toneMappingExposure: number;
-};
-
 export class StudioLightingTestScene implements FeatureTestScene {
 	readonly id = 'rendering-studio-lighting';
 	readonly name = 'Studio Lighting';
@@ -65,13 +55,11 @@ export class StudioLightingTestScene implements FeatureTestScene {
 
 	private context: FeatureTestContext | null = null;
 	private hostScene: THREE.Scene | null = null;
-	private sceneSnapshot: SceneSnapshot | null = null;
+	private environmentManager: SceneEnvironmentManager | null = null;
+	private lightingRig: StudioLightingRig | null = null;
 	private readonly root = new THREE.Group();
 	private model: THREE.Object3D | null = null;
 	private floor: THREE.Mesh | null = null;
-	private keyLight: THREE.DirectionalLight | null = null;
-	private fillLight: THREE.DirectionalLight | null = null;
-	private loadedEnvironment: LoadedExrEnvironment | null = null;
 	private readonly modelBasePosition = new THREE.Vector3();
 	private readonly materialSnapshots: MaterialSnapshot[] = [];
 	private loadGeneration = 0;
@@ -80,7 +68,10 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	async init(context: FeatureTestContext): Promise<void> {
 		this.context = context;
 		this.hostScene = getHostScene(context.scene);
-		this.sceneSnapshot = captureSceneState(this.hostScene, context.renderer);
+		this.environmentManager = new SceneEnvironmentManager(
+			this.hostScene,
+			context.renderer,
+		);
 		this.root.name = 'StudioLightingTestScene';
 		context.scene.add(this.root);
 
@@ -88,9 +79,6 @@ export class StudioLightingTestScene implements FeatureTestScene {
 		context.controls.target.set(0, 0.65, 0);
 		context.controls.enablePan = true;
 		context.controls.update();
-
-		context.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-		context.renderer.toneMappingExposure = this.state.exposure;
 
 		this.createLighting();
 		this.createFloor();
@@ -114,20 +102,18 @@ export class StudioLightingTestScene implements FeatureTestScene {
 
 	dispose(): void {
 		this.loadGeneration++;
-		this.restoreSceneState();
+		this.environmentManager?.dispose({ restore: true });
 		this.context?.scene.remove(this.root);
 		disposeObject3D(this.root);
 		this.root.clear();
-		this.loadedEnvironment?.dispose();
-		this.loadedEnvironment = null;
+		this.lightingRig?.dispose();
+		this.environmentManager = null;
+		this.lightingRig = null;
 		this.materialSnapshots.length = 0;
 		this.model = null;
 		this.floor = null;
-		this.keyLight = null;
-		this.fillLight = null;
 		this.context = null;
 		this.hostScene = null;
-		this.sceneSnapshot = null;
 	}
 
 	async reset(): Promise<void> {
@@ -136,26 +122,20 @@ export class StudioLightingTestScene implements FeatureTestScene {
 
 	private async loadEnvironment(): Promise<void> {
 		const context = this.context;
-		const hostScene = this.hostScene;
+		const environmentManager = this.environmentManager;
 		const generation = this.loadGeneration;
 
-		if (!context || !hostScene) {
+		if (!context || !environmentManager) {
 			return;
 		}
 
 		try {
-			const environment = await loadExrEnvironment(
-				context.renderer as unknown as THREE.WebGLRenderer,
-				STUDIO_EXR_URL,
-			);
+			const environment = await environmentManager.loadExr(STUDIO_EXR_URL);
 
-			if (generation !== this.loadGeneration) {
-				environment.dispose();
+			if (!environment || generation !== this.loadGeneration) {
 				return;
 			}
 
-			this.loadedEnvironment = environment;
-			hostScene.environment = environment.environmentMap;
 			this.applyHostSceneState();
 
 			context.report({
@@ -278,11 +258,15 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	}
 
 	private createLighting(): void {
-		this.keyLight = new THREE.DirectionalLight(0xfff1dc, this.state.keyIntensity);
-		this.keyLight.name = 'Studio Key Light';
-		this.fillLight = new THREE.DirectionalLight(0x9fc8ff, this.state.fillIntensity);
-		this.fillLight.name = 'Studio Fill Light';
-		this.root.add(this.keyLight, this.fillLight);
+		this.lightingRig = new StudioLightingRig({
+			keyIntensity: this.state.keyIntensity,
+			keyColor: this.state.keyColor,
+			keyAzimuthDegrees: this.state.keyAzimuth,
+			keyElevationDegrees: this.state.keyElevation,
+			fillIntensity: this.state.fillIntensity,
+			fillColor: this.state.fillColor,
+		});
+		this.root.add(this.lightingRig.group);
 	}
 
 	private createFloor(): void {
@@ -492,56 +476,33 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	}
 
 	private applyLighting(): void {
-		if (!this.keyLight || !this.fillLight || !this.context) {
+		if (!this.lightingRig) {
 			return;
 		}
 
-		this.keyLight.intensity = this.state.keyIntensity;
-		this.keyLight.color.set(this.state.keyColor);
-		this.keyLight.position.copy(directionFromAngles(
-			this.state.keyAzimuth,
-			this.state.keyElevation,
-		).multiplyScalar(6));
-
-		this.fillLight.intensity = this.state.fillIntensity;
-		this.fillLight.color.set(this.state.fillColor);
-		this.fillLight.position.copy(directionFromAngles(
-			this.state.keyAzimuth + 145,
-			Math.max(8, this.state.keyElevation * 0.45),
-		).multiplyScalar(5));
-
-		this.context.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-		this.context.renderer.toneMappingExposure = this.state.exposure;
+		this.lightingRig.apply({
+			keyIntensity: this.state.keyIntensity,
+			keyColor: this.state.keyColor,
+			keyAzimuthDegrees: this.state.keyAzimuth,
+			keyElevationDegrees: this.state.keyElevation,
+			fillIntensity: this.state.fillIntensity,
+			fillColor: this.state.fillColor,
+		});
 	}
 
 	private applyHostSceneState(): void {
-		if (!this.hostScene) {
+		if (!this.environmentManager) {
 			return;
 		}
 
-		const sceneWithEnvironment = this.hostScene as THREE.Scene & {
-			environmentIntensity?: number;
-			environmentRotation?: THREE.Euler;
-			backgroundRotation?: THREE.Euler;
-		};
-
-		sceneWithEnvironment.environmentIntensity = this.state.environmentIntensity;
-
-		if (sceneWithEnvironment.environmentRotation) {
-			sceneWithEnvironment.environmentRotation.y =
-				THREE.MathUtils.degToRad(this.state.environmentRotation);
-		}
-
-		if (sceneWithEnvironment.backgroundRotation) {
-			sceneWithEnvironment.backgroundRotation.y =
-				THREE.MathUtils.degToRad(this.state.environmentRotation);
-		}
-
-		if (this.state.environmentVisible && this.loadedEnvironment) {
-			this.hostScene.background = this.loadedEnvironment.sourceTexture;
-		} else {
-			this.hostScene.background = new THREE.Color(this.state.backgroundColor);
-		}
+		this.environmentManager.apply({
+			environmentIntensity: this.state.environmentIntensity,
+			environmentRotationDegrees: this.state.environmentRotation,
+			environmentVisible: this.state.environmentVisible,
+			backgroundColor: this.state.backgroundColor,
+			toneMapping: THREE.ACESFilmicToneMapping,
+			toneMappingExposure: this.state.exposure,
+		});
 	}
 
 	private applyMaterialState(): void {
@@ -600,34 +561,6 @@ export class StudioLightingTestScene implements FeatureTestScene {
 		});
 	}
 
-	private restoreSceneState(): void {
-		if (!this.context || !this.hostScene || !this.sceneSnapshot) {
-			return;
-		}
-
-		const sceneWithEnvironment = this.hostScene as THREE.Scene & {
-			environmentIntensity?: number;
-			environmentRotation?: THREE.Euler;
-			backgroundRotation?: THREE.Euler;
-		};
-
-		this.hostScene.environment = this.sceneSnapshot.environment;
-		this.hostScene.background = this.sceneSnapshot.background;
-		sceneWithEnvironment.environmentIntensity =
-			this.sceneSnapshot.environmentIntensity;
-
-		if (sceneWithEnvironment.environmentRotation && this.sceneSnapshot.environmentRotation) {
-			sceneWithEnvironment.environmentRotation.copy(this.sceneSnapshot.environmentRotation);
-		}
-
-		if (sceneWithEnvironment.backgroundRotation && this.sceneSnapshot.backgroundRotation) {
-			sceneWithEnvironment.backgroundRotation.copy(this.sceneSnapshot.backgroundRotation);
-		}
-
-		this.context.renderer.toneMapping = this.sceneSnapshot.toneMapping;
-		this.context.renderer.toneMappingExposure =
-			this.sceneSnapshot.toneMappingExposure;
-	}
 }
 
 function createBlenderMatchState(): StudioState {
@@ -672,44 +605,8 @@ function getHostScene(scene: THREE.Scene): THREE.Scene {
 	       : scene;
 }
 
-function captureSceneState(
-	scene: THREE.Scene,
-	renderer: THREE.WebGLRenderer,
-): SceneSnapshot {
-	const sceneWithEnvironment = scene as THREE.Scene & {
-		environmentIntensity?: number;
-		environmentRotation?: THREE.Euler;
-		backgroundRotation?: THREE.Euler;
-	};
-
-	return {
-		environment: scene.environment,
-		background: scene.background,
-		environmentIntensity: sceneWithEnvironment.environmentIntensity,
-		environmentRotation: sceneWithEnvironment.environmentRotation?.clone(),
-		backgroundRotation: sceneWithEnvironment.backgroundRotation?.clone(),
-		toneMapping: renderer.toneMapping,
-		toneMappingExposure: renderer.toneMappingExposure,
-	};
-}
-
 function isStandardMaterial(
 	material: THREE.Material,
 ): material is THREE.MeshStandardMaterial {
 	return material instanceof THREE.MeshStandardMaterial;
-}
-
-function directionFromAngles(
-	azimuthDegrees: number,
-	elevationDegrees: number,
-): THREE.Vector3 {
-	const azimuth = THREE.MathUtils.degToRad(azimuthDegrees);
-	const elevation = THREE.MathUtils.degToRad(elevationDegrees);
-	const horizontal = Math.cos(elevation);
-
-	return new THREE.Vector3(
-		Math.sin(azimuth) * horizontal,
-		Math.sin(elevation),
-		Math.cos(azimuth) * horizontal,
-	).normalize();
 }

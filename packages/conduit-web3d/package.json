@@ -10,7 +10,9 @@
     "./materials": "./src/materials/index.ts",
     "./assets": "./src/assets/index.ts",
     "./debug": "./src/debug/index.ts",
-    "./camera": "./src/camera/index.ts"
+    "./camera": "./src/camera/index.ts",
+    "./lighting": "./src/lighting/index.ts",
+    "./postprocessing": "./src/postprocessing/index.ts"
   },
   "peerDependencies": {
     "three": "^0.185.1"

@@ -127,7 +127,7 @@ File: `src/game/rendering/EngineVfxSystem.ts`
 
 ## PostProcessing
 
-File: `src/postprocessing/PostProcessingPipeline.ts`
+File: `packages/conduit-web3d/src/postprocessing/PostProcessingPipeline.ts`
 
 - Fixed Three r185 SSR `float(null)` crash by using SSR options object with concrete nodes.
 - GTAO, SSR, Bloom, and exposure were tuned down.
@@ -137,6 +137,8 @@ File: `src/postprocessing/PostProcessingPipeline.ts`
   - higher SSR resolution scale to reduce blocky plane reflections
 - Latest tuning lowered High/Ultra SSR opacity and distance again, and tightened Bloom thresholds/strength.
 - Bloom is intended only for bright emissive details, not large glow fields.
+- PostProcessing is now exported as `@conduit/web3d/postprocessing`.
+- `src/main.ts` and `src/game/settings/GameSettings.ts` import the pipeline/types from Conduit instead of the old app-local path.
 
 PostFX test scene:
 
@@ -290,6 +292,10 @@ Known limitation:
   - HDR peak size scale `1.7`
   - HDR peak opacity scale `0.72`
 - Feature Lab now has `rendering-studio-lighting` / `Studio Lighting` for Frigate GLB material tuning against `/models/warm_studio_hangar_4k.exr`.
+- Conduit Web3D now owns reusable Environment/Lighting primitives:
+  - `SceneEnvironmentManager` for EXR loading, scene environment/background, environment rotation, intensity, tone mapping exposure, snapshot/restore, and disposal.
+  - `StudioLightingRig` for generic Key/Fill studio lights and angle-based direction setup.
+  - `StudioLightingTestScene` now uses these Conduit components instead of local environment/light wiring.
 - StarEngine/Star Citizen references were cleaned up in `D:/_repositories/webgl/starcitizen.md` and translated into `docs/planet-rendering-target-architecture.md`.
 - First Planet target pass:
   - Planet LOD scene now reports renderer mode, renderer kind, feature flags, palettes, terrain/ocean/atmosphere/cloud profile values.
