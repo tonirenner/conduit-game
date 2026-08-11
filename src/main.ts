@@ -1,6 +1,10 @@
 import * as THREE from 'three';
-import {RenderQuality} from '@conduit/web3d/renderer';
-import {createAppRenderer, getPreferredRendererMode, renderFrame,} from './render/RendererFactory';
+import {
+	createAppRenderer,
+	getPreferredRendererMode,
+	RenderQuality,
+	renderFrame,
+} from '@conduit/web3d/renderer';
 import {TerrainTextureBakeManager} from './planet/TerrainTextureBakeManager';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';

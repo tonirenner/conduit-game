@@ -1,5 +1,6 @@
 export * from './renderer';
 export * from './environment';
 export * from './materials';
+export * from './assets';
 export * from './debug';
 export * from './camera';

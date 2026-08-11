@@ -1,8 +1,12 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import {
+    configureObjectMaterials,
+    ensureUv2FromUv,
+    loadGltfObject,
+    loadObjMtlObject,
+} from '@conduit/web3d/assets';
+import { normalizeObjectToSize } from '@conduit/web3d/camera';
 
 import {
     Planet,
@@ -1833,6 +1837,8 @@ export class GamePrototypeScene {
     ): THREE.Object3D {
        const clone = template.clone(true);
 
+       ensureUv2FromUv(clone);
+
        clone.traverse((item) => {
           if (!(item instanceof THREE.Mesh)) {
              return;
@@ -1842,16 +1848,6 @@ export class GamePrototypeScene {
           item.castShadow = false;
           item.receiveShadow = false;
           item.frustumCulled = false;
-
-          if (
-             !item.geometry.getAttribute('uv2') &&
-             item.geometry.getAttribute('uv')
-          ) {
-             item.geometry.setAttribute(
-                'uv2',
-                item.geometry.getAttribute('uv').clone(),
-             );
-          }
 
           if (Array.isArray(item.material)) {
              item.material = item.material.map((material) => {
@@ -1993,14 +1989,13 @@ export class GamePrototypeScene {
 
     private loadFrigateModel(): Promise<THREE.Object3D> {
        if (!frigateModelPromise) {
-          const loader = new GLTFLoader();
-
-          frigateModelPromise = loader
-             .loadAsync(FRIGATE_GLB_URL)
-             .then((gltf) => {
-                const model = gltf.scene;
-
-                model.name = 'Frigate GLB Source';
+          frigateModelPromise =
+             loadGltfObject(
+                FRIGATE_GLB_URL,
+                { name: 'Frigate GLB Source' },
+             )
+             .then((model) => {
+                ensureUv2FromUv(model);
 
                 model.traverse((object) => {
                    if (!(object instanceof THREE.Mesh)) {
@@ -2011,43 +2006,19 @@ export class GamePrototypeScene {
                    object.receiveShadow = false;
                    object.frustumCulled = false;
 
-                   if (object.geometry) {
-                      /*
-                       * AO maps in glTF usually use TEXCOORD_1.
-                       * If the export only has uv, duplicate it as uv2
-                       * so embedded occlusion maps can still work.
-                       */
-                      if (
-                         !object.geometry.getAttribute('uv2') &&
-                         object.geometry.getAttribute('uv')
-                      ) {
-                         object.geometry.setAttribute(
-                            'uv2',
-                            object.geometry.getAttribute('uv').clone(),
-                         );
-                      }
-                   }
-
-                   const materials = Array.isArray(object.material)
-                                     ? object.material
-                                     : [object.material];
-
-                   for (const material of materials) {
-                      if (!material) {
-                         continue;
-                      }
-
-                      /*
-                       * Keep embedded GLB material + embedded maps.
-                       * Do not replace material, do not assign external textures.
-                       */
-                      material.depthWrite = true;
-                      material.depthTest = true;
-                      material.needsUpdate = true;
-                   }
                 });
 
-                this.normalizeImportedModel(model, 1.0);
+                /*
+                 * Keep embedded GLB material + embedded maps.
+                 * Do not replace material, do not assign external textures.
+                 */
+                configureObjectMaterials(model, (material) => {
+                   material.depthWrite = true;
+                   material.depthTest = true;
+                   material.needsUpdate = true;
+                });
+
+                normalizeObjectToSize(model, 1.0);
 
                 return model;
              })
@@ -2070,20 +2041,13 @@ export class GamePrototypeScene {
 
     private loadCapitalShipModel(): Promise<THREE.Object3D> {
        if (!capitalShipModelPromise) {
-          const mtlLoader = new MTLLoader();
-          const objLoader = new OBJLoader();
-
-          capitalShipModelPromise = mtlLoader
-             .loadAsync(CAPITAL_SHIP_MTL_URL)
-             .then((materials) => {
-                materials.preload();
-                objLoader.setMaterials(materials);
-
-                return objLoader.loadAsync(CAPITAL_SHIP_OBJ_URL);
-             })
+          capitalShipModelPromise =
+             loadObjMtlObject(
+                CAPITAL_SHIP_OBJ_URL,
+                CAPITAL_SHIP_MTL_URL,
+                { name: 'Capital Ship OBJ Source' },
+             )
              .then((model) => {
-                model.name = 'Capital Ship OBJ Source';
-
                 model.traverse((object) => {
                    if (!(object instanceof THREE.Mesh)) {
                       return;
@@ -2092,22 +2056,14 @@ export class GamePrototypeScene {
                    object.castShadow = false;
                    object.receiveShadow = false;
                    object.frustumCulled = false;
+                });
 
-                   const material = object.material;
-
-                   if (Array.isArray(material)) {
-                      for (const entry of material) {
-                         entry.depthWrite = true;
-                         entry.depthTest = true;
-                      }
-                      return;
-                   }
-
+                configureObjectMaterials(model, (material) => {
                    material.depthWrite = true;
                    material.depthTest = true;
                 });
 
-                this.normalizeImportedModel(model, 1.0);
+                normalizeObjectToSize(model, 1.0);
 
                 return model;
              })
@@ -2186,15 +2142,12 @@ export class GamePrototypeScene {
 
     private loadOrbitalHangerModel(): Promise<THREE.Object3D> {
        if (!orbitalHangerModelPromise) {
-          const loader = new GLTFLoader();
-
-          orbitalHangerModelPromise = loader
-             .loadAsync(ORBITAL_HANGER_GLB_URL)
-             .then((gltf) => {
-                const model = gltf.scene;
-
-                model.name = 'Orbital Hanger GLB Source';
-
+          orbitalHangerModelPromise =
+             loadGltfObject(
+                ORBITAL_HANGER_GLB_URL,
+                { name: 'Orbital Hanger GLB Source' },
+             )
+             .then((model) => {
                 model.traverse((object) => {
                    if (!(object instanceof THREE.Mesh)) {
                       return;
@@ -2203,17 +2156,9 @@ export class GamePrototypeScene {
                    object.castShadow = false;
                    object.receiveShadow = false;
                    object.frustumCulled = false;
+                });
 
-                   const material = object.material;
-
-                   if (Array.isArray(material)) {
-                      for (const entry of material) {
-                         entry.depthWrite = true;
-                         entry.depthTest = true;
-                      }
-                      return;
-                   }
-
+                configureObjectMaterials(model, (material) => {
                    material.depthWrite = true;
                    material.depthTest = true;
                 });
@@ -2234,28 +2179,6 @@ export class GamePrototypeScene {
        }
 
        return orbitalHangerModelPromise.then((model) => model.clone(true));
-    }
-
-    private normalizeImportedModel(
-       model: THREE.Object3D,
-       targetSize: number,
-    ): void {
-       const box = new THREE.Box3().setFromObject(model);
-       const size = new THREE.Vector3();
-
-       box.getSize(size);
-
-       const maxSize = Math.max(size.x, size.y, size.z);
-
-       if (maxSize > 0.0001) {
-          model.scale.multiplyScalar(targetSize / maxSize);
-       }
-
-       const normalizedBox = new THREE.Box3().setFromObject(model);
-       const center = new THREE.Vector3();
-
-       normalizedBox.getCenter(center);
-       model.position.sub(center);
     }
 
     private createOrbitalHangerFallback(): THREE.Object3D {
@@ -2312,7 +2235,7 @@ export class GamePrototypeScene {
               * Final Small Shipyard landmark size in SystemView.
               * Keep this independent from construction progress.
               */
-             this.normalizeImportedModel(
+             normalizeObjectToSize(
                 model,
                 10.5,
              );

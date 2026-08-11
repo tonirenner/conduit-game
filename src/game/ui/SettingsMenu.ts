@@ -3,7 +3,7 @@ import type {
 	GameSettings,
 	SettingsStore,
 } from '../settings/GameSettings';
-import type { RendererMode } from '../../render/RendererFactory';
+import type { RendererMode } from '@conduit/web3d/renderer';
 
 export type SettingsMenuOptions = {
 	store: SettingsStore;

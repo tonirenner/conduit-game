@@ -50,3 +50,27 @@ export function frameObject(
 
 	return box;
 }
+
+export function normalizeObjectToSize(
+	object: THREE.Object3D,
+	targetSize: number,
+): THREE.Box3 {
+	const box = new THREE.Box3().setFromObject(object);
+	const size = new THREE.Vector3();
+
+	box.getSize(size);
+
+	const maxSize = Math.max(size.x, size.y, size.z);
+
+	if (maxSize > 0.0001) {
+		object.scale.multiplyScalar(targetSize / maxSize);
+	}
+
+	const normalizedBox = new THREE.Box3().setFromObject(object);
+	const center = new THREE.Vector3();
+
+	normalizedBox.getCenter(center);
+	object.position.sub(center);
+
+	return new THREE.Box3().setFromObject(object);
+}

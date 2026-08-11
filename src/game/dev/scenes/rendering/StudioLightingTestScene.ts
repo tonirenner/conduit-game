@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { frameObject } from '@conduit/web3d/camera';
+import { ensureUv2FromUv, loadGltfObject } from '@conduit/web3d/assets';
+import { frameObject, normalizeObjectToSize } from '@conduit/web3d/camera';
 import { disposeObject3D } from '@conduit/web3d/debug';
 import {
 	loadExrEnvironment,
@@ -181,16 +181,16 @@ export class StudioLightingTestScene implements FeatureTestScene {
 		}
 
 		try {
-			const gltf = await new GLTFLoader().loadAsync(FRIGATE_URL);
+			const model = await loadGltfObject(
+				FRIGATE_URL,
+				{ name: 'Frigate Studio GLB' },
+			);
 
 			if (generation !== this.loadGeneration) {
-				disposeObject3D(gltf.scene);
+				disposeObject3D(model);
 				return;
 			}
 
-			const model = gltf.scene;
-
-			model.name = 'Frigate Studio GLB';
 			this.prepareModel(model);
 			this.modelBasePosition.copy(model.position);
 			this.root.add(model);
@@ -213,6 +213,8 @@ export class StudioLightingTestScene implements FeatureTestScene {
 	}
 
 	private prepareModel(model: THREE.Object3D): void {
+		ensureUv2FromUv(model);
+
 		model.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) {
 				return;
@@ -223,16 +225,6 @@ export class StudioLightingTestScene implements FeatureTestScene {
 			object.receiveShadow = false;
 			object.frustumCulled = false;
 
-			if (
-				!object.geometry.getAttribute('uv2') &&
-				object.geometry.getAttribute('uv')
-			) {
-				object.geometry.setAttribute(
-					'uv2',
-					object.geometry.getAttribute('uv').clone(),
-				);
-			}
-
 			if (Array.isArray(object.material)) {
 				object.material = object.material.map((material) => this.cloneMaterial(material));
 			} else {
@@ -240,19 +232,7 @@ export class StudioLightingTestScene implements FeatureTestScene {
 			}
 		});
 
-		const box = new THREE.Box3().setFromObject(model);
-		const size = new THREE.Vector3();
-		const center = new THREE.Vector3();
-
-		box.getSize(size);
-		box.getCenter(center);
-		model.position.sub(center);
-
-		const maxSize = Math.max(size.x, size.y, size.z);
-
-		if (maxSize > 0.0001) {
-			model.scale.setScalar(4.6 / maxSize);
-		}
+		normalizeObjectToSize(model, 4.6);
 	}
 
 	private frameLoadedModel(model: THREE.Object3D): void {

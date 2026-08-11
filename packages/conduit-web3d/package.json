@@ -8,6 +8,7 @@
     "./renderer": "./src/renderer/index.ts",
     "./environment": "./src/environment/index.ts",
     "./materials": "./src/materials/index.ts",
+    "./assets": "./src/assets/index.ts",
     "./debug": "./src/debug/index.ts",
     "./camera": "./src/camera/index.ts"
   },

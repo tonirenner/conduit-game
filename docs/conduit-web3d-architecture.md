@@ -447,8 +447,7 @@ Root package changes later:
 5. Move `DynamicEnvironmentProbe`.
 6. Extract `ExrEnvironmentLoader` from `StudioLightingTestScene`.
 7. Update `StudioLightingTestScene` and `GamePrototypeScene` imports to use `@conduit/web3d`.
-8. Only after that, evaluate `RendererFactory`.
-9. PostProcessing extraction should wait until live reconfiguration and WebGPU/TSL fallback behavior are stable.
+8. PostProcessing extraction should wait until live reconfiguration and WebGPU/TSL fallback behavior are stable.
 
 ## Public API Candidates
 
@@ -513,24 +512,36 @@ Root project changes:
 Extracted to `@conduit/web3d`:
 
 - `renderer/RenderQuality`
+- `renderer/RendererFactory`
 - `debug/DebugPrimitives`
+- `assets/AssetLoaders`
 - `materials/MaterialAdjustmentProfile`
 - `materials/MaterialSnapshot`
 - `environment/DynamicEnvironmentProbe`
 - `environment/ExrEnvironmentLoader`
 - `camera/CameraFraming`
 
+Reusable helpers now included:
+
+- `loadGltfObject()` and `loadObjMtlObject()` centralize generic GLB/OBJ/MTL loading.
+- `ensureUv2FromUv()` provides the shared AO-map fallback for models that only export `uv`.
+- `configureObjectMaterials()` handles single materials and material arrays consistently.
+- `normalizeObjectToSize()` provides shared viewer-style centering and size normalization.
+
 Game/app files now using Conduit directly:
 
 - `src/main.ts` imports `RenderQuality` from `@conduit/web3d/renderer`
+- `src/main.ts` imports renderer creation/fallback/render frame helpers from `@conduit/web3d/renderer`
 - `src/game/rendering/GamePrototypeScene.ts` imports `DynamicEnvironmentProbe` from `@conduit/web3d/environment`
 - Feature Lab scenes import debug helpers from `@conduit/web3d/debug`
 - `StudioLightingTestScene` uses Conduit EXR loading, material snapshots, object disposal and camera framing
+- `GamePrototypeScene`, `ShipModelTestScene`, and `StudioLightingTestScene` use Conduit GLTF/OBJ/MTL asset loading, UV2 fallback, material traversal helpers, and object normalization
 - `ShipMaterialLightingProfile` keeps game-specific Frigate/Game probe constants but reuses Conduit material profile application
 
 Compatibility shims kept for now:
 
 - `src/render/RenderQuality.ts`
+- `src/render/RendererFactory.ts`
 - `src/game/dev/DebugPrimitives.ts`
 - `src/game/rendering/DynamicEnvironmentProbe.ts`
 
@@ -538,7 +549,6 @@ These files now re-export from Conduit so old internal imports do not break duri
 
 Still intentionally not extracted:
 
-- `RendererFactory`
 - `PostProcessingPipeline`
 - `GamePrototypeScene`
 - planet renderer
@@ -549,4 +559,5 @@ Next recommended step:
 
 1. Verify package resolution with the normal dev server.
 2. If stable, remove remaining old compatibility imports over time.
-3. Extract generic GLTF/OBJ/EXR asset loading next.
+3. Consider replacing app-level module promise caches with `AssetPromiseCache` where it reduces duplication.
+4. Continue extracting only generic object/material preparation helpers. Asset-specific orientation, scale profiles, weapon nodes, engine nodes, and gameplay rules stay in the Game.

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type { AppRenderer, RendererMode } from '@conduit/web3d/renderer';
 import type { GameSettings } from '../settings/GameSettings';
-import type { AppRenderer, RendererMode } from '../../render/RendererFactory';
 
 export type FeatureTestCategory =
 	| 'Combat'

@@ -1,5 +1,5 @@
 import type { PostProcessingQuality } from '../../postprocessing/PostProcessingPipeline';
-import type { RendererMode } from '../../render/RendererFactory';
+import type { RendererMode } from '@conduit/web3d/renderer';
 
 export type EffectsQuality =
 	| 'low'

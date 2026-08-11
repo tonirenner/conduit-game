@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { AppRenderer, RendererMode } from '../../render/RendererFactory';
+import type { AppRenderer, RendererMode } from '@conduit/web3d/renderer';
 import type { SettingsStore } from '../settings/GameSettings';
 import {
 	getFeatureTestRegistration,

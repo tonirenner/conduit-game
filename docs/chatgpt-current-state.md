@@ -268,6 +268,8 @@ Known limitation:
 
 - Initial `@conduit/web3d` workspace package exists under `packages/conduit-web3d`.
 - First extracted Conduit modules:
+  - `assets/AssetLoaders`
+  - `renderer/RendererFactory`
   - `renderer/RenderQuality`
   - `debug/DebugPrimitives`
   - `materials/MaterialAdjustmentProfile`
@@ -275,7 +277,10 @@ Known limitation:
   - `environment/DynamicEnvironmentProbe`
   - `environment/ExrEnvironmentLoader`
   - `camera/CameraFraming`
-- Old local paths for `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` are temporary re-export shims.
+- Old local paths for `RendererFactory`, `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` are temporary re-export shims.
+- GamePrototypeScene, ShipModelTestScene and StudioLightingTestScene now use Conduit GLTF/OBJ/MTL asset loaders.
+- Shared Conduit helpers now cover generic UV2 fallback, material traversal for material arrays, and object normalization used by both Game and Feature Lab model views.
+- Asset-specific orientation/scale profiles, gameplay nodes, engine FX logic, turret behavior, combat state, and production rules remain in the Game.
 - Frigate GLB import now keeps exported normals/tangents instead of recomputing vertex normals in the Game loader.
 - Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.
 - Frigate Game rendering and Studio Lighting now share `FRIGATE_MATERIAL_LIGHTING_PROFILE` in `src/game/rendering/ShipMaterialLightingProfile.ts`.

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type {
 	AppRenderer,
 	RendererMode,
-} from '../render/RendererFactory';
+} from '@conduit/web3d/renderer';
 
 import {
 	createDefaultCubeFaces,

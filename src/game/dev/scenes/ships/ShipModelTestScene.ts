@@ -1,7 +1,11 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
-import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import {
+	configureObjectMaterials,
+	ensureUv2FromUv,
+	loadGltfObject,
+	loadObjMtlObject,
+} from '@conduit/web3d/assets';
+import { normalizeObjectToSize } from '@conduit/web3d/camera';
 import { createBoundingBoxHelper, createDebugLabel, disposeObject3D } from '@conduit/web3d/debug';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import {
@@ -175,7 +179,7 @@ export class ShipModelTestScene implements FeatureTestScene {
 			this.model.name = this.model.name || asset.label;
 			applyAssetOrientation(this.model, asset.orientation);
 			configureInspectableModel(this.model);
-			normalizeModel(this.model, 3.0);
+			normalizeObjectToSize(this.model, 3.0);
 			this.root.add(this.model);
 
 			const box = createBoundingBoxHelper(this.model);
@@ -242,11 +246,7 @@ async function loadGlb(
 	url: string,
 	name: string,
 ): Promise<THREE.Object3D> {
-	const loader = new GLTFLoader();
-	const gltf = await loader.loadAsync(url);
-
-	gltf.scene.name = name;
-	return gltf.scene;
+	return loadGltfObject(url, { name });
 }
 
 async function loadObj(
@@ -254,23 +254,12 @@ async function loadObj(
 	mtlUrl: string | null,
 	name: string,
 ): Promise<THREE.Object3D> {
-	const objLoader = new OBJLoader();
-
-	if (mtlUrl) {
-		const mtlLoader = new MTLLoader();
-		const materials = await mtlLoader.loadAsync(mtlUrl);
-
-		materials.preload();
-		objLoader.setMaterials(materials);
-	}
-
-	const object = await objLoader.loadAsync(objUrl);
-
-	object.name = name;
-	return object;
+	return loadObjMtlObject(objUrl, mtlUrl, { name });
 }
 
 function configureInspectableModel(model: THREE.Object3D): void {
+	ensureUv2FromUv(model);
+
 	model.traverse((object) => {
 		if (!(object instanceof THREE.Mesh)) {
 			return;
@@ -283,31 +272,13 @@ function configureInspectableModel(model: THREE.Object3D): void {
 		if (object.geometry) {
 			object.geometry.computeBoundingBox();
 			object.geometry.computeBoundingSphere();
-
-			if (
-				!object.geometry.getAttribute('uv2') &&
-				object.geometry.getAttribute('uv')
-			) {
-				object.geometry.setAttribute(
-					'uv2',
-					object.geometry.getAttribute('uv').clone(),
-				);
-			}
 		}
+	});
 
-		const materials = Array.isArray(object.material)
-			? object.material
-			: [object.material];
-
-		for (const material of materials) {
-			if (!material) {
-				continue;
-			}
-
-			material.depthWrite = true;
-			material.depthTest = true;
-			material.needsUpdate = true;
-		}
+	configureObjectMaterials(model, (material) => {
+		material.depthWrite = true;
+		material.depthTest = true;
+		material.needsUpdate = true;
 	});
 }
 
@@ -362,28 +333,6 @@ function createForwardAxisOverlay(): THREE.Group {
 	group.name = 'ModelForwardAxisOverlay';
 	group.add(forward, up, right);
 	return group;
-}
-
-function normalizeModel(
-	model: THREE.Object3D,
-	targetSize: number,
-): void {
-	const box = new THREE.Box3().setFromObject(model);
-	const size = new THREE.Vector3();
-
-	box.getSize(size);
-
-	const maxSize = Math.max(size.x, size.y, size.z);
-
-	if (maxSize > 0.0001) {
-		model.scale.multiplyScalar(targetSize / maxSize);
-	}
-
-	const normalizedBox = new THREE.Box3().setFromObject(model);
-	const center = new THREE.Vector3();
-
-	normalizedBox.getCenter(center);
-	model.position.sub(center);
 }
 
 function collectNodeNames(root: THREE.Object3D): string[] {
