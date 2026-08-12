@@ -1,6 +1,9 @@
 import * as THREE from 'three';
-
-export type GasGiantLayerKind = 'gas_giant' | 'ice_giant';
+import {
+	getGasGiantVisualProfile,
+	type GasGiantLayerKind,
+	type GasGiantVisualProfile,
+} from './rendering/GasGiantVisualProfile';
 
 export type GasGiantLayerOptions = {
 	kind: GasGiantLayerKind;
@@ -48,11 +51,13 @@ export class GasGiantLayer {
 	private readonly cloudParticleLayer: CloudParticleLayer | null;
 	private readonly cloudVolumeShells: CloudVolumeShell[];
 	private readonly bandTexture: THREE.CanvasTexture;
+	private readonly profile: GasGiantVisualProfile;
 	private readonly rng: () => number;
 
 	constructor(
 		private readonly options: GasGiantLayerOptions,
 	) {
+		this.profile = getGasGiantVisualProfile(options.kind);
 		this.rng = createSeededRandom(
 			options.seed ^
 			(options.kind === 'ice_giant' ? 0x71ce : 0x9a5a),
@@ -129,6 +134,54 @@ export class GasGiantLayer {
 			 )) % 1;
 	}
 
+	getDebugStats(): {
+		kind: GasGiantLayerKind;
+		cloudShells: number;
+		cloudParticles: {
+			enabled: boolean;
+			count: number;
+			opacity: number;
+			size: number;
+			farFadeStart: number;
+			farFadeEnd: number;
+			farOpacity: number;
+			farSize: number;
+		};
+		atmosphere: {
+			radius: number;
+			opacity: number;
+		};
+		bands: {
+			frequency: number;
+			stripeCount: number;
+			cloudThreshold: number;
+		};
+	} {
+		return {
+			kind: this.options.kind,
+			cloudShells: this.profile.cloudShells.count,
+			cloudParticles: {
+				enabled: this.cloudParticleLayer !== null,
+				count: this.profile.cloudParticles.count,
+				opacity: this.profile.cloudParticles.opacity,
+				size: this.profile.cloudParticles.size,
+				farFadeStart: this.profile.cloudParticles.farFadeStart,
+				farFadeEnd: this.profile.cloudParticles.farFadeEnd,
+				farOpacity: this.profile.cloudParticles.farOpacity,
+				farSize: this.profile.cloudParticles.farSize,
+			},
+			atmosphere: {
+				radius: this.profile.atmosphere.radius,
+				opacity: this.profile.atmosphere.opacity,
+			},
+			bands: {
+				frequency: this.profile.bands.frequency,
+				stripeCount: this.profile.bands.stripeCount,
+				cloudThreshold: this.profile.bands.cloudThreshold,
+			},
+		};
+	}
+
 	private updateCloudParticleDistanceFade(cameraDistance?: number): void {
 		if (!this.cloudParticleLayer || cameraDistance === undefined) {
 			return;
@@ -139,11 +192,19 @@ export class GasGiantLayer {
 			      Math.max(0.0001, this.options.radius);
 		const farFade = THREE.MathUtils.smoothstep(
 			distanceRatio,
-			4.5,
-			14.0,
+			this.profile.cloudParticles.farFadeStart,
+			this.profile.cloudParticles.farFadeEnd,
 		);
-		const opacityMultiplier = THREE.MathUtils.lerp(1.0, 0.06, farFade);
-		const sizeMultiplier = THREE.MathUtils.lerp(1.0, 0.35, farFade);
+		const opacityMultiplier = THREE.MathUtils.lerp(
+			1.0,
+			this.profile.cloudParticles.farOpacity,
+			farFade,
+		);
+		const sizeMultiplier = THREE.MathUtils.lerp(
+			1.0,
+			this.profile.cloudParticles.farSize,
+			farFade,
+		);
 
 		this.cloudParticleLayer.material.opacity =
 			this.cloudParticleLayer.baseOpacity * opacityMultiplier;
@@ -194,19 +255,10 @@ export class GasGiantLayer {
 		const material = new THREE.MeshStandardMaterial({
 			                                                map: this.bandTexture,
 			                                                color: 0xffffff,
-			                                                roughness:
-				                                                this.options.kind === 'ice_giant'
-				                                                ? 0.82
-				                                                : 0.88,
+			                                                roughness: this.profile.body.roughness,
 			                                                metalness: 0.0,
-			                                                emissive:
-				                                                this.options.kind === 'ice_giant'
-				                                                ? new THREE.Color(0x0b2430)
-				                                                : new THREE.Color(0x24160c),
-			                                                emissiveIntensity:
-				                                                this.options.kind === 'ice_giant'
-				                                                ? 0.18
-				                                                : 0.14,
+			                                                emissive: this.profile.body.emissive,
+			                                                emissiveIntensity: this.profile.body.emissiveIntensity,
 		                                                });
 
 		const mesh = new THREE.Mesh(
@@ -225,51 +277,39 @@ export class GasGiantLayer {
 	}
 
 	private createCloudVolumeShells(): CloudVolumeShell[] {
-		const shellCount =
-			      this.options.kind === 'ice_giant'
-			      ? 4
-			      : 5;
-
 		const shells: CloudVolumeShell[] = [];
 
-		for (let index = 0; index < shellCount; index++) {
+		for (let index = 0; index < this.profile.cloudShells.count; index++) {
 			const texture = this.createCloudVolumeTexture(index);
 
 			const geometry = new THREE.SphereGeometry(
 				this.options.radius *
 				(
-					this.options.kind === 'ice_giant'
-					? 1.016 + index * 0.011
-					: 1.014 + index * 0.010
+					this.profile.cloudShells.radiusStart +
+					index * this.profile.cloudShells.radiusStep
 				),
 				128,
 				80,
 			);
 
 			const material = new THREE.MeshStandardMaterial({
-				                                                color:
-					                                                this.options.kind === 'ice_giant'
-					                                                ? 0xdaf6ff
-					                                                : 0xffdfba,
+				                                                color: this.profile.cloudShells.color,
 				                                                alphaMap: texture,
 				                                                transparent: true,
 				                                                opacity:
-					                                                this.options.kind === 'ice_giant'
-					                                                ? Math.max(0.045, 0.15 - index * 0.022)
-					                                                : Math.max(0.055, 0.18 - index * 0.026),
+					                                                Math.max(
+						                                                this.profile.cloudShells.opacityMin,
+						                                                this.profile.cloudShells.opacityStart -
+						                                                index * this.profile.cloudShells.opacityStep,
+					                                                ),
 				                                                depthWrite: false,
 				                                                depthTest: true,
 				                                                side: THREE.DoubleSide,
 				                                                roughness: 1.0,
 				                                                metalness: 0.0,
-				                                                emissive:
-					                                                this.options.kind === 'ice_giant'
-					                                                ? new THREE.Color(0x8bdfff)
-					                                                : new THREE.Color(0xffcf9d),
+				                                                emissive: this.profile.cloudShells.emissive,
 				                                                emissiveIntensity:
-					                                                this.options.kind === 'ice_giant'
-					                                                ? 0.14
-					                                                : 0.12,
+					                                                this.profile.cloudShells.emissiveIntensity,
 				                                                blending: THREE.AdditiveBlending,
 			                                                });
 
@@ -392,10 +432,7 @@ export class GasGiantLayer {
 			v,
 		);
 
-		const bandFrequency =
-			      this.options.kind === 'ice_giant'
-			      ? 10.0
-			      : 15.0;
+		const bandFrequency = this.profile.bands.cloudAlphaFrequency;
 
 		const band =
 			      0.5 +
@@ -411,8 +448,8 @@ export class GasGiantLayer {
 			v +
 			turbulence.fine * 0.025 +
 			shellIndex * 0.041,
-			this.options.kind === 'ice_giant' ? 10.0 : 16.0,
-			this.options.kind === 'ice_giant' ? 26.0 : 42.0,
+			this.profile.bands.cloudAlphaScaleX,
+			this.profile.bands.cloudAlphaScaleY,
 			shellIndex * 11.7,
 			4,
 		);
@@ -436,10 +473,7 @@ export class GasGiantLayer {
 			      clump * 0.44 +
 			      wisps * 0.22;
 
-		const threshold =
-			      this.options.kind === 'ice_giant'
-			      ? 0.50
-			      : 0.56;
+		const threshold = this.profile.bands.cloudThreshold;
 
 		const softened = THREE.MathUtils.smoothstep(
 			raw,
@@ -449,9 +483,7 @@ export class GasGiantLayer {
 
 		const alpha = Math.pow(
 			softened,
-			this.options.kind === 'ice_giant'
-			? 1.25
-			: 1.45,
+			this.profile.bands.cloudPower,
 		);
 
 		return THREE.MathUtils.clamp(
@@ -532,24 +564,17 @@ export class GasGiantLayer {
 	}
 
 	private createCloudParticles(): CloudParticleLayer {
-		const particleCount =
-			      this.options.kind === 'ice_giant'
-			      ? 18000
-			      : 28000;
+		const particleCount = this.profile.cloudParticles.count;
 
 		const positions = new Float32Array(particleCount * 3);
 		const colors = new Float32Array(particleCount * 3);
 
-		const innerRadius = this.options.radius * 1.022;
+		const innerRadius =
+			this.options.radius * this.profile.cloudParticles.innerRadius;
 		const outerRadius =
-			      this.options.kind === 'ice_giant'
-			      ? this.options.radius * 1.045
-			      : this.options.radius * 1.055;
+			this.options.radius * this.profile.cloudParticles.outerRadius;
 
-		const cloudBands =
-			      this.options.kind === 'ice_giant'
-			      ? 7
-			      : 11;
+		const cloudBands = this.profile.cloudParticles.bands;
 
 		for (let index = 0; index < particleCount; index++) {
 			const bandIndex =
@@ -561,9 +586,8 @@ export class GasGiantLayer {
 				      1.48;
 
 			const bandSpread =
-				      this.options.kind === 'ice_giant'
-				      ? 0.045 + this.rng() * 0.06
-				      : 0.032 + this.rng() * 0.055;
+				this.profile.cloudParticles.bandSpreadMin +
+				this.rng() * this.profile.cloudParticles.bandSpreadRandom;
 
 			const latitude = THREE.MathUtils.clamp(
 				bandCenter +
@@ -623,13 +647,8 @@ export class GasGiantLayer {
 		);
 
 		const baseSize =
-			      this.options.kind === 'ice_giant'
-			      ? this.options.radius * 0.0075
-			      : this.options.radius * 0.009;
-		const baseOpacity =
-			      this.options.kind === 'ice_giant'
-			      ? 0.14
-			      : 0.18;
+			this.options.radius * this.profile.cloudParticles.size;
+		const baseOpacity = this.profile.cloudParticles.opacity;
 
 		const material = new THREE.PointsMaterial({
 			                                          size: baseSize,
@@ -704,25 +723,15 @@ export class GasGiantLayer {
 	private createAtmosphere(): THREE.Mesh {
 		const geometry = new THREE.SphereGeometry(
 			this.options.radius *
-			(
-				this.options.kind === 'ice_giant'
-				? 1.055
-				: 1.065
-			),
+			this.profile.atmosphere.radius,
 			128,
 			80,
 		);
 
 		const material = new THREE.MeshBasicMaterial({
-			                                             color:
-				                                             this.options.kind === 'ice_giant'
-				                                             ? 0x9fe7ff
-				                                             : 0xffd6a0,
+			                                             color: this.profile.atmosphere.color,
 			                                             transparent: true,
-			                                             opacity:
-				                                             this.options.kind === 'ice_giant'
-				                                             ? 0.16
-				                                             : 0.15,
+			                                             opacity: this.profile.atmosphere.opacity,
 			                                             side: THREE.BackSide,
 			                                             depthWrite: false,
 			                                             depthTest: true,
@@ -812,10 +821,7 @@ export class GasGiantLayer {
 			const v = y / height;
 			const latitude = (v - 0.5) * 2;
 
-			const bandFrequency =
-				      this.options.kind === 'ice_giant'
-				      ? 16.0
-				      : 23.0;
+			const bandFrequency = this.profile.bands.frequency;
 
 			const largeWave =
 				      Math.sin((v * bandFrequency + field.bandPhase) * Math.PI * 2);
@@ -888,15 +894,9 @@ export class GasGiantLayer {
 		height: number,
 		field: TurbulenceField,
 	): void {
-		const stripeCount =
-			      this.options.kind === 'ice_giant'
-			      ? 86
-			      : 154;
+		const stripeCount = this.profile.bands.stripeCount;
 
-		context.globalAlpha =
-			this.options.kind === 'ice_giant'
-			? 0.13
-			: 0.17;
+		context.globalAlpha = this.profile.bands.stripeAlpha;
 
 		for (let index = 0; index < stripeCount; index++) {
 			const y = Math.floor(this.rng() * height);

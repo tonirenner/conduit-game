@@ -317,6 +317,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const terrain = this.planet.getTerrainStats();
 		const distance = this.context.camera.position.length();
 		const climate = this.definition.climate;
+		const gasStats = this.planet.getGasGiantDebugStats();
 		const visualProfile = getPlanetClassVisualProfile(
 			this.profile.surfacePalette as SurfacePaletteKind,
 		);
@@ -347,6 +348,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
 			`effective atmo: ${formatAtmosphereRenderValues(this.planet.getAtmosphereRenderProfileValues())}<br>` +
 			`visual profile: night ${format01(visualProfile.nightAlbedo)}, ambient ${format01(visualProfile.ambientBoost)}, direct ${format01(visualProfile.directLightScale)}, fill ${format01(visualProfile.shadowFill)}, floor ${format01(visualProfile.visibilityFloor)}, env ${format01(visualProfile.environmentReflection)} / peak ${format01(visualProfile.environmentPeak)}<br>` +
+			`${gasStats ? `${formatGasGiantStats(gasStats)}<br>` : ''}` +
 			`coast profile: water ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart, OCEAN_COASTLINE_PROFILE.waterHintEnd)}, shelf ${formatRange(OCEAN_COASTLINE_PROFILE.shelfStart, OCEAN_COASTLINE_PROFILE.shelfEnd)} -> ${formatRange(OCEAN_COASTLINE_PROFILE.shelfFadeStart, OCEAN_COASTLINE_PROFILE.shelfFadeEnd)}, island ${formatRange(OCEAN_COASTLINE_PROFILE.islandStart, OCEAN_COASTLINE_PROFILE.islandEnd)}<br>` +
 			`terrain profile: ${this.climateDiagnostics.terrainProfile}<br>` +
 			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
@@ -407,6 +409,18 @@ function formatAtmosphereRenderValues(values: {
 	return (
 		`density ${format01(values.density)}, haze ${format01(values.haze)}, ` +
 		`color ${values.color}, palette ${values.palette || 'none'}`
+	);
+}
+
+function formatGasGiantStats(stats: NonNullable<ReturnType<Planet['getGasGiantDebugStats']>>): string {
+	return (
+		`gas layer: ${stats.kind}, shells ${stats.cloudShells}, ` +
+		`particles ${stats.cloudParticles.enabled ? 'on' : 'off'} ` +
+		`${stats.cloudParticles.count} @ ${format01(stats.cloudParticles.opacity)}, ` +
+		`far ${formatRange(stats.cloudParticles.farFadeStart, stats.cloudParticles.farFadeEnd)} ` +
+		`-> opacity ${format01(stats.cloudParticles.farOpacity)}, ` +
+		`atmo r ${format01(stats.atmosphere.radius)} opacity ${format01(stats.atmosphere.opacity)}, ` +
+		`bands ${format01(stats.bands.frequency)} stripes ${stats.bands.stripeCount}`
 	);
 }
 

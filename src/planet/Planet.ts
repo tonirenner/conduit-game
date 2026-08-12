@@ -509,6 +509,10 @@ export class Planet {
 		);
 	}
 
+	getGasGiantDebugStats(): ReturnType<GasGiantLayer['getDebugStats']> | null {
+		return this.gasGiantLayer?.getDebugStats() ?? null;
+	}
+
 	setSunDirection(direction: THREE.Vector3): void {
 		const normalizedDirection = direction.clone().normalize();
 

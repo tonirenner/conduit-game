@@ -220,6 +220,7 @@ The first Planet Tech implementation step is diagnostics-focused:
 - Surface, atmosphere, clouds, gas layer, rings, moons and debug terrain can be isolated as render layers. Ocean is still part of the surface shader/profile data, so its lab toggle recreates the temporary diagnostic planet with ocean data disabled.
 - `OceanCoastlineProfile` now holds the shared water, shelf and island thresholds consumed by both WebGL GLSL and WebGPU TSL surface materials.
 - `AtmosphereVisualProfile` now holds shared effective atmosphere values and lava rim/tint strength consumed by both WebGL and WebGPU atmosphere layers.
+- `GasGiantVisualProfile` now centralizes gas/ice giant shell depth, atmosphere shell, band texture, cloud particles and far-distance particle fade.
 
 This keeps the next visual passes grounded in data. If Ocean, Lava, Gas Giant or Ice Giant reads wrong, the first question should be whether the class definition/profile data is wrong, before renderer-specific shader math is changed.
 
