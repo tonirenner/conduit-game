@@ -65,6 +65,8 @@ server.host
 server.port
 server.publicBaseUrl
 game.launchUrl
+game.host
+game.port
 storage.databasePath
 storage.uploadDir
 storage.uploadPublicPath
@@ -89,6 +91,8 @@ HOST
 PORT
 CONDUIT_PUBLIC_BASE_URL
 CONDUIT_GAME_URL
+CONDUIT_GAME_HOST
+CONDUIT_GAME_PORT
 CONDUIT_DB_PATH
 CONDUIT_UPLOAD_DIR
 ```

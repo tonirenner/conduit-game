@@ -8,6 +8,8 @@ export type ServerConfig = {
 		publicBaseUrl: string;
 	};
 	game: {
+		host: string;
+		port: number;
 		launchUrl: string;
 	};
 	storage: {
@@ -36,6 +38,8 @@ const DEFAULT_CONFIG: ServerConfig = {
 		publicBaseUrl: 'http://localhost:8787',
 	},
 	game: {
+		host: '0.0.0.0',
+		port: 3000,
 		launchUrl: 'http://localhost:3000/',
 	},
 	storage: {
@@ -125,6 +129,14 @@ function applyEnvironmentOverrides(config: ServerConfig): void {
 		config.game.launchUrl = process.env.CONDUIT_GAME_URL;
 	}
 
+	if (process.env.CONDUIT_GAME_HOST) {
+		config.game.host = process.env.CONDUIT_GAME_HOST;
+	}
+
+	if (process.env.CONDUIT_GAME_PORT) {
+		config.game.port = Number(process.env.CONDUIT_GAME_PORT);
+	}
+
 	if (process.env.CONDUIT_DB_PATH) {
 		config.storage.databasePath = process.env.CONDUIT_DB_PATH;
 	}
@@ -136,6 +148,7 @@ function applyEnvironmentOverrides(config: ServerConfig): void {
 
 function normalizeConfig(config: ServerConfig): void {
 	config.server.port = toPositiveInteger(config.server.port, DEFAULT_CONFIG.server.port);
+	config.game.port = toPositiveInteger(config.game.port, DEFAULT_CONFIG.game.port);
 	config.auth.sessionDays = toPositiveInteger(
 		config.auth.sessionDays,
 		DEFAULT_CONFIG.auth.sessionDays,

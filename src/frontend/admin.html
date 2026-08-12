@@ -25,7 +25,7 @@
 			<div>
 				<div class="kicker">ADMINISTRATION // SHOWCASE CMS</div>
 				<h1>MEDIA CONTROL</h1>
-				<p>Bilder und Videos fuer den oeffentlichen Showcase verwalten. Dieser Bereich ist nur fuer Accounts mit manuell gesetzter Admin-Rolle verfuegbar.</p>
+				<p>Bilder und Videos für den öffentlichen Showcase verwalten. Dieser Bereich ist nur für Accounts mit manuell gesetzter Admin-Rolle verfügbar.</p>
 				<div id="adminStatus" class="status-line" hidden></div>
 			</div>
 			<aside id="adminSession" class="session-panel">CHECKING ADMIN SESSION</aside>
@@ -34,7 +34,7 @@
 		<section id="adminAccessDenied" class="admin-denied" hidden>
 			<div class="kicker">ACCESS DENIED</div>
 			<h2>ADMIN ROLE REQUIRED</h2>
-			<p>Registrierte Accounts sind normale Nutzer. Admin-Rechte muessen bewusst in der SQLite-Datenbank gesetzt werden.</p>
+			<p>Registrierte Accounts sind normale Nutzer. Admin-Rechte müssen bewusst in der SQLite-Datenbank gesetzt werden.</p>
 			<code>bun -e "import { Database } from 'bun:sqlite'; const db = new Database('data/conduit.sqlite'); db.query(\"UPDATE users SET role = 'admin' WHERE email = ?\").run('admin@example.com');"</code>
 		</section>
 
@@ -86,4 +86,3 @@
 	<script src="admin.js"></script>
 </body>
 </html>
-

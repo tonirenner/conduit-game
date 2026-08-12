@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun --hot ./index.html",
+    "dev": "bun --hot ./game.ts",
     "dev:server": "bun --hot ./server/src/index.ts",
     "server": "bun ./server/src/index.ts",
     "build": "bun build ./index.html --outdir ./dist",

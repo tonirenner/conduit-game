@@ -1,8 +1,11 @@
-// dev-server.ts
 import index from "./index.html";
+import { loadServerConfig } from "./server/src/config";
+
+const config = await loadServerConfig();
 
 const server = Bun.serve({
-	                         port: 3000,
+	                         hostname: config.game.host,
+	                         port: config.game.port,
 
 	                         routes: {
 		                         "/": index,
@@ -22,4 +25,4 @@ const server = Bun.serve({
 	                         development: true,
                          });
 
-console.log(`Listening on http://localhost:${server.port}`);
+console.log(`Game dev server listening on http://localhost:${server.port}`);

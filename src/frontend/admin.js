@@ -186,7 +186,7 @@ async function handleMediaAction(event) {
 	}
 
 	if (button.dataset.action === 'delete') {
-		if (!confirm(`Showcase-Eintrag "${item.title}" loeschen?`)) {
+		if (!confirm(`Showcase-Eintrag "${item.title}" löschen?`)) {
 			return;
 		}
 
@@ -195,7 +195,7 @@ async function handleMediaAction(event) {
 		});
 		await loadAdminMedia();
 		renderMediaList();
-		setAdminStatus('Showcase-Eintrag geloescht.');
+		setAdminStatus('Showcase-Eintrag gelöscht.');
 	}
 }
 
