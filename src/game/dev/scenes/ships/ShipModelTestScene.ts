@@ -62,6 +62,12 @@ const MODEL_ASSETS: ModelAssetEntry[] = [
 		load: () => loadGlb('/models/orbital_hanger.glb', 'Orbital Hanger GLB'),
 	},
 	{
+		id: 'glb-hq',
+		label: 'HQ GLB / Headquarters',
+		category: 'Real Assets',
+		load: () => loadGlb('/models/hq.glb', 'HQ GLB'),
+	},
+	{
 		id: 'obj-capital-ship',
 		label: 'Capital Ship OBJ',
 		category: 'Real Assets',

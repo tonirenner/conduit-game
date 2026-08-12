@@ -1,0 +1,1 @@
+const f=document.getElementById('joinForm'),o=document.getElementById('ok');f?.addEventListener('submit',e=>{e.preventDefault();if(!f.checkValidity()){f.reportValidity();return;}o.style.display='block';});

@@ -145,6 +145,7 @@ const CAPITAL_SHIP_MTL_URL =
           `/models/capital_ship.mtl`;
 
 const ORBITAL_HANGER_GLB_URL = `/models/orbital_hanger.glb`;
+const HQ_GLB_URL = `/models/hq.glb`;
 const FRIGATE_GLB_URL = `/models/frigate.glb`;
 
 let capitalShipModelPromise: Promise<THREE.Object3D> | null = null;
@@ -152,6 +153,9 @@ let capitalShipModelWarningShown = false;
 
 let orbitalHangerModelPromise: Promise<THREE.Object3D> | null = null;
 let orbitalHangerModelWarningShown = false;
+
+let hqModelPromise: Promise<THREE.Object3D> | null = null;
+let hqModelWarningShown = false;
 
 let frigateModelPromise: Promise<THREE.Object3D> | null = null;
 let frigateModelWarningShown = false;
@@ -2181,6 +2185,47 @@ export class GamePrototypeScene {
        return orbitalHangerModelPromise.then((model) => model.clone(true));
     }
 
+    private loadHqModel(): Promise<THREE.Object3D> {
+       if (!hqModelPromise) {
+          hqModelPromise =
+             loadGltfObject(
+                HQ_GLB_URL,
+                { name: 'HQ GLB Source' },
+             )
+             .then((model) => {
+                model.traverse((object) => {
+                   if (!(object instanceof THREE.Mesh)) {
+                      return;
+                   }
+
+                   object.castShadow = false;
+                   object.receiveShadow = false;
+                   object.frustumCulled = false;
+                });
+
+                configureObjectMaterials(model, (material) => {
+                   material.depthWrite = true;
+                   material.depthTest = true;
+                });
+
+                return model;
+             })
+             .catch((error) => {
+                if (!hqModelWarningShown) {
+                   console.warn(
+                      `Failed to load ${HQ_GLB_URL}. Falling back to dummy headquarters.`,
+                      error,
+                   );
+                   hqModelWarningShown = true;
+                }
+
+                throw error;
+             });
+       }
+
+       return hqModelPromise.then((model) => model.clone(true));
+    }
+
     private createOrbitalHangerFallback(): THREE.Object3D {
        const group = new THREE.Group();
 
@@ -2251,11 +2296,40 @@ export class GamePrototypeScene {
        return group;
     }
 
+    private createHeadquartersStationMesh(
+       factionId: OrbitalStationDefinition['factionId'],
+    ): THREE.Object3D {
+       const group = new THREE.Group();
+
+       group.name = 'Headquarters Station';
+       group.add(createDummyStationModel('headquarters', factionId));
+
+       void this.loadHqModel()
+          .then((model) => {
+             group.clear();
+
+             model.name = 'HQ GLB';
+             normalizeObjectToSize(
+                model,
+                13.0,
+             );
+
+             group.add(model);
+          })
+          .catch(() => {
+             // Fallback bleibt sichtbar.
+          });
+
+       return group;
+    }
+
     private createStationMesh(station: OrbitalStationDefinition): THREE.Object3D {
        let group: THREE.Object3D;
 
        if (station.type === 'shipyard' || station.type === 'shipyard_small') {
           group = this.createOrbitalHangerStationMesh();
+       } else if (station.type === 'headquarters') {
+          group = this.createHeadquartersStationMesh(station.factionId);
        } else {
           group = createDummyStationModel(
              station.type,
