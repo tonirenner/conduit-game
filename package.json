@@ -1,5 +1,5 @@
 {
-  "name": "planet-lod",
+  "name": "conduit-game",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "dev": "bun --hot ./index.html",
+    "dev:server": "bun --hot ./server/src/index.ts",
+    "server": "bun ./server/src/index.ts",
     "build": "bun build ./index.html --outdir ./dist",
     "preview": "bun ./dist/index.html"
   },
