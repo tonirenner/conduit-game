@@ -3,6 +3,7 @@ import { disposeObject3D } from '@conduit/web3d/debug';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import { Planet } from '../../../../planet/Planet';
 import { generatePlanetDefinition } from '../../../../planet/generation/PlanetGenerator';
+import { generatePlanetResourceProfile } from '../../../../planet/generation/PlanetResourceGenerator';
 import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
 import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
 import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
@@ -258,7 +259,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			return definition;
 		}
 
-		return {
+		const debugDefinition = {
 			...definition,
 			composition: {
 				...definition.composition,
@@ -275,6 +276,17 @@ export class PlanetLodTestScene implements FeatureTestScene {
 					? definition.atmosphere.cloudCoverage
 					: 0,
 			},
+		};
+
+		return {
+			...debugDefinition,
+			resources: generatePlanetResourceProfile({
+				planetClass: debugDefinition.class,
+				composition: debugDefinition.composition,
+				atmosphere: debugDefinition.atmosphere,
+				surface: debugDefinition.surface,
+				climate: debugDefinition.climate,
+			}),
 		};
 	}
 
@@ -317,6 +329,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const terrain = this.planet.getTerrainStats();
 		const distance = this.context.camera.position.length();
 		const climate = this.definition.climate;
+		const resources = this.definition.resources;
 		const gasStats = this.planet.getGasGiantDebugStats();
 		const visualProfile = getPlanetClassVisualProfile(
 			this.profile.surfacePalette as SurfacePaletteKind,
@@ -357,6 +370,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`sample avg temp/humid/dry: ${format01(this.climateDiagnostics.averages.temperature)} / ${format01(this.climateDiagnostics.averages.humidity)} / ${format01(this.climateDiagnostics.averages.aridity)}<br>` +
 			`coverage ocean/coast/land: ${formatPercent(this.climateDiagnostics.coverage.deepOcean + this.climateDiagnostics.coverage.shallowOcean)} / ${formatPercent(this.climateDiagnostics.coverage.coast)} / ${formatPercent(this.climateDiagnostics.coverage.land)}<br>` +
 			`biomes: ${formatBiomeShares(this.climateDiagnostics.dominantBiomes)}<br>` +
+			`resources: metal ${format01(resources.metal)}, rare ${format01(resources.rareMaterials)}, fuel ${format01(resources.fuel)}, water ${format01(resources.water)}, vol ${format01(resources.volatiles)}, research ${format01(resources.researchValue)}, difficulty ${format01(resources.extractionDifficulty)}<br>` +
 			`warnings: ${this.climateDiagnostics.warnings.length > 0 ? this.climateDiagnostics.warnings.join(', ') : 'none'}<br>` +
 			`distance: ${distance.toFixed(2)}<br>` +
 			`patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>` +

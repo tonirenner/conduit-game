@@ -3,6 +3,8 @@ import {
 	type PersistentGameState,
 	type PlayerProfile,
 } from '../domain/PlayerProfile';
+import { generatePlanetResourceProfile } from '../../planet/generation/PlanetResourceGenerator';
+import type { PlanetDefinition } from '../../planet/model/PlanetDefinition';
 
 export type PlayerRepository = {
 	load: () => PlayerProfile;
@@ -81,6 +83,7 @@ export class LocalGameWorldRepository implements GameWorldRepository {
 			return {
 				...parsed,
 				playerProfile: normalizePlayerProfile(parsed.playerProfile),
+				world: normalizeWorldPlanetResources(parsed.world),
 			};
 		} catch (error) {
 			console.warn('Could not parse persistent game state.', error);
@@ -108,6 +111,40 @@ export class LocalGameWorldRepository implements GameWorldRepository {
 			window.localStorage.removeItem(GAME_STATE_STORAGE_KEY);
 		}
 	}
+}
+
+function normalizeWorldPlanetResources(
+	world: PersistentGameState['world'],
+): PersistentGameState['world'] {
+	return {
+		...world,
+		nodes: world.nodes.map((node) => ({
+			...node,
+			system: {
+				...node.system,
+				planets: node.system.planets.map(normalizePlanetResources),
+			},
+		})),
+	};
+}
+
+function normalizePlanetResources(
+	planet: PlanetDefinition,
+): PlanetDefinition {
+	if ((planet as Partial<PlanetDefinition>).resources) {
+		return planet;
+	}
+
+	return {
+		...planet,
+		resources: generatePlanetResourceProfile({
+			planetClass: planet.class,
+			composition: planet.composition,
+			atmosphere: planet.atmosphere,
+			surface: planet.surface,
+			climate: planet.climate,
+		}),
+	};
 }
 
 function normalizePlayerProfile(input: Partial<PlayerProfile>): PlayerProfile {

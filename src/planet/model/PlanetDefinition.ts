@@ -74,6 +74,16 @@ export type PlanetClimateDefinition = {
 	ashLoad: number;
 };
 
+export type PlanetResourceProfile = {
+	metal: number;
+	rareMaterials: number;
+	fuel: number;
+	water: number;
+	volatiles: number;
+	researchValue: number;
+	extractionDifficulty: number;
+};
+
 export type PlanetRingBandDefinition = {
 	offset: number;
 	width: number;
@@ -131,6 +141,7 @@ export type PlanetDefinition = {
 	atmosphere: PlanetAtmosphereDefinition;
 	surface: PlanetSurfaceDefinition;
 	climate: PlanetClimateDefinition;
+	resources: PlanetResourceProfile;
 
 	rings?: PlanetRingDefinition;
 	moons: PlanetMoonDefinition[];

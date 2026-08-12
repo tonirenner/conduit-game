@@ -17,6 +17,7 @@ import {
 
 import { SeededRandom } from './SeededRandom';
 import { resolvePlanetClass } from './PlanetClassResolver';
+import { generatePlanetResourceProfile } from './PlanetResourceGenerator';
 
 export type PlanetGenerationOptions = {
 	id?: string;
@@ -63,6 +64,13 @@ export function generatePlanetDefinition(
 		biomeSeed,
 		weatherSeed,
 	);
+	const resources = generatePlanetResourceProfile({
+		planetClass,
+		composition,
+		atmosphere,
+		surface,
+		climate,
+	});
 
 	const rings = generateRings(random, physical.radius, planetClass, options);
 	const moons = generateMoons(random, physical.radius, planetClass);
@@ -80,6 +88,7 @@ export function generatePlanetDefinition(
 		atmosphere,
 		surface,
 		climate,
+		resources,
 
 		rings,
 		moons,

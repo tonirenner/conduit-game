@@ -207,6 +207,7 @@ Carbon currently has strong visibility/fill compensation because its WebGPU path
 The first Planet Tech implementation step is diagnostics-focused:
 
 - `PlanetDefinition` already contains class, composition, physical, orbit, atmosphere, surface, climate, rings, moons and render seeds.
+- `PlanetDefinition.resources` now provides an explicit derived `PlanetResourceProfile` for metal, rare materials, fuel, water, volatiles, research value and extraction difficulty.
 - `PlanetRenderProfile` already derives renderer kind, feature toggles and palette choices from `PlanetDefinition`.
 - `PlanetClassVisualProfile` is the shared class-look tuning layer for WebGL and WebGPU.
 - `PlanetClimateDiagnostics` now samples the current `PlanetDefinition` with its production terrain seed/profile and reports:
@@ -221,6 +222,7 @@ The first Planet Tech implementation step is diagnostics-focused:
 - `OceanCoastlineProfile` now holds the shared water, shelf and island thresholds consumed by both WebGL GLSL and WebGPU TSL surface materials.
 - `AtmosphereVisualProfile` now holds shared effective atmosphere values and lava rim/tint strength consumed by both WebGL and WebGPU atmosphere layers.
 - `GasGiantVisualProfile` now centralizes gas/ice giant shell depth, atmosphere shell, band texture, cloud particles and far-distance particle fade.
+- Local persistent worlds are normalized on load so older planet definitions without `resources` receive the derived resource profile.
 
 This keeps the next visual passes grounded in data. If Ocean, Lava, Gas Giant or Ice Giant reads wrong, the first question should be whether the class definition/profile data is wrong, before renderer-specific shader math is changed.
 

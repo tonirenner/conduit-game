@@ -20,6 +20,7 @@ import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
 import type {PlanetDefinition} from './model/PlanetDefinition';
+import type {PlanetResourceProfile} from './model/PlanetDefinition';
 import type {PlanetRenderProfile} from './rendering/PlanetRenderProfile';
 import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from './rendering/SurfaceRenderProfile';
 import {resolveTerrainProfileKind} from './rendering/TerrainRenderProfile';
@@ -980,6 +981,15 @@ export class Planet {
 			cloudCoverage: number;
 			density: number;
 		};
+		resources: {
+			metal: number;
+			rareMaterials: number;
+			fuel: number;
+			water: number;
+			volatiles: number;
+			researchValue: number;
+			extractionDifficulty: number;
+		};
 		rings: boolean;
 		moons: number;
 		terrainSeed: number;
@@ -1049,6 +1059,15 @@ export class Planet {
 					cloudCoverage: 0,
 					density: 0,
 				},
+				resources: {
+					metal: 0,
+					rareMaterials: 0,
+					fuel: 0,
+					water: 0,
+					volatiles: 0,
+					researchValue: 0,
+					extractionDifficulty: 0,
+				},
 				rings: false,
 				moons: 0,
 				terrainSeed: 0,
@@ -1111,6 +1130,7 @@ export class Planet {
 				cloudCoverage: this.definition.atmosphere.cloudCoverage,
 				density: this.definition.atmosphere.density,
 			},
+			resources: getPlanetResourceProfileOrFallback(this.definition),
 			rings: this.definition.rings?.enabled ?? false,
 			moons: this.definition.moons.length,
 			terrainSeed: this.definition.render.terrainSeed,
@@ -1344,4 +1364,20 @@ export class Planet {
 			horizon: this.planet.getHorizonCullingStats(),
 		};
 	}
+}
+
+function getPlanetResourceProfileOrFallback(
+	definition: PlanetDefinition,
+): PlanetResourceProfile {
+	return (
+		(definition as Partial<PlanetDefinition>).resources ?? {
+			metal: 0,
+			rareMaterials: 0,
+			fuel: 0,
+			water: 0,
+			volatiles: 0,
+			researchValue: 0,
+			extractionDifficulty: 0,
+		}
+	);
 }
