@@ -6,6 +6,8 @@ import { generatePlanetDefinition } from '../../../../planet/generation/PlanetGe
 import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
 import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
 import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
+import { getPlanetClassVisualProfile } from '../../../../planet/rendering/PlanetClassVisualProfile';
+import type { SurfacePaletteKind } from '../../../../planet/rendering/SurfaceRenderProfile';
 import {
 	PLANET_CLIMATE_DEBUG_MODES,
 	createPlanetClimateDiagnostics,
@@ -33,6 +35,18 @@ const PLANET_CLASSES: PlanetClass[] = [
 	'ice_giant',
 ];
 
+type PlanetLayerToggles = {
+	surface: boolean;
+	ocean: boolean;
+	atmosphere: boolean;
+	clouds: boolean;
+	gasParticles: boolean;
+	rings: boolean;
+	moons: boolean;
+	nearSurfaceTerrain: boolean;
+	toxicHaze: boolean;
+};
+
 export class PlanetLodTestScene implements FeatureTestScene {
 	readonly id = 'planet-lod';
 	readonly name = 'Planet LOD';
@@ -50,6 +64,17 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private seed = 3001;
 	private planetClass: PlanetClass = 'ocean';
 	private climateDebugMode: ClimateDebugMode = 'biome';
+	private readonly layerToggles: PlanetLayerToggles = {
+		surface: true,
+		ocean: true,
+		atmosphere: true,
+		clouds: true,
+		gasParticles: true,
+		rings: true,
+		moons: true,
+		nearSurfaceTerrain: true,
+		toxicHaze: true,
+	};
 
 	init(context: FeatureTestContext): void {
 		this.context = context;
@@ -99,6 +124,17 @@ export class PlanetLodTestScene implements FeatureTestScene {
 				`<option value="${mode}"${mode === this.climateDebugMode ? ' selected' : ''}>${formatDebugMode(mode)}</option>`
 			)).join('')}</select></label>` +
 			`<button data-apply-planet style="margin:4px;padding:6px 8px;">Apply</button>` +
+			`<div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(120,180,255,.18);line-height:1.5;">` +
+			this.createLayerToggleHtml('surface', 'Surface') +
+			this.createLayerToggleHtml('ocean', 'Ocean Data') +
+			this.createLayerToggleHtml('atmosphere', 'Atmosphere') +
+			this.createLayerToggleHtml('clouds', 'Clouds') +
+			this.createLayerToggleHtml('gasParticles', 'Gas Particles') +
+			this.createLayerToggleHtml('rings', 'Rings') +
+			this.createLayerToggleHtml('moons', 'Moons') +
+			this.createLayerToggleHtml('nearSurfaceTerrain', 'Near Terrain') +
+			this.createLayerToggleHtml('toxicHaze', 'Toxic Haze') +
+			`</div>` +
 			`<canvas data-climate-map width="240" height="120" style="display:block;width:240px;height:120px;margin-top:8px;border:1px solid rgba(120,180,255,.35);border-radius:4px;image-rendering:pixelated;background:#05070a;"></canvas>` +
 			`<div data-planet-stats style="margin-top:8px;opacity:.78"></div>`;
 		this.stats = root.querySelector<HTMLElement>('[data-planet-stats]');
@@ -123,6 +159,15 @@ export class PlanetLodTestScene implements FeatureTestScene {
 					(event.currentTarget as HTMLSelectElement).value as ClimateDebugMode;
 				this.updateClimateMap();
 			});
+
+		for (const key of Object.keys(this.layerToggles) as Array<keyof PlanetLayerToggles>) {
+			root.querySelector<HTMLInputElement>(`[data-layer-toggle="${key}"]`)
+				?.addEventListener('change', (event) => {
+					this.layerToggles[key] =
+						(event.currentTarget as HTMLInputElement).checked;
+					this.createPlanet();
+				});
+		}
 	}
 
 	private createPlanet(): void {
@@ -138,13 +183,16 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		this.root.clear();
 		this.context.clearReport();
 
-		const definition = generatePlanetDefinition(this.seed, {
+		const generatedDefinition = generatePlanetDefinition(this.seed, {
 			name: `LOD ${this.seed}`,
 			semiMajorAxis: 1,
 			starIrradiance: 1,
 			forcePlanetClass: this.planetClass,
 		});
-		const profile = createPlanetRenderProfile(definition);
+		const definition = this.createDebugDefinition(generatedDefinition);
+		const profile = this.createDebugRenderProfile(
+			createPlanetRenderProfile(definition),
+		);
 		this.definition = definition;
 		this.profile = profile;
 		this.climateDiagnostics = createPlanetClimateDiagnostics(definition);
@@ -154,12 +202,27 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			null,
 			{
 				gasCloudParticles:
-					definition.class === 'gas_giant' ||
-					definition.class === 'ice_giant',
+					this.layerToggles.gasParticles &&
+					(
+						definition.class === 'gas_giant' ||
+						definition.class === 'ice_giant'
+					),
+				moonSystem: this.layerToggles.moons,
+				nearSurfaceTerrain: this.layerToggles.nearSurfaceTerrain,
 			},
 			definition,
 			profile,
 		);
+		this.planet.setDebugLayerVisibility({
+			surface: this.layerToggles.surface,
+			atmosphere: this.layerToggles.atmosphere,
+			clouds: this.layerToggles.clouds,
+			gasLayer: true,
+			rings: this.layerToggles.rings,
+			moons: this.layerToggles.moons,
+			nearSurfaceTerrain: this.layerToggles.nearSurfaceTerrain,
+			toxicHaze: this.layerToggles.toxicHaze,
+		});
 		this.root.add(this.planet.group);
 		this.context.report({
 			status: 'pass',
@@ -174,6 +237,68 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			});
 		}
 		this.updateClimateMap();
+	}
+
+	private createLayerToggleHtml(
+		key: keyof PlanetLayerToggles,
+		label: string,
+	): string {
+		return (
+			`<label style="display:block;margin:2px 0;">` +
+			`<input data-layer-toggle="${key}" type="checkbox"${this.layerToggles[key] ? ' checked' : ''}> ` +
+			`${label}</label>`
+		);
+	}
+
+	private createDebugDefinition(
+		definition: PlanetDefinition,
+	): PlanetDefinition {
+		if (this.layerToggles.ocean) {
+			return definition;
+		}
+
+		return {
+			...definition,
+			composition: {
+				...definition.composition,
+				water: 0,
+			},
+			surface: {
+				...definition.surface,
+				hasOcean: false,
+				oceanLevel: -1,
+			},
+			atmosphere: {
+				...definition.atmosphere,
+				cloudCoverage: this.layerToggles.clouds
+					? definition.atmosphere.cloudCoverage
+					: 0,
+			},
+		};
+	}
+
+	private createDebugRenderProfile(
+		profile: PlanetRenderProfile,
+	): PlanetRenderProfile {
+		return {
+			...profile,
+			enableOcean: profile.enableOcean && this.layerToggles.ocean,
+			enableAtmosphere:
+				profile.enableAtmosphere &&
+				this.layerToggles.atmosphere,
+			enableClouds:
+				profile.enableClouds &&
+				this.layerToggles.clouds,
+			enableRings:
+				profile.enableRings &&
+				this.layerToggles.rings,
+			cloudCoverage: this.layerToggles.clouds
+				? profile.cloudCoverage
+				: 0,
+			atmosphereDensity: this.layerToggles.atmosphere
+				? profile.atmosphereDensity
+				: 0,
+		};
 	}
 
 	private updateStats(): void {
@@ -191,6 +316,9 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const terrain = this.planet.getTerrainStats();
 		const distance = this.context.camera.position.length();
 		const climate = this.definition.climate;
+		const visualProfile = getPlanetClassVisualProfile(
+			this.profile.surfacePalette as SurfacePaletteKind,
+		);
 		const labRenderRadius = 3;
 		const gameRenderRadius = getSystemPlanetRenderRadius(
 			this.definition.physical.radius,
@@ -210,11 +338,13 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`renderer: ${this.context.rendererMode} / kind: ${this.profile.rendererKind}<br>` +
 			`surface: ${this.profile.surfacePalette} / atmosphere: ${this.profile.atmospherePalette} / clouds: ${this.profile.cloudPalette}<br>` +
 			`features: terrain ${formatBool(this.profile.enableTerrain)}, ocean ${formatBool(this.profile.enableOcean)}, atmosphere ${formatBool(this.profile.enableAtmosphere)}, clouds ${formatBool(this.profile.enableClouds)}, rings ${formatBool(this.profile.enableRings)}<br>` +
+			`layer toggles: surface ${formatBool(this.layerToggles.surface)}, ocean ${formatBool(this.layerToggles.ocean)}, atmosphere ${formatBool(this.layerToggles.atmosphere)}, clouds ${formatBool(this.layerToggles.clouds)}, gas particles ${formatBool(this.layerToggles.gasParticles)}<br>` +
 			`real radius: ${formatKilometers(labScale.physicalRadiusKilometers)} km<br>` +
 			`lab radius: ${labRenderRadius.toFixed(1)}u (${formatKilometers(labScale.kilometersPerRenderedUnit)} km/u)<br>` +
 			`game radius: ${gameRenderRadius.toFixed(1)}u (${formatKilometers(gameScale.kilometersPerRenderedUnit)} km/u, ${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>` +
 			`ocean level: ${format01(this.profile.oceanLevel)} terrain roughness: ${format01(this.profile.terrainRoughness)} mountain: ${format01(this.profile.mountainScale)}<br>` +
 			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
+			`visual profile: night ${format01(visualProfile.nightAlbedo)}, ambient ${format01(visualProfile.ambientBoost)}, direct ${format01(visualProfile.directLightScale)}, fill ${format01(visualProfile.shadowFill)}, floor ${format01(visualProfile.visibilityFloor)}, env ${format01(visualProfile.environmentReflection)} / peak ${format01(visualProfile.environmentPeak)}<br>` +
 			`terrain profile: ${this.climateDiagnostics.terrainProfile}<br>` +
 			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
 			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +

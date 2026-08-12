@@ -216,6 +216,8 @@ The first Planet Tech implementation step is diagnostics-focused:
   - dominant biome shares
   - simple warnings for class/data mismatches
 - `PlanetLodTestScene` now shows a climate debug map for the selected planet class/seed.
+- `PlanetLodTestScene` now has runtime lab toggles for surface, ocean data, atmosphere, clouds, gas particles, rings, moons, near-surface terrain and toxic haze.
+- Surface, atmosphere, clouds, gas layer, rings, moons and debug terrain can be isolated as render layers. Ocean is still part of the surface shader/profile data, so its lab toggle recreates the temporary diagnostic planet with ocean data disabled.
 
 This keeps the next visual passes grounded in data. If Ocean, Lava, Gas Giant or Ice Giant reads wrong, the first question should be whether the class definition/profile data is wrong, before renderer-specific shader math is changed.
 

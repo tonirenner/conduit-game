@@ -39,6 +39,17 @@ export type PlanetRenderTuning = {
 	bakedTerrainBlend: number;
 };
 
+export type PlanetDebugLayerVisibility = Partial<{
+	surface: boolean;
+	atmosphere: boolean;
+	clouds: boolean;
+	gasLayer: boolean;
+	rings: boolean;
+	moons: boolean;
+	nearSurfaceTerrain: boolean;
+	toxicHaze: boolean;
+}>;
+
 /**
  * Phase 7a.1:
  *
@@ -1211,6 +1222,68 @@ export class Planet {
 					height: 0,
 				},
 		};
+	}
+
+	setDebugLayerVisibility(
+		visibility: PlanetDebugLayerVisibility,
+	): void {
+		if (visibility.surface !== undefined) {
+			for (const object of [
+				this.depthOccluder,
+				this.planetBody,
+				this.planet,
+			]) {
+				if (object) {
+					object.visible = visibility.surface;
+				}
+			}
+		}
+
+		if (visibility.atmosphere !== undefined) {
+			for (const object of [
+				this.atmosphere?.mesh,
+				this.webGPUAtmosphere?.mesh,
+			]) {
+				if (object) {
+					object.visible = visibility.atmosphere;
+				}
+			}
+		}
+
+		if (visibility.clouds !== undefined) {
+			for (const object of [
+				this.clouds?.group,
+				this.webGPUClouds?.group,
+			]) {
+				if (object) {
+					object.visible = visibility.clouds;
+				}
+			}
+		}
+
+		if (visibility.gasLayer !== undefined && this.gasGiantLayer) {
+			this.gasGiantLayer.group.visible = visibility.gasLayer;
+		}
+
+		if (visibility.rings !== undefined && this.ringSystemLayer) {
+			this.ringSystemLayer.group.visible = visibility.rings;
+		}
+
+		if (visibility.moons !== undefined && this.moonSystemLayer) {
+			this.moonSystemLayer.group.visible = visibility.moons;
+		}
+
+		if (
+			visibility.nearSurfaceTerrain !== undefined &&
+			this.nearSurfaceTerrainLayer
+		) {
+			this.nearSurfaceTerrainLayer.group.visible =
+				visibility.nearSurfaceTerrain;
+		}
+
+		if (visibility.toxicHaze !== undefined && this.toxicHazeLayer) {
+			this.toxicHazeLayer.mesh.visible = visibility.toxicHaze;
+		}
 	}
 
 	getRenderFeatureStats(): {
