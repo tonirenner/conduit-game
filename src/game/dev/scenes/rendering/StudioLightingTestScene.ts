@@ -8,7 +8,10 @@ import { disposeObject3D } from '@conduit/web3d/debug';
 import {
 	SceneEnvironmentManager,
 } from '@conduit/web3d/environment';
-import { StudioLightingRig } from '@conduit/web3d/lighting';
+import {
+	BLENDER_MATCH_STUDIO_LIGHTING_PRESET,
+	StudioLightingRig,
+} from '@conduit/web3d/lighting';
 import {
 	restoreMaterialSnapshot,
 	type MaterialSnapshot,
@@ -560,12 +563,12 @@ function createBlenderMatchState(): StudioState {
 		environmentRotation: 0,
 		environmentVisible: false,
 		backgroundColor: '#080b10',
-		keyIntensity: 1.6,
-		keyColor: '#fff0d8',
-		keyAzimuth: -36,
-		keyElevation: 38,
-		fillIntensity: 0.85,
-		fillColor: '#9ab8ff',
+		keyIntensity: BLENDER_MATCH_STUDIO_LIGHTING_PRESET.keyIntensity,
+		keyColor: String(BLENDER_MATCH_STUDIO_LIGHTING_PRESET.keyColor),
+		keyAzimuth: BLENDER_MATCH_STUDIO_LIGHTING_PRESET.keyAzimuthDegrees,
+		keyElevation: BLENDER_MATCH_STUDIO_LIGHTING_PRESET.keyElevationDegrees,
+		fillIntensity: BLENDER_MATCH_STUDIO_LIGHTING_PRESET.fillIntensity,
+		fillColor: String(BLENDER_MATCH_STUDIO_LIGHTING_PRESET.fillColor),
 		exposure: 1.03,
 		roughnessMultiplier: FRIGATE_MATERIAL_LIGHTING_PROFILE.roughnessMultiplier,
 		metalnessMultiplier: FRIGATE_MATERIAL_LIGHTING_PROFILE.metalnessMultiplier,
