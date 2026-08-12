@@ -7,6 +7,13 @@ import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRe
 import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
 import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
 import {
+	PLANET_CLIMATE_DEBUG_MODES,
+	createPlanetClimateDiagnostics,
+	drawPlanetClimateDebugMap,
+	type PlanetClimateDiagnostics,
+} from '../../../../planet/diagnostics/PlanetClimateDiagnostics';
+import type { ClimateDebugMode } from '../../../../planet/Climate';
+import {
 	getPlanetScaleDiagnostics,
 	getSystemPlanetRenderRadius,
 } from '../../../spatial/SpatialRenderScale';
@@ -37,9 +44,12 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private planet: Planet | null = null;
 	private definition: PlanetDefinition | null = null;
 	private profile: PlanetRenderProfile | null = null;
+	private climateDiagnostics: PlanetClimateDiagnostics | null = null;
 	private stats: HTMLElement | null = null;
+	private climateCanvas: HTMLCanvasElement | null = null;
 	private seed = 3001;
 	private planetClass: PlanetClass = 'ocean';
+	private climateDebugMode: ClimateDebugMode = 'biome';
 
 	init(context: FeatureTestContext): void {
 		this.context = context;
@@ -84,9 +94,15 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			)).join('')}</select></label>` +
 			`<label style="display:block;margin:6px 0;">Seed ` +
 			`<input data-seed type="number" value="${this.seed}" style="width:110px;"></label>` +
+			`<label style="display:block;margin:6px 0;">Climate Map ` +
+			`<select data-climate-debug>${PLANET_CLIMATE_DEBUG_MODES.map((mode) => (
+				`<option value="${mode}"${mode === this.climateDebugMode ? ' selected' : ''}>${formatDebugMode(mode)}</option>`
+			)).join('')}</select></label>` +
 			`<button data-apply-planet style="margin:4px;padding:6px 8px;">Apply</button>` +
+			`<canvas data-climate-map width="240" height="120" style="display:block;width:240px;height:120px;margin-top:8px;border:1px solid rgba(120,180,255,.35);border-radius:4px;image-rendering:pixelated;background:#05070a;"></canvas>` +
 			`<div data-planet-stats style="margin-top:8px;opacity:.78"></div>`;
 		this.stats = root.querySelector<HTMLElement>('[data-planet-stats]');
+		this.climateCanvas = root.querySelector<HTMLCanvasElement>('[data-climate-map]');
 
 		root.querySelector<HTMLButtonElement>('[data-apply-planet]')
 			?.addEventListener('click', () => {
@@ -100,6 +116,13 @@ export class PlanetLodTestScene implements FeatureTestScene {
 					: this.planetClass;
 				this.createPlanet();
 			});
+
+		root.querySelector<HTMLSelectElement>('[data-climate-debug]')
+			?.addEventListener('change', (event) => {
+				this.climateDebugMode =
+					(event.currentTarget as HTMLSelectElement).value as ClimateDebugMode;
+				this.updateClimateMap();
+			});
 	}
 
 	private createPlanet(): void {
@@ -111,6 +134,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		this.planet = null;
 		this.definition = null;
 		this.profile = null;
+		this.climateDiagnostics = null;
 		this.root.clear();
 		this.context.clearReport();
 
@@ -123,6 +147,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const profile = createPlanetRenderProfile(definition);
 		this.definition = definition;
 		this.profile = profile;
+		this.climateDiagnostics = createPlanetClimateDiagnostics(definition);
 		this.planet = new Planet(
 			3,
 			this.context.rendererMode,
@@ -141,10 +166,25 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			label: 'planet created',
 			detail: `${definition.class} / seed ${definition.seed}`,
 		});
+		for (const warning of this.climateDiagnostics.warnings) {
+			this.context.report({
+				status: 'warn',
+				label: 'climate diagnostic',
+				detail: warning,
+			});
+		}
+		this.updateClimateMap();
 	}
 
 	private updateStats(): void {
-		if (!this.planet || !this.context || !this.stats || !this.definition || !this.profile) {
+		if (
+			!this.planet ||
+			!this.context ||
+			!this.stats ||
+			!this.definition ||
+			!this.profile ||
+			!this.climateDiagnostics
+		) {
 			return;
 		}
 
@@ -175,14 +215,31 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`game radius: ${gameRenderRadius.toFixed(1)}u (${formatKilometers(gameScale.kilometersPerRenderedUnit)} km/u, ${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>` +
 			`ocean level: ${format01(this.profile.oceanLevel)} terrain roughness: ${format01(this.profile.terrainRoughness)} mountain: ${format01(this.profile.mountainScale)}<br>` +
 			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
+			`terrain profile: ${this.climateDiagnostics.terrainProfile}<br>` +
 			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
 			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +
 			`ash: ${format01(climate.ashLoad)} season: ${format01(climate.seasonality)}<br>` +
+			`sample avg temp/humid/dry: ${format01(this.climateDiagnostics.averages.temperature)} / ${format01(this.climateDiagnostics.averages.humidity)} / ${format01(this.climateDiagnostics.averages.aridity)}<br>` +
+			`coverage ocean/coast/land: ${formatPercent(this.climateDiagnostics.coverage.deepOcean + this.climateDiagnostics.coverage.shallowOcean)} / ${formatPercent(this.climateDiagnostics.coverage.coast)} / ${formatPercent(this.climateDiagnostics.coverage.land)}<br>` +
+			`biomes: ${formatBiomeShares(this.climateDiagnostics.dominantBiomes)}<br>` +
+			`warnings: ${this.climateDiagnostics.warnings.length > 0 ? this.climateDiagnostics.warnings.join(', ') : 'none'}<br>` +
 			`distance: ${distance.toFixed(2)}<br>` +
 			`patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>` +
 			`max lod: ${terrain.maxLevel}<br>` +
 			`splits: ${terrain.balance.splits}<br>` +
 			`violations: ${terrain.balance.violations}`;
+	}
+
+	private updateClimateMap(): void {
+		if (!this.climateCanvas || !this.definition) {
+			return;
+		}
+
+		drawPlanetClimateDebugMap(
+			this.climateCanvas,
+			this.definition,
+			this.climateDebugMode,
+		);
 	}
 }
 
@@ -199,6 +256,24 @@ function formatPlanetClass(planetClass: PlanetClass): string {
 
 function format01(value: number): string {
 	return value.toFixed(2);
+}
+
+function formatPercent(value: number): string {
+	return `${Math.round(value * 100)}%`;
+}
+
+function formatBiomeShares(
+	shares: PlanetClimateDiagnostics['dominantBiomes'],
+): string {
+	return shares
+		.map((entry) => `${entry.biome} ${formatPercent(entry.share)}`)
+		.join(', ');
+}
+
+function formatDebugMode(mode: ClimateDebugMode): string {
+	return mode
+		.replace(/([A-Z])/g, ' $1')
+		.replace(/^./, (first) => first.toUpperCase());
 }
 
 function formatBool(value: boolean): string {

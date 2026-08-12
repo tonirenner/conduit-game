@@ -165,14 +165,22 @@ Planet LOD scene should continue to grow into the main validation tool:
 - toggles for atmosphere/clouds/ocean/gas layers
 - debug mask views for height, humidity, temperature and biome
 
+Current diagnostic direction:
+
+- Planet LOD owns the first practical Planet Tech workbench.
+- Climate/biome debug sampling must use the same planet seed and terrain profile as the production `Planet` instance.
+- The debug map is not a second renderer. It is a data view for climate, height, land mask and biome inputs.
+- Dominant biome percentages, ocean/coast/land coverage and warnings should make class problems visible before shader tuning starts.
+
 ## Near-Term Work
 
-1. Improve Ocean masks and coastline sharpness.
-2. Strengthen Lava atmosphere/rim profile.
-3. Split Gas/Ice Giant visual logic from rocky/ocean planet assumptions.
-4. Keep far-distance gas/cloud particles subtle.
-5. Make Planet LOD scene the canonical comparison tool for all planet classes.
-6. Document which values are planet-class defaults and which are render-quality overrides.
+1. Make Planet LOD scene the canonical comparison tool for all planet classes.
+2. Surface climate/biome diagnostics per selected class and seed.
+3. Document which values are planet-class defaults and which are render-quality overrides.
+4. Improve Ocean masks and coastline sharpness.
+5. Strengthen Lava atmosphere/rim profile.
+6. Split Gas/Ice Giant visual logic from rocky/ocean planet assumptions.
+7. Keep far-distance gas/cloud particles subtle.
 
 ## Current Implementation Direction
 
@@ -193,6 +201,23 @@ The current dry-class tuning order is:
 3. Only touch shader math if a shared profile value cannot express the difference.
 
 Carbon currently has strong visibility/fill compensation because its WebGPU path was still reading as nearly black. Rocky is already close enough for a first pass. Metal-Rich now gets the strongest matte night/fill lift of the dry classes, while keeping reduced environment peak/reflection to avoid a chrome look.
+
+## Current Planet Tech Checkpoint
+
+The first Planet Tech implementation step is diagnostics-focused:
+
+- `PlanetDefinition` already contains class, composition, physical, orbit, atmosphere, surface, climate, rings, moons and render seeds.
+- `PlanetRenderProfile` already derives renderer kind, feature toggles and palette choices from `PlanetDefinition`.
+- `PlanetClassVisualProfile` is the shared class-look tuning layer for WebGL and WebGPU.
+- `PlanetClimateDiagnostics` now samples the current `PlanetDefinition` with its production terrain seed/profile and reports:
+  - terrain profile
+  - average temperature, humidity and aridity
+  - ocean/coast/land coverage
+  - dominant biome shares
+  - simple warnings for class/data mismatches
+- `PlanetLodTestScene` now shows a climate debug map for the selected planet class/seed.
+
+This keeps the next visual passes grounded in data. If Ocean, Lava, Gas Giant or Ice Giant reads wrong, the first question should be whether the class definition/profile data is wrong, before renderer-specific shader math is changed.
 
 ## Long-Term Work
 

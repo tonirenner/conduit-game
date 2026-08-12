@@ -20,13 +20,13 @@ Date: 2026-08-12
 - Game rules, ships, combat decisions, production, economy, and persistence stay in the game layer.
 - Avoid separate WebGL/WebGPU tuning paths where a shared visual profile is possible.
 
-## Next 1: Finish Current Weapon Fire Lab Work
+## Next 1: Planet Tech Diagnostics
 
-- Browser-check the new Weapon Fire test scene.
-- Verify that railgun and laser effects start exactly at muzzle nodes.
-- Verify that missile and rocket launcher effects use launcher/muzzle nodes and do not require yaw.
-- Add visible warnings for missing weapon nodes instead of silently falling back.
-- Commit as a focused Feature Lab change.
+- Treat `docs/planet-rendering-target-architecture.md` as the leading Planet Tech document.
+- Make Planet LOD the canonical workbench for all planet classes.
+- Surface climate, biome, coverage, seed, scale and active profile data in the lab before more visual tuning.
+- Keep WebGL and WebGPU on the same `PlanetDefinition`, render profile and visual profile inputs.
+- Avoid per-renderer class tuning unless the shared data cannot express the required look.
 
 ## Next 2: Combat And VFX Parity In Game
 
