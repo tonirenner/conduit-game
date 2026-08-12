@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
-import type { Database } from 'bun:sqlite';
 
+import { loadServerConfig } from './config';
 import {
 	type DbMediaItem,
 	type DbSession,
@@ -48,19 +48,22 @@ type MediaUpdateBody = {
 	published?: boolean;
 };
 
-const db = openAppDatabase();
-const frontendDir = resolve('src/frontend');
-const publicDir = resolve('public');
-const uploadDir = resolve('public/uploads');
-const sessionTtlMs = 1000 * 60 * 60 * 24 * 14;
-const serverPort = Number(process.env.PORT ?? 8787);
-const gameLaunchUrl = process.env.CONDUIT_GAME_URL ?? 'http://localhost:3000/';
+const config = await loadServerConfig();
+const db = openAppDatabase(config.storage.databasePath);
+const frontendDir = resolve(config.frontend.dir);
+const publicDir = resolve(config.frontend.publicDir);
+const uploadDir = resolve(config.storage.uploadDir);
+const sessionTtlMs = 1000 * 60 * 60 * 24 * config.auth.sessionDays;
 
 await mkdir(uploadDir, { recursive: true });
-seedDefaultMedia();
+
+if (config.cms.seedDefaultMedia) {
+	seedDefaultMedia();
+}
 
 const server = Bun.serve({
-	port: serverPort,
+	hostname: config.server.host,
+	port: config.server.port,
 	async fetch(request) {
 		try {
 			const url = new URL(request.url);
@@ -82,7 +85,9 @@ const server = Bun.serve({
 	},
 });
 
-console.info(`[server] Conduit Early Access server listening on http://localhost:${server.port}`);
+console.info(
+	`[server] Conduit Early Access server listening on ${config.server.publicBaseUrl}`,
+);
 
 async function handleApi(request: Request, url: URL): Promise<Response> {
 	const { pathname } = url;
@@ -184,6 +189,10 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 }
 
 async function register(request: Request): Promise<Response> {
+	if (!config.auth.registrationEnabled) {
+		fail(403, 'Registration is disabled');
+	}
+
 	const body = await readJson<RegisterBody>(request);
 	const email = normalizeEmail(body.email);
 	const password = body.password?.trim() ?? '';
@@ -397,6 +406,10 @@ async function uploadMedia(request: Request): Promise<Response> {
 		fail(400, 'Only image and video uploads are supported');
 	}
 
+	if (file.size > config.cms.maxUploadBytes) {
+		fail(413, 'Upload is too large');
+	}
+
 	const extension = extname(file.name).toLowerCase() || mediaExtension(file.type);
 	const fileName = `${Date.now()}-${crypto.randomUUID()}${extension}`;
 	const target = join(uploadDir, fileName);
@@ -404,7 +417,7 @@ async function uploadMedia(request: Request): Promise<Response> {
 	await writeFile(target, new Uint8Array(await file.arrayBuffer()));
 
 	return json({
-		url: `/uploads/${fileName}`,
+		url: `${config.storage.uploadPublicPath}/${fileName}`,
 		type: file.type.startsWith('video/') ? 'video' : 'image',
 	});
 }
@@ -714,7 +727,11 @@ function normalizeEmail(email: string | undefined): string {
 
 async function serveStatic(url: URL): Promise<Response> {
 	if (url.pathname === '/game' || url.pathname === '/game/') {
-		return Response.redirect(gameLaunchUrl, 302);
+		return Response.redirect(config.game.launchUrl, 302);
+	}
+
+	if (url.pathname === '/admin' || url.pathname === '/admin/') {
+		return serveFile(join(frontendDir, 'admin.html'));
 	}
 
 	if (url.pathname === '/' || url.pathname === '/index.html') {

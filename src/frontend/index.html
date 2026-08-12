@@ -142,43 +142,10 @@
 						<div class="actions">
 							<button class="btn" type="submit">SAVE PROFILE</button>
 							<button id="playButton" class="btn primary" type="button">LAUNCH GAME</button>
+							<a id="adminLink" class="btn" href="/admin" hidden>ADMIN CMS</a>
 						</div>
 					</form>
 				</section>
-			</div>
-		</section>
-
-		<section id="adminPanel" class="admin-panel" hidden>
-			<div>
-				<div class="kicker">ADMIN // SHOWCASE CMS</div>
-				<h2>MEDIA CONTROL</h2>
-				<p>Nur Accounts mit manuell gesetzter Admin-Rolle sehen diesen Bereich. Uploads landen lokal unter <code>public/uploads</code>.</p>
-				<div id="adminMediaList" class="admin-list"></div>
-			</div>
-
-			<div class="admin-forms">
-				<form id="uploadForm">
-					<h3>UPLOAD</h3>
-					<label>IMAGE / VIDEO FILE<input name="file" required type="file" accept="image/*,video/*"></label>
-					<button class="btn" type="submit">UPLOAD FILE</button>
-				</form>
-
-				<form id="mediaForm">
-					<h3>CREATE SHOWCASE ITEM</h3>
-					<label>TYPE
-						<select name="type">
-							<option value="image">Image</option>
-							<option value="video">Video</option>
-						</select>
-					</label>
-					<label>TITLE<input name="title" required placeholder="Orbital HQ"></label>
-					<label>DESCRIPTION<input name="description" placeholder="Short caption"></label>
-					<label>MEDIA URL<input name="url" required placeholder="/uploads/file.jpg or https://..."></label>
-					<label>THUMBNAIL URL<input name="thumbnailUrl" placeholder="optional"></label>
-					<label>SORT ORDER<input name="sortOrder" type="number" value="0"></label>
-					<label class="check"><input name="published" type="checkbox" checked> Published</label>
-					<button class="btn primary" type="submit">PUBLISH ITEM</button>
-				</form>
 			</div>
 		</section>
 	</main>

@@ -7,16 +7,14 @@ const state = {
 const sessionPanel = document.getElementById('sessionPanel');
 const authForms = document.getElementById('authForms');
 const profilePanel = document.getElementById('profilePanel');
-const adminPanel = document.getElementById('adminPanel');
 const mediaCards = document.getElementById('mediaCards');
 const statusLine = document.getElementById('statusLine');
 const registerForm = document.getElementById('registerForm');
 const loginForm = document.getElementById('loginForm');
 const profileForm = document.getElementById('profileForm');
-const mediaForm = document.getElementById('mediaForm');
-const uploadForm = document.getElementById('uploadForm');
 const logoutButton = document.getElementById('logoutButton');
 const playButton = document.getElementById('playButton');
+const adminLink = document.getElementById('adminLink');
 
 init();
 
@@ -87,57 +85,6 @@ function bindForms() {
 		setStatus('Profil gespeichert.');
 	});
 
-	mediaForm?.addEventListener('submit', async (event) => {
-		event.preventDefault();
-		const data = new FormData(mediaForm);
-
-		await api('/api/admin/media', {
-			method: 'POST',
-			body: {
-				type: String(data.get('type') || 'image'),
-				title: String(data.get('title') || ''),
-				description: String(data.get('description') || ''),
-				url: String(data.get('url') || ''),
-				thumbnailUrl: String(data.get('thumbnailUrl') || ''),
-				sortOrder: Number(data.get('sortOrder') || 0),
-				published: data.get('published') === 'on',
-			},
-		});
-
-		mediaForm.reset();
-		await loadMedia(true);
-		render();
-		setStatus('Showcase-Eintrag gespeichert.');
-	});
-
-	uploadForm?.addEventListener('submit', async (event) => {
-		event.preventDefault();
-		const data = new FormData(uploadForm);
-		const response = await fetch('/api/admin/uploads', {
-			method: 'POST',
-			body: data,
-		});
-		const payload = await response.json();
-
-		if (!response.ok) {
-			throw new Error(payload.error || 'Upload failed');
-		}
-
-		const urlInput = mediaForm?.querySelector('[name="url"]');
-		const typeInput = mediaForm?.querySelector('[name="type"]');
-
-		if (urlInput) {
-			urlInput.value = payload.url;
-		}
-
-		if (typeInput) {
-			typeInput.value = payload.type;
-		}
-
-		uploadForm.reset();
-		setStatus(`Upload bereit: ${payload.url}`);
-	});
-
 	logoutButton?.addEventListener('click', async () => {
 		await api('/api/auth/logout', { method: 'POST' });
 		state.user = null;
@@ -167,7 +114,6 @@ async function loadMedia(includeDrafts = false) {
 function render() {
 	renderSession();
 	renderMedia();
-	renderAdmin();
 }
 
 function renderSession() {
@@ -185,6 +131,9 @@ function renderSession() {
 		if (sessionPanel) {
 			sessionPanel.textContent = 'NO ACTIVE COMMAND SESSION';
 		}
+		if (adminLink) {
+			adminLink.hidden = true;
+		}
 		return;
 	}
 
@@ -200,6 +149,10 @@ function renderSession() {
 
 	setFormValue(profileForm, 'displayName', displayName);
 	setFormValue(profileForm, 'commandFocus', state.profile?.commandFocus || 'system-development');
+
+	if (adminLink) {
+		adminLink.hidden = state.user.role !== 'admin';
+	}
 
 	const resourceLine = document.getElementById('resourceLine');
 
@@ -240,27 +193,6 @@ function renderMedia() {
 	for (const video of mediaCards.querySelectorAll('video')) {
 		video.play().catch(() => undefined);
 	}
-}
-
-function renderAdmin() {
-	const isAdmin = state.user?.role === 'admin';
-
-	if (adminPanel) {
-		adminPanel.hidden = !isAdmin;
-	}
-
-	const adminList = document.getElementById('adminMediaList');
-
-	if (!adminList || !isAdmin) {
-		return;
-	}
-
-	adminList.innerHTML = state.mediaItems.map((item) => (
-		`<div class="admin-row">` +
-		`<span>${escapeHtml(item.title)}</span>` +
-		`<small>${escapeHtml(item.url)}</small>` +
-		`</div>`
-	)).join('');
 }
 
 async function api(path, options = {}) {

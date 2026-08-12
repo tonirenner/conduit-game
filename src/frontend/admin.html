@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="de">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+	<title>CONDUIT // Admin</title>
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body class="admin-body">
+	<div class="noise"></div>
+	<div class="scanlines"></div>
+
+	<header>
+		<a class="brand" href="/">◇ CONDUIT // ADMIN</a>
+		<nav>
+			<a href="/">SITE</a>
+			<a href="/#media">SHOWCASE</a>
+			<a href="/#register">ACCOUNT</a>
+			<a class="join" href="/game">LAUNCH GAME</a>
+		</nav>
+	</header>
+
+	<main class="admin-shell">
+		<section class="admin-hero">
+			<div>
+				<div class="kicker">ADMINISTRATION // SHOWCASE CMS</div>
+				<h1>MEDIA CONTROL</h1>
+				<p>Bilder und Videos fuer den oeffentlichen Showcase verwalten. Dieser Bereich ist nur fuer Accounts mit manuell gesetzter Admin-Rolle verfuegbar.</p>
+				<div id="adminStatus" class="status-line" hidden></div>
+			</div>
+			<aside id="adminSession" class="session-panel">CHECKING ADMIN SESSION</aside>
+		</section>
+
+		<section id="adminAccessDenied" class="admin-denied" hidden>
+			<div class="kicker">ACCESS DENIED</div>
+			<h2>ADMIN ROLE REQUIRED</h2>
+			<p>Registrierte Accounts sind normale Nutzer. Admin-Rechte muessen bewusst in der SQLite-Datenbank gesetzt werden.</p>
+			<code>bun -e "import { Database } from 'bun:sqlite'; const db = new Database('data/conduit.sqlite'); db.query(\"UPDATE users SET role = 'admin' WHERE email = ?\").run('admin@example.com');"</code>
+		</section>
+
+		<section id="adminWorkspace" class="admin-workspace" hidden>
+			<div class="admin-editor">
+				<form id="adminUploadForm">
+					<h3>UPLOAD ASSET</h3>
+					<label>IMAGE / VIDEO FILE<input name="file" required type="file" accept="image/*,video/*"></label>
+					<button class="btn" type="submit">UPLOAD FILE</button>
+				</form>
+
+				<form id="adminMediaForm">
+					<div class="panel-head">
+						<h3 id="adminFormTitle">CREATE SHOWCASE ITEM</h3>
+						<button id="adminResetButton" class="btn" type="button">NEW ITEM</button>
+					</div>
+					<input name="id" type="hidden">
+					<label>TYPE
+						<select name="type">
+							<option value="image">Image</option>
+							<option value="video">Video</option>
+						</select>
+					</label>
+					<label>TITLE<input name="title" required placeholder="Orbital HQ"></label>
+					<label>DESCRIPTION<input name="description" placeholder="Short caption"></label>
+					<label>MEDIA URL<input name="url" required placeholder="/uploads/file.jpg or https://..."></label>
+					<label>THUMBNAIL URL<input name="thumbnailUrl" placeholder="optional"></label>
+					<label>SORT ORDER<input name="sortOrder" type="number" value="0"></label>
+					<label class="check"><input name="published" type="checkbox" checked> Published</label>
+					<div id="adminPreview" class="admin-preview">NO MEDIA SELECTED</div>
+					<button class="btn primary" type="submit">SAVE SHOWCASE ITEM</button>
+				</form>
+			</div>
+
+			<div>
+				<div class="panel-head">
+					<div>
+						<div class="kicker">PUBLISHED / DRAFTS</div>
+						<h2>SHOWCASE ITEMS</h2>
+					</div>
+					<button id="adminRefreshButton" class="btn" type="button">REFRESH</button>
+				</div>
+				<div id="adminMediaList" class="admin-media-list"></div>
+			</div>
+		</section>
+	</main>
+
+	<footer><span>CONDUIT // ADMIN</span><span>LOCAL CMS&nbsp; SQLITE&nbsp; PROTECTED</span></footer>
+	<script src="admin.js"></script>
+</body>
+</html>
+
