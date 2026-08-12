@@ -74,6 +74,7 @@
 - Added initial registered scenes:
   - Model Viewer
   - Turret Tracking
+  - Weapon Fire
   - Engine VFX
   - Ship vs Ship Combat
   - Planet LOD

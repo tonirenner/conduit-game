@@ -341,9 +341,8 @@ Known limitation:
   - warm key light at `1.6`, weak cool fill light at `0.85`
   - includes `Floor Visible` and `Model Y Offset` controls for framing/material inspection
 - Continue checking model forward consistency across real assets and dummy assets.
-- Add more direct weapon test scenes:
-  - Railgun test
-  - Rocket launcher test
+- Added direct `Weapon Fire` Feature Lab scene for Laser, Railgun, Missile, and Rocket. It fires through production `CombatVfxSystem`, uses `WeaponMountLayout` for origin/yaw decisions, and reports origin/yaw details.
+- Remaining direct weapon test work:
   - Multi-turret test
 - Add launcher nodes to real assets later.
 - Improve actual ship GLB node conventions:

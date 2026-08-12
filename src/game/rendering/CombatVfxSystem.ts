@@ -13,6 +13,8 @@ export type CombatVfxSystemOptions = {
 
 type ActiveBeam = {
     object: THREE.Object3D;
+    materials: THREE.LineBasicMaterial[];
+    age: number;
     ttl: number;
 };
 
@@ -108,9 +110,16 @@ export class CombatVfxSystem {
     update(deltaSeconds: number): void {
         for (let index = this.activeBeams.length - 1; index >= 0; index--) {
             const beam = this.activeBeams[index];
+            beam.age += deltaSeconds;
             beam.ttl -= deltaSeconds;
 
             if (beam.ttl > 0) {
+                const opacity = Math.max(0, beam.ttl / Math.max(beam.age + beam.ttl, 0.001));
+
+                for (const material of beam.materials) {
+                    material.opacity = opacity;
+                }
+
                 continue;
             }
 
@@ -198,21 +207,34 @@ export class CombatVfxSystem {
         target.getWorldPosition(end);
 
         const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-        const material = new THREE.LineBasicMaterial({
+        const coreMaterial = new THREE.LineBasicMaterial({
             color: getBeamColor(weaponKind),
             transparent: true,
-            opacity: weaponKind === 'railgun' ? 0.88 : 0.70,
+            opacity: weaponKind === 'railgun' ? 0.92 : 0.74,
             depthWrite: false,
             depthTest: true,
         });
-        const line = new THREE.Line(geometry, material);
+        const glowMaterial = new THREE.LineBasicMaterial({
+            color: getBeamColor(weaponKind),
+            transparent: true,
+            opacity: weaponKind === 'railgun' ? 0.28 : 0.22,
+            depthWrite: false,
+            depthTest: true,
+        });
+        const line = new THREE.Group();
+        const core = new THREE.Line(geometry, coreMaterial);
+        const glow = new THREE.Line(geometry.clone(), glowMaterial);
 
         line.name = 'CombatBeam';
+        glow.scale.setScalar(1.012);
+        line.add(core, glow);
         line.renderOrder = 30;
         this.options.parent.add(line);
         this.activeBeams.push({
             object: line,
-            ttl: weaponKind === 'railgun' ? 0.08 : 0.14,
+            materials: [coreMaterial, glowMaterial],
+            age: 0,
+            ttl: weaponKind === 'railgun' ? 0.16 : 0.24,
         });
     }
 
@@ -296,6 +318,8 @@ export class CombatVfxSystem {
         this.options.parent.add(impact);
         this.activeBeams.push({
             object: impact,
+            materials: [material],
+            age: 0,
             ttl: 0.10,
         });
     }

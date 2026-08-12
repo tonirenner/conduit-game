@@ -2,6 +2,7 @@ import type { FeatureTestRegistration } from './FeatureTestScene';
 import { ShipModelTestScene } from './scenes/ships/ShipModelTestScene';
 import { EngineVfxTestScene } from './scenes/ships/EngineVfxTestScene';
 import { TurretTrackingTestScene } from './scenes/combat/TurretTrackingTestScene';
+import { WeaponFireTestScene } from './scenes/combat/WeaponFireTestScene';
 import { ShipCombatTestScene } from './scenes/combat/ShipCombatTestScene';
 import { PlanetLodTestScene } from './scenes/planets/PlanetLodTestScene';
 import { PostFxTestScene } from './scenes/rendering/PostFxTestScene';
@@ -39,6 +40,14 @@ registerFeatureTest({
 	category: 'Combat',
 	description: 'One ship tracks a moving target with the production combat VFX tracking path.',
 	create: () => new TurretTrackingTestScene(),
+});
+
+registerFeatureTest({
+	id: 'combat-weapon-fire',
+	name: 'Weapon Fire',
+	category: 'Combat',
+	description: 'Fire Laser, Railgun, Missile, and Rocket from discovered mount nodes.',
+	create: () => new WeaponFireTestScene(),
 });
 
 registerFeatureTest({
