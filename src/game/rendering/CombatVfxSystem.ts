@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import {
-	findFirstNodeByKind,
-	matchesNamedNodeKind,
-} from '@conduit/web3d/assets';
 import type { CombatEvent, ShipDefinition } from '../model/GameWorld';
+import {
+	aimYawTurretsAtWorldTarget,
+	getWeaponOriginWorldPosition,
+	weaponUsesYawTurret,
+} from './WeaponMountLayout';
 
 export type CombatVfxSystemOptions = {
     parent: THREE.Object3D;
@@ -79,7 +80,7 @@ export class CombatVfxSystem {
 
             const targetWorld = new THREE.Vector3();
             target.getWorldPosition(targetWorld);
-            this.aimTurretsSmooth(source, targetWorld, deltaSeconds);
+            aimYawTurretsAtWorldTarget(source, targetWorld, deltaSeconds);
         }
     }
 
@@ -96,7 +97,7 @@ export class CombatVfxSystem {
                 continue;
             }
 
-            if (usesYawTurret(event.weaponKind)) {
+            if (weaponUsesYawTurret(event.weaponKind)) {
                 this.aimTurrets(source, target);
             }
 
@@ -167,47 +168,11 @@ export class CombatVfxSystem {
         this.activeProjectiles.length = 0;
     }
 
-    private aimTurretsSmooth(
-        source: THREE.Object3D,
-        targetWorld: THREE.Vector3,
-        deltaSeconds: number,
-    ): void {
-        source.traverse((object) => {
-            if (!isTurretYawNode(object) || !object.parent) {
-                return;
-            }
-
-            const localTarget = object.parent.worldToLocal(targetWorld.clone());
-            const dx = localTarget.x - object.position.x;
-            const dz = localTarget.z - object.position.z;
-            const desiredYaw = Math.atan2(-dx, -dz);
-            const current = object.rotation.y;
-            const delta = Math.atan2(
-                Math.sin(desiredYaw - current),
-                Math.cos(desiredYaw - current),
-            );
-            const step = Math.min(1, deltaSeconds * 5.5);
-
-            object.rotation.y = current + delta * step;
-        });
-    }
-
     private aimTurrets(source: THREE.Object3D, target: THREE.Object3D): void {
         const targetWorld = new THREE.Vector3();
         target.getWorldPosition(targetWorld);
 
-        source.traverse((object) => {
-            if (!isTurretYawNode(object) || !object.parent) {
-                return;
-            }
-
-            const localTarget = object.parent.worldToLocal(targetWorld.clone());
-            const localOrigin = object.position;
-            const dx = localTarget.x - localOrigin.x;
-            const dz = localTarget.z - localOrigin.z;
-
-            object.rotation.y = Math.atan2(-dx, -dz);
-        });
+        aimYawTurretsAtWorldTarget(source, targetWorld);
     }
 
     private createWeaponEffect(
@@ -228,7 +193,7 @@ export class CombatVfxSystem {
         target: THREE.Object3D,
         weaponKind: CombatEvent['weaponKind'],
     ): void {
-        const start = this.findWeaponOriginWorldPosition(source, weaponKind);
+        const start = getWeaponOriginWorldPosition(source, weaponKind);
         const end = new THREE.Vector3();
         target.getWorldPosition(end);
 
@@ -256,7 +221,7 @@ export class CombatVfxSystem {
         target: THREE.Object3D,
         weaponKind: CombatEvent['weaponKind'],
     ): void {
-        const start = this.findWeaponOriginWorldPosition(source, weaponKind);
+        const start = getWeaponOriginWorldPosition(source, weaponKind);
         const end = new THREE.Vector3();
         target.getWorldPosition(end);
         const direction = end.clone().sub(start);
@@ -335,24 +300,6 @@ export class CombatVfxSystem {
         });
     }
 
-    private findWeaponOriginWorldPosition(
-        source: THREE.Object3D,
-        weaponKind: CombatEvent['weaponKind'],
-    ): THREE.Vector3 {
-        const wantsLauncher = weaponKind === 'missile' || weaponKind === 'rocket';
-        const node = findFirstNodeByKind(
-            source,
-            wantsLauncher ? 'launcherMuzzle' : 'muzzle',
-        );
-
-        const position = new THREE.Vector3();
-        (node ?? source).getWorldPosition(position);
-        return position;
-    }
-}
-
-function usesYawTurret(weaponKind: CombatEvent['weaponKind']): boolean {
-    return weaponKind === 'laser' || weaponKind === 'railgun';
 }
 
 function getBeamColor(weaponKind: CombatEvent['weaponKind']): THREE.ColorRepresentation {
@@ -365,10 +312,6 @@ function getBeamColor(weaponKind: CombatEvent['weaponKind']): THREE.ColorReprese
         case 'rocket':
             return 0xffc26b;
     }
-}
-
-function isTurretYawNode(object: THREE.Object3D): boolean {
-    return matchesNamedNodeKind(object, 'turretYaw');
 }
 
 function easeOutCubic(value: number): number {

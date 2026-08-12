@@ -231,6 +231,7 @@ Notes:
 - Do not move game asset catalogs or gameplay decisions into Conduit.
 - Conduit can provide loaders and cache; the game decides which URL maps to which ship/station.
 - Node discovery is intentionally technical only. Engine thrust behavior, turret behavior, weapon choice, station spawning, and production rules stay in the game.
+- Current game-side bridge: `src/game/rendering/WeaponMountLayout.ts` consumes Conduit node discovery and maps it into combat semantics such as yaw turrets, weapon muzzle origins, launcher muzzle origins, and weapon-kind yaw rules.
 
 ### Debug
 

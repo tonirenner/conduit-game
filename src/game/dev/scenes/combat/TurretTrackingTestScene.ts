@@ -8,6 +8,11 @@ import {
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
 import { createInspectableShipModel, createTestShipDefinition } from '../../TestShipFactory';
 import { CombatVfxSystem } from '../../../rendering/CombatVfxSystem';
+import {
+	discoverWeaponMountLayout,
+	findWeaponOriginNode,
+	type WeaponMountLayout,
+} from '../../../rendering/WeaponMountLayout';
 
 type TargetMotion = 'static' | 'circle' | 'horizontal' | 'vertical';
 
@@ -38,6 +43,7 @@ export class TurretTrackingTestScene implements FeatureTestScene {
 	);
 	private shipObject: THREE.Object3D | null = null;
 	private targetObject: THREE.Object3D | null = null;
+	private mountLayout: WeaponMountLayout | null = null;
 	private shipTargetLine = createDebugLine('ShipToTarget', 0x8fe7ff);
 	private muzzleTargetLine = createDebugLine('MuzzleToTarget', 0xffd28f);
 
@@ -52,6 +58,7 @@ export class TurretTrackingTestScene implements FeatureTestScene {
 		this.shipObject = createInspectableShipModel('frigate', 'player');
 		this.targetObject = createDebugPoint('TargetDummy', 0xff7f8a, 0.22);
 		this.root.add(this.shipObject, this.targetObject, this.shipTargetLine, this.muzzleTargetLine);
+		this.mountLayout = discoverWeaponMountLayout(this.shipObject);
 		this.shipMeshes.set(this.ship.id, this.shipObject);
 		this.shipMeshes.set(this.target.id, this.targetObject);
 		this.combatVfx = new CombatVfxSystem({
@@ -60,12 +67,19 @@ export class TurretTrackingTestScene implements FeatureTestScene {
 		});
 
 		context.report({
-			status: this.shipObject.getObjectByName('turret_yaw') ? 'pass' : 'fail',
-			label: 'turret_yaw exists',
+			status: this.mountLayout.yawTurrets.length > 0 ? 'pass' : 'fail',
+			label: 'yaw turret nodes',
+			detail: `${this.mountLayout.yawTurrets.length}`,
 		});
 		context.report({
-			status: this.shipObject.getObjectByName('muzzle') ? 'pass' : 'warn',
-			label: 'muzzle exists',
+			status: this.mountLayout.muzzles.length > 0 ? 'pass' : 'warn',
+			label: 'weapon muzzle nodes',
+			detail: `${this.mountLayout.muzzles.length}`,
+		});
+		context.report({
+			status: this.mountLayout.launcherMuzzles.length > 0 ? 'pass' : 'warn',
+			label: 'launcher muzzle nodes',
+			detail: `${this.mountLayout.launcherMuzzles.length}`,
 		});
 		this.createUi(context.uiRoot);
 	}
@@ -88,6 +102,7 @@ export class TurretTrackingTestScene implements FeatureTestScene {
 		disposeObject3D(this.root);
 		this.root.clear();
 		this.context = null;
+		this.mountLayout = null;
 	}
 
 	reset(): void {
@@ -157,7 +172,9 @@ export class TurretTrackingTestScene implements FeatureTestScene {
 		this.targetObject.getWorldPosition(target);
 		setDebugLinePoints(this.shipTargetLine, source, target);
 
-		const muzzle = this.shipObject.getObjectByName('muzzle') ?? this.shipObject;
+		const muzzle =
+			findWeaponOriginNode(this.shipObject, 'railgun') ??
+			this.shipObject;
 		const muzzlePosition = new THREE.Vector3();
 		muzzle.getWorldPosition(muzzlePosition);
 		setDebugLinePoints(this.muzzleTargetLine, muzzlePosition, target);

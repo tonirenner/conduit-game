@@ -290,6 +290,11 @@ Known limitation:
   - `prepareModelForRuntime()` handles UV2 fallback, optional geometry/material cloning, shadow/frustum flags, bounds recompute, and optional material snapshots.
   - `findNamedNodes()` / `findNodesByKind()` centralize technical node patterns for engine, turret yaw, muzzle, launcher muzzle, spawn, dock, and rally nodes.
 - Ship Model Viewer, Engine VFX test, Studio Lighting, EngineVfxSystem, and CombatVfxSystem now use the shared Conduit asset/node helpers where applicable.
+- Combat now has a game-side `WeaponMountLayout` layer:
+  - derives yaw turrets, weapon muzzles, and launcher muzzles from Conduit node discovery.
+  - `CombatVfxSystem` uses shared yaw-aim and weapon-origin helpers.
+  - `TurretTrackingTestScene` reports the same layout counts and debug muzzle line from the same origin selection used by game combat.
+  - Railgun/Laser use yaw turrets; Missile/Rocket use launcher muzzle without yaw.
 - Asset-specific orientation/scale profiles, gameplay nodes, engine FX logic, turret behavior, combat state, and production rules remain in the Game.
 - Frigate GLB import now keeps exported normals/tangents instead of recomputing vertex normals in the Game loader.
 - Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.
