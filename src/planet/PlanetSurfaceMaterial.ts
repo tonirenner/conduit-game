@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {SUN_DIRECTION} from './Sun';
 import { getPlanetClassVisualProfile } from './rendering/PlanetClassVisualProfile';
+import { OCEAN_COASTLINE_PROFILE } from './rendering/OceanCoastlineProfile';
 import type {SurfaceRenderProfile} from './rendering/SurfaceRenderProfile';
 
 export function createPlanetSurfaceMaterial(
@@ -892,7 +893,11 @@ export function createPlanetSurfaceMaterial(
 
 				float waterHint =
 					1.0 -
-					smoothstep(0.50, 0.61, landMask);
+					smoothstep(
+						${OCEAN_COASTLINE_PROFILE.waterHintStart.toFixed(3)},
+						${OCEAN_COASTLINE_PROFILE.waterHintEnd.toFixed(3)},
+						landMask
+					);
 
 				waterHint = saturate(waterHint);
 
@@ -926,15 +931,26 @@ export function createPlanetSurfaceMaterial(
 				if (uPaletteOceanic > 0.001) {
 					float islandMask =
 						smoothstep(
-							0.88,
-							0.95,
+							${OCEAN_COASTLINE_PROFILE.islandStart.toFixed(3)},
+							${OCEAN_COASTLINE_PROFILE.islandEnd.toFixed(3)},
 							landMask +
-							surfaceSample.height * 0.07
+							surfaceSample.height * ${OCEAN_COASTLINE_PROFILE.islandHeightInfluence.toFixed(3)}
 						);
 
 					float shelfMask =
-						smoothstep(0.50, 0.58, landMask) *
-						(1.0 - smoothstep(0.64, 0.74, landMask));
+						smoothstep(
+							${OCEAN_COASTLINE_PROFILE.shelfStart.toFixed(3)},
+							${OCEAN_COASTLINE_PROFILE.shelfEnd.toFixed(3)},
+							landMask
+						) *
+						(
+							1.0 -
+							smoothstep(
+								${OCEAN_COASTLINE_PROFILE.shelfFadeStart.toFixed(3)},
+								${OCEAN_COASTLINE_PROFILE.shelfFadeEnd.toFixed(3)},
+								landMask
+							)
+						);
 
 					float waveLarge =
 						fbm(localGeometricNormal * 42.0 + vec3(6.1, 2.4, 9.7));
@@ -963,14 +979,14 @@ export function createPlanetSurfaceMaterial(
 					oceanBase = mix(
 						oceanBase,
 						shelfOcean,
-						shelfMask * 0.30
+						shelfMask * ${OCEAN_COASTLINE_PROFILE.shelfTintStrength.toFixed(3)}
 					);
 
 					oceanBase +=
 						vec3(0.020, 0.060, 0.075) *
 						wavePattern *
 						(1.0 - islandMask) *
-						0.42;
+						${OCEAN_COASTLINE_PROFILE.waveStrength.toFixed(3)};
 
 					baseColor = mix(
 						baseColor,

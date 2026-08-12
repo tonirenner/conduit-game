@@ -24,6 +24,7 @@ import { SUN_DIRECTION } from './Sun';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
 import { getPlanetClassVisualProfile } from './rendering/PlanetClassVisualProfile';
+import { OCEAN_COASTLINE_PROFILE } from './rendering/OceanCoastlineProfile';
 import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
 
 /**
@@ -713,8 +714,8 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const waterHint = oneMinus(
 		smoothstep(
-			0.50,
-			0.61,
+			OCEAN_COASTLINE_PROFILE.waterHintStart,
+			OCEAN_COASTLINE_PROFILE.waterHintEnd,
 			landMask,
 		),
 	);
@@ -745,15 +746,15 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 
 	const shelfWater = waterHint.mul(
 		smoothstep(
-			0.44,
-			0.58,
+			OCEAN_COASTLINE_PROFILE.shelfStart,
+			OCEAN_COASTLINE_PROFILE.shelfEnd,
 			landMask,
 		),
 	).mul(
 		oneMinus(
 			smoothstep(
-				0.64,
-				0.76,
+				OCEAN_COASTLINE_PROFILE.shelfFadeStart,
+				OCEAN_COASTLINE_PROFILE.shelfFadeEnd,
 				landMask,
 			),
 		),
@@ -1107,23 +1108,25 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	);
 
 	const oceanShelfMask = smoothstep(
-		0.48,
-		0.56,
+		OCEAN_COASTLINE_PROFILE.shelfStart,
+		OCEAN_COASTLINE_PROFILE.shelfEnd,
 		landMask,
 	).mul(
 		oneMinus(
 			smoothstep(
-				0.60,
-				0.70,
+				OCEAN_COASTLINE_PROFILE.shelfFadeStart,
+				OCEAN_COASTLINE_PROFILE.shelfFadeEnd,
 				landMask,
 			),
 		),
 	);
 
 	const oceanIslandMask = smoothstep(
-		0.78,
-		0.83,
-		landMask.add(terrainHeight.mul(0.12)),
+		OCEAN_COASTLINE_PROFILE.islandStart,
+		OCEAN_COASTLINE_PROFILE.islandEnd,
+		landMask.add(
+			terrainHeight.mul(OCEAN_COASTLINE_PROFILE.islandHeightInfluence),
+		),
 	);
 
 	const oceanPolarIce = smoothstep(
@@ -1157,7 +1160,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	oceanicWater = mix(
 		oceanicWater,
 		color(0x34aebd),
-		oceanShelfMask.mul(0.30),
+		oceanShelfMask.mul(OCEAN_COASTLINE_PROFILE.shelfTintStrength),
 	);
 
 	let oceanicColor = mix(

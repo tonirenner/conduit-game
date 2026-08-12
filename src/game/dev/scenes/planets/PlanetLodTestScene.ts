@@ -7,6 +7,7 @@ import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRe
 import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
 import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
 import { getPlanetClassVisualProfile } from '../../../../planet/rendering/PlanetClassVisualProfile';
+import { OCEAN_COASTLINE_PROFILE } from '../../../../planet/rendering/OceanCoastlineProfile';
 import type { SurfacePaletteKind } from '../../../../planet/rendering/SurfaceRenderProfile';
 import {
 	PLANET_CLIMATE_DEBUG_MODES,
@@ -345,6 +346,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`ocean level: ${format01(this.profile.oceanLevel)} terrain roughness: ${format01(this.profile.terrainRoughness)} mountain: ${format01(this.profile.mountainScale)}<br>` +
 			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
 			`visual profile: night ${format01(visualProfile.nightAlbedo)}, ambient ${format01(visualProfile.ambientBoost)}, direct ${format01(visualProfile.directLightScale)}, fill ${format01(visualProfile.shadowFill)}, floor ${format01(visualProfile.visibilityFloor)}, env ${format01(visualProfile.environmentReflection)} / peak ${format01(visualProfile.environmentPeak)}<br>` +
+			`coast profile: water ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart, OCEAN_COASTLINE_PROFILE.waterHintEnd)}, shelf ${formatRange(OCEAN_COASTLINE_PROFILE.shelfStart, OCEAN_COASTLINE_PROFILE.shelfEnd)} -> ${formatRange(OCEAN_COASTLINE_PROFILE.shelfFadeStart, OCEAN_COASTLINE_PROFILE.shelfFadeEnd)}, island ${formatRange(OCEAN_COASTLINE_PROFILE.islandStart, OCEAN_COASTLINE_PROFILE.islandEnd)}<br>` +
 			`terrain profile: ${this.climateDiagnostics.terrainProfile}<br>` +
 			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
 			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +
@@ -386,6 +388,13 @@ function formatPlanetClass(planetClass: PlanetClass): string {
 
 function format01(value: number): string {
 	return value.toFixed(2);
+}
+
+function formatRange(
+	from: number,
+	to: number,
+): string {
+	return `${from.toFixed(2)}-${to.toFixed(2)}`;
 }
 
 function formatPercent(value: number): string {
