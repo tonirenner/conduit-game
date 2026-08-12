@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { SUN_DIRECTION } from './Sun';
+import {
+	LAVA_ATMOSPHERE_VISUAL_PROFILE,
+	isLavaAtmosphereProfile,
+} from './rendering/AtmosphereVisualProfile';
 
 export type AtmosphereRenderQuality = 'moving' | 'idle';
 
@@ -412,20 +416,20 @@ export class AtmosphereLayer {
 					vec3 cyanRim =
 						cyanRimColor *
 						cinematicRim *
-						mix(0.82, 0.42, uLavaAtmosphereMix) *
+						mix(0.82, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.cyanRimScale.toFixed(3)}, uLavaAtmosphereMix) *
 						uScatteringBoost;
 
 					vec3 deepBlueRim =
 						deepRimColor *
 						limbSoft *
-						mix(0.26, 0.13, uLavaAtmosphereMix) *
+						mix(0.26, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.deepRimScale.toFixed(3)}, uLavaAtmosphereMix) *
 						dayDisc *
 						uScatteringBoost;
 
 					vec3 whiteHorizonLine =
 						horizonLineColor *
 						limbUltra *
-						mix(0.64, 0.30, uLavaAtmosphereMix) *
+						mix(0.64, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.horizonLineScale.toFixed(3)}, uLavaAtmosphereMix) *
 						dayDisc *
 						uScatteringBoost;
 
@@ -437,7 +441,7 @@ export class AtmosphereLayer {
 						) *
 						horizonSunGlow *
 						uMieStrength *
-						mix(0.38, 0.30, uLavaAtmosphereMix) *
+						mix(0.38, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.warmSunHazeScale.toFixed(3)}, uLavaAtmosphereMix) *
 						uScatteringBoost;
 
 					vec3 goldenBackScatter =
@@ -450,7 +454,7 @@ export class AtmosphereLayer {
 						limbSharp *
 						dayDisc *
 						uMieStrength *
-						mix(0.16, 0.13, uLavaAtmosphereMix) *
+						mix(0.16, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.backScatterScale.toFixed(3)}, uLavaAtmosphereMix) *
 						uScatteringBoost;
 
 					color += cyanRim;
@@ -468,14 +472,14 @@ export class AtmosphereLayer {
 						mieDisc *
 						uMieStrength *
 						uScatteringBoost *
-						mix(0.28, 0.22, uLavaAtmosphereMix);
+						mix(0.28, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.mieDiscScale.toFixed(3)}, uLavaAtmosphereMix);
 
 					vec3 paletteTintedColor =
 						color *
 						mix(
 							vec3(1.0),
 							uAtmosphereTint,
-							0.44 + uLavaAtmosphereMix * 0.46
+							0.44 + uLavaAtmosphereMix * ${(LAVA_ATMOSPHERE_VISUAL_PROFILE.tintMix - 0.44).toFixed(3)}
 						);
 
 					vec3 lavaRim =
@@ -483,7 +487,7 @@ export class AtmosphereLayer {
 						uLavaAtmosphereMix *
 						limbSharp *
 						dayDisc *
-						0.34 *
+						${LAVA_ATMOSPHERE_VISUAL_PROFILE.rimStrength.toFixed(3)} *
 						uScatteringBoost;
 
 					color =
@@ -523,7 +527,7 @@ export class AtmosphereLayer {
 
 					alpha *= outerFade;
 					alpha *= mix(0.22, 1.0, nightFade);
-					alpha *= mix(1.0, 0.58, uLavaAtmosphereMix);
+					alpha *= mix(1.0, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.alphaAttenuation.toFixed(3)}, uLavaAtmosphereMix);
 
 					alpha = clamp(alpha, 0.0, 0.62);
 
@@ -573,14 +577,15 @@ export class AtmosphereLayer {
 			normalizedHaze,
 		);
 
-		const isLavaAtmosphere =
-			      atmospherePalette === 'lava' ||
-			      atmospherePalette === 'ash_clouds' ||
-			      atmosphereColor.toLowerCase() === '#d65a32' ||
-			      atmosphereColor.toLowerCase() === '#b66f48';
+		const isLavaAtmosphere = isLavaAtmosphereProfile(
+			atmosphereColor,
+			atmospherePalette,
+		);
 
 		const colorValue = new THREE.Color(
-			isLavaAtmosphere ? '#ef3a1f' : atmosphereColor,
+			isLavaAtmosphere
+			? LAVA_ATMOSPHERE_VISUAL_PROFILE.tint
+			: atmosphereColor,
 		);
 
 		this.material.uniforms.uAtmosphereTint.value.copy(colorValue);
@@ -613,10 +618,14 @@ export class AtmosphereLayer {
 		);
 
 		if (isLavaAtmosphere) {
-			this.profileSunIntensity *= 0.90;
-			this.profileAtmosphereAlpha *= 0.96;
-			this.profileScatteringBoost *= 0.95;
-			this.profileOpacity *= 0.86;
+			this.profileSunIntensity *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.sunIntensityScale;
+			this.profileAtmosphereAlpha *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.atmosphereAlphaScale;
+			this.profileScatteringBoost *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.scatteringBoostScale;
+			this.profileOpacity *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.opacityScale;
 		}
 
 		this.material.uniforms.uSunIntensity.value = this.profileSunIntensity;

@@ -23,6 +23,10 @@ import type {PlanetDefinition} from './model/PlanetDefinition';
 import type {PlanetRenderProfile} from './rendering/PlanetRenderProfile';
 import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from './rendering/SurfaceRenderProfile';
 import {resolveTerrainProfileKind} from './rendering/TerrainRenderProfile';
+import {
+	createAtmosphereRenderProfileValues,
+	type AtmosphereRenderProfileValues,
+} from './rendering/AtmosphereVisualProfile';
 
 import {mergePlanetRenderFeatures, type PlanetRenderFeatures,} from './rendering/PlanetRenderFeatures';
 
@@ -488,80 +492,21 @@ export class Planet {
 		}
 	}
 
-	private getAtmosphereRenderProfileValues(): {
-		density: number;
-		haze: number;
-		color: string;
-		palette: string;
-	} {
+	getAtmosphereRenderProfileValues(): AtmosphereRenderProfileValues {
 		const density = this.renderProfile?.atmosphereDensity ?? 0;
 		const haze = this.definition?.atmosphere.haze ?? 0;
 		const color = this.definition?.atmosphere.color ?? '#8ec5ff';
 		const palette = this.renderProfile?.atmospherePalette ?? '';
 
-		switch (this.definition?.class) {
-			case 'barren':
-				return {
-					density: density * 0.28,
-					haze: haze * 0.22,
-					color,
-					palette,
-				};
-
-			case 'metal_rich':
-				return {
-					density: density * 0.18,
-					haze: haze * 0.14,
-					color,
-					palette,
-				};
-
-			case 'rocky':
-				return {
-					density: density * 0.42,
-					haze: haze * 0.32,
-					color,
-					palette,
-				};
-
-			case 'carbon':
-				return {
-					density: density * 0.34,
-					haze: haze * 0.26,
-					color,
-					palette,
-				};
-
-			case 'desert':
-				return {
-					density: density * 0.68,
-					haze: haze * 0.58,
-					color,
-					palette,
-				};
-
-			case 'lava':
-				return {
-					density: Math.max(
-						0.28,
-						density * 0.68,
-					),
-					haze: Math.max(
-						0.34,
-						haze * 0.90,
-					),
-					color: '#ff3a16',
-					palette: 'lava',
-				};
-
-			default:
-				return {
-					density,
-					haze,
-					color,
-					palette,
-				};
-		}
+		return createAtmosphereRenderProfileValues(
+			this.definition?.class,
+			{
+				density,
+				haze,
+				color,
+				palette,
+			},
+		);
 	}
 
 	setSunDirection(direction: THREE.Vector3): void {

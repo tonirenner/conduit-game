@@ -345,6 +345,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`game radius: ${gameRenderRadius.toFixed(1)}u (${formatKilometers(gameScale.kilometersPerRenderedUnit)} km/u, ${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>` +
 			`ocean level: ${format01(this.profile.oceanLevel)} terrain roughness: ${format01(this.profile.terrainRoughness)} mountain: ${format01(this.profile.mountainScale)}<br>` +
 			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
+			`effective atmo: ${formatAtmosphereRenderValues(this.planet.getAtmosphereRenderProfileValues())}<br>` +
 			`visual profile: night ${format01(visualProfile.nightAlbedo)}, ambient ${format01(visualProfile.ambientBoost)}, direct ${format01(visualProfile.directLightScale)}, fill ${format01(visualProfile.shadowFill)}, floor ${format01(visualProfile.visibilityFloor)}, env ${format01(visualProfile.environmentReflection)} / peak ${format01(visualProfile.environmentPeak)}<br>` +
 			`coast profile: water ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart, OCEAN_COASTLINE_PROFILE.waterHintEnd)}, shelf ${formatRange(OCEAN_COASTLINE_PROFILE.shelfStart, OCEAN_COASTLINE_PROFILE.shelfEnd)} -> ${formatRange(OCEAN_COASTLINE_PROFILE.shelfFadeStart, OCEAN_COASTLINE_PROFILE.shelfFadeEnd)}, island ${formatRange(OCEAN_COASTLINE_PROFILE.islandStart, OCEAN_COASTLINE_PROFILE.islandEnd)}<br>` +
 			`terrain profile: ${this.climateDiagnostics.terrainProfile}<br>` +
@@ -395,6 +396,18 @@ function formatRange(
 	to: number,
 ): string {
 	return `${from.toFixed(2)}-${to.toFixed(2)}`;
+}
+
+function formatAtmosphereRenderValues(values: {
+	density: number;
+	haze: number;
+	color: string;
+	palette: string;
+}): string {
+	return (
+		`density ${format01(values.density)}, haze ${format01(values.haze)}, ` +
+		`color ${values.color}, palette ${values.palette || 'none'}`
+	);
 }
 
 function formatPercent(value: number): string {

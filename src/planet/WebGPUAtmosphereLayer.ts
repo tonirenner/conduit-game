@@ -8,6 +8,10 @@ import {
 } from 'three/tsl';
 
 import { SUN_DIRECTION } from './Sun';
+import {
+	LAVA_ATMOSPHERE_VISUAL_PROFILE,
+	isLavaAtmosphereProfile,
+} from './rendering/AtmosphereVisualProfile';
 
 export type WebGPUAtmosphereQuality = 'moving' | 'idle';
 
@@ -110,14 +114,15 @@ export class WebGPUAtmosphereLayer {
 			normalizedHaze,
 		);
 
-		const isLavaAtmosphere =
-			      atmospherePalette === 'lava' ||
-			      atmospherePalette === 'ash_clouds' ||
-			      atmosphereColor.toLowerCase() === '#d65a32' ||
-			      atmosphereColor.toLowerCase() === '#b66f48';
+		const isLavaAtmosphere = isLavaAtmosphereProfile(
+			atmosphereColor,
+			atmospherePalette,
+		);
 
 		const colorValue = new THREE.Color(
-			isLavaAtmosphere ? '#ef3a1f' : atmosphereColor,
+			isLavaAtmosphere
+			? LAVA_ATMOSPHERE_VISUAL_PROFILE.tint
+			: atmosphereColor,
 		);
 
 		this.atmosphereTint.value.copy(colorValue);
@@ -150,10 +155,14 @@ export class WebGPUAtmosphereLayer {
 		);
 
 		if (isLavaAtmosphere) {
-			this.profileSunIntensity *= 0.90;
-			this.profileAtmosphereAlpha *= 0.96;
-			this.profileScatteringBoost *= 0.95;
-			this.profileOpacity *= 0.86;
+			this.profileSunIntensity *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.sunIntensityScale;
+			this.profileAtmosphereAlpha *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.atmosphereAlphaScale;
+			this.profileScatteringBoost *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.scatteringBoostScale;
+			this.profileOpacity *=
+				LAVA_ATMOSPHERE_VISUAL_PROFILE.opacityScale;
 		}
 
 		this.sunIntensity.value = this.profileSunIntensity;
@@ -461,20 +470,20 @@ fn atmosphere_raymarch(
 	color = color +
 		cyanRimColor *
 		cinematicRim *
-		mix(0.82, 0.42, lavaAtmosphereMix) *
+		mix(0.82, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.cyanRimScale.toFixed(3)}, lavaAtmosphereMix) *
 		scatteringBoost;
 
 	color = color +
 		deepRimColor *
 		limbSoft *
-		mix(0.26, 0.13, lavaAtmosphereMix) *
+		mix(0.26, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.deepRimScale.toFixed(3)}, lavaAtmosphereMix) *
 		dayDisc *
 		scatteringBoost;
 
 	let whiteHorizonLine =
 		horizonLineColor *
 		limbUltra *
-		mix(0.64, 0.30, lavaAtmosphereMix) *
+		mix(0.64, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.horizonLineScale.toFixed(3)}, lavaAtmosphereMix) *
 		dayDisc *
 		scatteringBoost;
 
@@ -488,7 +497,7 @@ fn atmosphere_raymarch(
 		) *
 		horizonSunGlow *
 		mieStrength *
-		mix(0.38, 0.30, lavaAtmosphereMix) *
+		mix(0.38, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.warmSunHazeScale.toFixed(3)}, lavaAtmosphereMix) *
 		scatteringBoost;
 
 	color = color +
@@ -501,7 +510,7 @@ fn atmosphere_raymarch(
 		limbSharp *
 		dayDisc *
 		mieStrength *
-		mix(0.16, 0.13, lavaAtmosphereMix) *
+		mix(0.16, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.backScatterScale.toFixed(3)}, lavaAtmosphereMix) *
 		scatteringBoost;
 
 	color = color +
@@ -513,14 +522,14 @@ fn atmosphere_raymarch(
 		mieDisc *
 		mieStrength *
 		scatteringBoost *
-		mix(0.28, 0.22, lavaAtmosphereMix);
+		mix(0.28, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.mieDiscScale.toFixed(3)}, lavaAtmosphereMix);
 
 	let paletteTintedColor =
 		color *
 		mix(
 			vec3<f32>(1.0, 1.0, 1.0),
 			atmosphereTint,
-			0.44 + lavaAtmosphereMix * 0.46
+			0.44 + lavaAtmosphereMix * ${(LAVA_ATMOSPHERE_VISUAL_PROFILE.tintMix - 0.44).toFixed(3)}
 		);
 
 	let lavaRim =
@@ -528,7 +537,7 @@ fn atmosphere_raymarch(
 		lavaAtmosphereMix *
 		limbSharp *
 		dayDisc *
-		0.34 *
+		${LAVA_ATMOSPHERE_VISUAL_PROFILE.rimStrength.toFixed(3)} *
 		scatteringBoost;
 
 	color =
@@ -565,9 +574,9 @@ fn atmosphere_raymarch(
 		mieDisc *
 		0.060;
 
-	alpha = alpha * outerFade;
-	alpha = alpha * mix(0.22, 1.0, nightFade);
-	alpha = alpha * mix(1.0, 0.58, lavaAtmosphereMix);
+alpha = alpha * outerFade;
+alpha = alpha * mix(0.22, 1.0, nightFade);
+alpha = alpha * mix(1.0, ${LAVA_ATMOSPHERE_VISUAL_PROFILE.alphaAttenuation.toFixed(3)}, lavaAtmosphereMix);
 
 	alpha = clamp(alpha, 0.0, 0.62);
 
