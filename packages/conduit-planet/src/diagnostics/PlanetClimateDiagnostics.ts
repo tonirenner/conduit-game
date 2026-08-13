@@ -6,14 +6,14 @@ import {
 	type ClimateDebugMode,
 	getClimateDebugColor,
 	getClimateSample,
-} from '../Climate';
+} from '../climate/Climate';
 import type { PlanetDefinition } from '../model/PlanetDefinition';
 import { resolveTerrainProfileKind } from '../rendering/TerrainRenderProfile';
 import {
 	createTerrainSeedConfig,
 	getTerrainSample,
 	type TerrainSeedConfig,
-} from '../../utils/noise';
+} from '../terrain/noise';
 
 export type PlanetBiomeShare = {
 	biome: BiomeId;

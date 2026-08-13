@@ -3,8 +3,8 @@ import {
 	type PersistentGameState,
 	type PlayerProfile,
 } from '../domain/PlayerProfile';
-import { generatePlanetResourceProfile } from '../../planet/generation/PlanetResourceGenerator';
-import type { PlanetDefinition } from '../../planet/model/PlanetDefinition';
+import { generatePlanetResourceProfile } from '@conduit/planet/generation';
+import type { PlanetDefinition } from '@conduit/planet/model';
 
 export type PlayerRepository = {
 	load: () => PlayerProfile;

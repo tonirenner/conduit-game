@@ -5,19 +5,16 @@ import {
 	RenderQuality,
 	renderFrame,
 } from '@conduit/web3d/renderer';
-import {TerrainTextureBakeManager} from './planet/TerrainTextureBakeManager';
+import {TerrainTextureBakeManager} from '@conduit/planet/terrain';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {createClimateDebugCanvas} from './scene/createClimateDebugCanvas';
-import {createStarBackground} from './scene/createStarBackground';
-import {Planet, type PlanetRenderTuning} from './planet/Planet';
-import {generatePlanetDefinition} from './planet/generation/PlanetGenerator';
-import {generatePlanetResourceProfile} from './planet/generation/PlanetResourceGenerator';
-import {createPlanetRenderProfile} from './planet/rendering/PlanetRenderProfile';
-import {resolveTerrainProfileKind} from './planet/rendering/TerrainRenderProfile';
-import {SUN_DIRECTION, SUN_DISTANCE} from './planet/Sun';
+import {createClimateDebugCanvas} from './debug/createClimateDebugCanvas';
+import {createStarBackground} from '@conduit/web3d/environment';
+import {Planet, type PlanetRenderTuning} from '@conduit/planet/rendering';
+import {generatePlanetDefinition, generatePlanetResourceProfile} from '@conduit/planet/generation';
+import {createPlanetRenderProfile, resolveTerrainProfileKind, SUN_DIRECTION, SUN_DISTANCE} from '@conduit/planet/rendering';
 import {PostProcessingPipeline} from '@conduit/web3d/postprocessing';
 import {RenderTuningPanel} from './debug/RenderTuningPanel';
-import type {PlanetClass} from './planet/model/PlanetDefinition';
+import type {PlanetClass} from '@conduit/planet/model';
 import {GamePrototypeScene} from './game/rendering/GamePrototypeScene';
 import {createSettingsStore} from './game/settings/GameSettings';
 import {SettingsMenu} from './game/ui/SettingsMenu';

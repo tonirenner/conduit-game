@@ -5,9 +5,8 @@ import {
 	type StarSystemDefinition,
 } from '../model/StarSystemDefinition';
 
-import { SeededRandom } from '../../planet/generation/SeededRandom';
-import { generatePlanetDefinition } from '../../planet/generation/PlanetGenerator';
-import type { PlanetClass } from '../../planet/model/PlanetDefinition';
+import { SeededRandom, generatePlanetDefinition } from '@conduit/planet/generation';
+import type { PlanetClass } from '@conduit/planet/model';
 import {
 	ASTRONOMICAL_UNIT_METERS,
 	SOLAR_RADIUS_METERS,

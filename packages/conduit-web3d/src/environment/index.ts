@@ -1,3 +1,4 @@
+export * from './CanvasStarBackground';
 export * from './DynamicEnvironmentProbe';
 export * from './EnvironmentPresets';
 export * from './ExrEnvironmentLoader';

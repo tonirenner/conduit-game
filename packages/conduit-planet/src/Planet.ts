@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import {createTerrainSeedConfig, type TerrainSeedConfig} from '../utils/noise';
+import {createTerrainSeedConfig, type TerrainSeedConfig} from './terrain/noise';
 
 import {CubeSphere} from './CubeSphere';
 import {CloudLayer} from './CloudLayer';

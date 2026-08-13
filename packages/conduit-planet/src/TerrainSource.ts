@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import type { TerrainSample } from '../utils/noise';
+import type { TerrainSample } from './terrain/noise';
 
 export type CubeFace = {
 	normal: THREE.Vector3;

@@ -1,4 +1,4 @@
-import type { PlanetDefinition } from '../../planet/model/PlanetDefinition';
+import type { PlanetDefinition } from '@conduit/planet/model';
 
 export type StarClass =
 	| 'red_dwarf'

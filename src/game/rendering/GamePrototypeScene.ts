@@ -12,8 +12,8 @@ import { normalizeObjectToSize } from '@conduit/web3d/camera';
 import {
     Planet,
     type PlanetRendererMode,
-} from '../../planet/Planet';
-import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
+    createPlanetRenderProfile,
+} from '@conduit/planet/rendering';
 import {
     DynamicEnvironmentProbe,
     SystemNebulaBackdrop,

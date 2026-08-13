@@ -1,22 +1,23 @@
 import * as THREE from 'three';
 import { disposeObject3D } from '@conduit/web3d/debug';
 import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
-import { Planet } from '../../../../planet/Planet';
-import { generatePlanetDefinition } from '../../../../planet/generation/PlanetGenerator';
-import { generatePlanetResourceProfile } from '../../../../planet/generation/PlanetResourceGenerator';
-import { createPlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
-import type { PlanetClass, PlanetDefinition } from '../../../../planet/model/PlanetDefinition';
-import type { PlanetRenderProfile } from '../../../../planet/rendering/PlanetRenderProfile';
-import { getPlanetClassVisualProfile } from '../../../../planet/rendering/PlanetClassVisualProfile';
-import { OCEAN_COASTLINE_PROFILE } from '../../../../planet/rendering/OceanCoastlineProfile';
-import type { SurfacePaletteKind } from '../../../../planet/rendering/SurfaceRenderProfile';
+import { generatePlanetDefinition, generatePlanetResourceProfile } from '@conduit/planet/generation';
+import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
+import {
+	Planet,
+	createPlanetRenderProfile,
+	getPlanetClassVisualProfile,
+	OCEAN_COASTLINE_PROFILE,
+	type PlanetRenderProfile,
+	type SurfacePaletteKind,
+} from '@conduit/planet/rendering';
 import {
 	PLANET_CLIMATE_DEBUG_MODES,
 	createPlanetClimateDiagnostics,
 	drawPlanetClimateDebugMap,
 	type PlanetClimateDiagnostics,
-} from '../../../../planet/diagnostics/PlanetClimateDiagnostics';
-import type { ClimateDebugMode } from '../../../../planet/Climate';
+} from '@conduit/planet/diagnostics';
+import type { ClimateDebugMode } from '@conduit/planet/climate';
 import {
 	getPlanetScaleDiagnostics,
 	getSystemPlanetRenderRadius,

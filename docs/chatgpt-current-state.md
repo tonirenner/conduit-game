@@ -197,8 +197,8 @@ Current HUD behavior:
 Files:
 
 - `src/game/rendering/GamePrototypeScene.ts`
-- `src/planet/PlanetSurfaceMaterial.ts`
-- `src/planet/PlanetSurfaceNodeMaterial.ts`
+- `packages/conduit-planet/src/PlanetSurfaceMaterial.ts`
+- `packages/conduit-planet/src/PlanetSurfaceNodeMaterial.ts`
 
 Current planet alignment work:
 
@@ -218,8 +218,8 @@ Known remaining difference:
 
 Files:
 
-- `src/planet/GasGiantLayer.ts`
-- `src/planet/Planet.ts`
+- `packages/conduit-planet/src/GasGiantLayer.ts`
+- `packages/conduit-planet/src/Planet.ts`
 - `src/game/rendering/GamePrototypeScene.ts`
 - `src/game/dev/scenes/planets/PlanetLodTestScene.ts`
 
@@ -237,10 +237,10 @@ Current giant rendering work:
 
 Files:
 
-- `src/planet/Planet.ts`
-- `src/planet/rendering/PlanetRenderProfile.ts`
-- `src/planet/AtmosphereLayer.ts`
-- `src/planet/WebGPUAtmosphereLayer.ts`
+- `packages/conduit-planet/src/Planet.ts`
+- `packages/conduit-planet/src/rendering/PlanetRenderProfile.ts`
+- `packages/conduit-planet/src/AtmosphereLayer.ts`
+- `packages/conduit-planet/src/WebGPUAtmosphereLayer.ts`
 
 Current alignment work:
 
@@ -273,6 +273,9 @@ Known limitation:
 ## Known Open Visual Issues / Next Work
 
 - Initial `@conduit/web3d` workspace package exists under `packages/conduit-web3d`.
+- The complete planet subsystem now lives in the `@conduit/planet` workspace package with explicit model, generation, climate, terrain, rendering, and diagnostics subpaths.
+- App, system, persistence, and Feature Lab consumers import planet APIs from the package instead of `src/planet`.
+- The generic canvas star background is exported from `@conduit/web3d/environment`; the app-specific climate debug canvas remains under `src/debug`.
 - First extracted Conduit modules:
   - `assets/AssetLoaders`
   - `renderer/RendererFactory`
@@ -324,7 +327,7 @@ Known limitation:
 - WebGPU Metal-Rich palette was adjusted toward the accepted WebGL look: darker cool ore base, muted gray highlights, reduced chrome-like specular and weaker environment peaks.
 - WebGPU Rocky, Carbon, and Metal-Rich now have extra matte fill/visibility lift in their type lighting blocks so they do not collapse into near-black compared to WebGL.
 - WebGPU solid dry classes now also get a stronger post-type visibility floor and brighter night-base albedo for Rocky/Barren/Carbon/Metal-Rich/Desert, so shadowed surfaces remain readable instead of near-black.
-- `src/planet/rendering/PlanetClassVisualProfile.ts` now centralizes class visual lighting values. WebGPU dry-class type lighting and visibility floor read these uniforms from the shared profile; WebGL also reads the shared profile for direct-light/ambient profile input.
+- `packages/conduit-planet/src/rendering/PlanetClassVisualProfile.ts` now centralizes class visual lighting values. WebGPU dry-class type lighting and visibility floor read these uniforms from the shared profile; WebGL also reads the shared profile for direct-light/ambient profile input.
 - Latest WebGPU readability pass only changed `PlanetClassVisualProfile`: Rocky was lifted slightly, Metal-Rich got more matte shadow/fill visibility, and Carbon got the strongest fill/ambient lift because it was still collapsing to black in the comparison screenshots.
 - Follow-up Metal-Rich pass: `metallic` profile now has stronger night/fill/visibility compensation and weaker environment peak/reflection, targeting readable matte ore instead of a bright top with a nearly black lower hemisphere.
 - Second Metal-Rich pass: `metallic` was lifted again after the WebGPU screenshot still showed near-black lower/terminator patches. The class now prioritizes neutral matte readability over shiny high-contrast metal.

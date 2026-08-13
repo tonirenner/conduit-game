@@ -12,7 +12,7 @@ import {
 } from './TerrainTextureSet';
 
 import { createTerrainTextureBakeMaterial } from './TerrainTextureBakeMaterial';
-import type {TerrainProfileKind} from '../utils/noise';
+import type {TerrainProfileKind} from './terrain/noise';
 
 export type TerrainTextureBakeOptions = {
 	resolution: number;

@@ -1,4 +1,4 @@
-import { SeededRandom } from '../../planet/generation/SeededRandom';
+import { SeededRandom } from '@conduit/planet/generation';
 import { generateStarSystemDefinition } from '../../system/generation/StarSystemGenerator';
 import { KILOMETER } from '../spatial/SpatialUnits';
 

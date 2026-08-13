@@ -5,16 +5,16 @@ import {
 	type ClimateDebugMode,
 	getClimateDebugColor,
 	getClimateSample,
-} from '../planet/Climate';
+} from '@conduit/planet/climate';
 
 import {
 	WEATHER_DEBUG_MODES,
 	type WeatherDebugMode,
 	getWeatherDebugColor,
 	getWeatherSample,
-} from '../planet/Weather';
+} from '@conduit/planet/climate';
 
-import { getTerrainSample } from '../utils/noise';
+import { getTerrainSample } from '@conduit/planet/terrain';
 
 export type ClimateDebugModeCombined =
 	| ClimateDebugMode

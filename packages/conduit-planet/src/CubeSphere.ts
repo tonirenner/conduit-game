@@ -18,7 +18,7 @@ import { CachedTerrainSource } from './CachedTerrainSource';
 import {
 	DEFAULT_TERRAIN_SEED_CONFIG,
 	type TerrainSeedConfig,
-} from '../utils/noise';
+} from './terrain/noise';
 
 import type {
 	TerrainSource,

@@ -1,4 +1,4 @@
-import type {TerrainProfileKind} from '../../utils/noise';
+import type {TerrainProfileKind} from '../terrain/noise';
 import type {PlanetClass} from '../model/PlanetDefinition';
 
 export function resolveTerrainProfileKind(

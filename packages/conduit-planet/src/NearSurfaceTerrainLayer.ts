@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import {
 	getTerrainSample,
 	type TerrainSeedConfig,
-} from '../utils/noise';
+} from './terrain/noise';
 import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
 
 export type NearSurfaceTerrainLayerOptions = {

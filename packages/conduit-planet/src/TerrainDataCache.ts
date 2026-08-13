@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import {
 	getTerrainSample,
 	type TerrainSample,
-} from '../utils/noise';
+} from './terrain/noise';
 
-import { getClimateSample } from './Climate';
+import { getClimateSample } from './climate/Climate';
 
 import type {
 	CubeFace,

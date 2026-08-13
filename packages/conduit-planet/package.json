@@ -1,0 +1,24 @@
+{
+  "name": "@conduit/planet",
+  "type": "module",
+  "private": true,
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./model": "./src/model/index.ts",
+    "./generation": "./src/generation/index.ts",
+    "./climate": "./src/climate/index.ts",
+    "./terrain": "./src/terrain/index.ts",
+    "./rendering": "./src/rendering/index.ts",
+    "./diagnostics": "./src/diagnostics/index.ts"
+  },
+  "dependencies": {
+    "@conduit/web3d": "workspace:*"
+  },
+  "peerDependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

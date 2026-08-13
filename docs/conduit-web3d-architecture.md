@@ -14,7 +14,7 @@ Application / Game
   -> three
 ```
 
-`@conduit/web3d` must not import from `src/game`, `src/planet`, or any concrete gameplay module.
+`@conduit/web3d` must not import from `src/game`, `@conduit/planet`, or any concrete gameplay module.
 
 ## Current Package State
 
@@ -358,37 +358,22 @@ Game:
 
 Do not extract the complete combat or engine systems; split their low-level effects first.
 
-### Planet Renderer
+### Planet Package
 
-Current files:
+The domain-rich planet subsystem now lives in the separate `@conduit/planet` workspace package. This keeps planet classes, climate, composition, procedural generation, terrain and renderer policy together without adding them to generic Web3D.
 
-- `src/planet/*`
-
-Assessment:
-
-- The planet renderer is mostly rendering code, but it has significant domain concepts: planet classes, climate, composition, procedural generation and system/game scale assumptions.
-- It should not be moved early.
-
-Possible later split:
+Dependency direction:
 
 ```text
-Conduit:
-  generic LOD sphere / cube sphere infrastructure
-  generic frustum helpers
-  generic render texture bake helper
-
-Game/Planet package:
-  planet classes
-  climate
-  composition
-  gas giant style
-  gameplay resource interpretation
+Game/System -> @conduit/planet -> @conduit/web3d -> three
 ```
 
 Current progress:
 
 - The origin-centered spherical `HorizonCulling` helper now lives in `@conduit/web3d/performance`.
-- Planet-specific CubeSphere construction, terrain patches, LOD profiles and terrain data remain in `src/planet`.
+- Planet-specific CubeSphere construction, terrain patches, LOD profiles and terrain data live in `@conduit/planet/terrain`.
+- Planet models, generation, climate, rendering and diagnostics are exposed through explicit `@conduit/planet` subpaths.
+- `@conduit/web3d` never imports from `@conduit/planet`.
 
 ## Modules That Must Stay In Game
 

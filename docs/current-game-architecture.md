@@ -71,21 +71,15 @@ This document captures the current prototype architecture before the singleplaye
 
 ### Planet Renderer
 
-- `src/planet/Planet.ts`
-  - Main planet runtime object.
-- `src/planet/generation/*`
-  - Planet procedural generation.
-- `src/planet/rendering/*`
-  - Render profiles and feature flags.
-- `src/planet/WebGPUAtmosphereLayer.ts`, `WebGPUCloudLayer.ts`, `AtmosphereLayer.ts`, `CloudLayer.ts`
-  - Atmosphere and cloud rendering for WebGPU/WebGL paths.
-- `src/planet/PlanetSurfaceNodeMaterial.ts`, `PlanetSurfaceMaterial.ts`
-  - WebGPU/TSL and WebGL planet surface materials.
+- `packages/conduit-planet` owns the complete domain-specific planet subsystem.
+- `@conduit/planet/model`, `/generation`, `/climate`, `/terrain`, `/rendering`, and `/diagnostics` are its public boundaries.
+- `@conduit/planet/rendering` exposes the main `Planet` runtime, render profiles and feature flags.
+- Atmosphere, cloud, gas giant, terrain and surface-material implementations remain internal package details.
 - System view already reuses `Planet` for full planet objects, with lighter preview objects while async planet construction is pending.
 
 ### UI / Input
 
-- `src/main.ts` creates the global planet/debug HUD.
+- `src/main.ts` creates the global planet/debug HUD; its DOM climate canvas helper lives in `src/debug`.
 - `GamePrototypeScene` creates and owns:
   - fleet menu
   - loading overlay

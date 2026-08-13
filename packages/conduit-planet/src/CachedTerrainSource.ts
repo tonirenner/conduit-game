@@ -4,7 +4,7 @@ import {
 	DEFAULT_TERRAIN_SEED_CONFIG,
 	type TerrainSample,
 	type TerrainSeedConfig,
-} from '../utils/noise';
+} from './terrain/noise';
 
 import {
 	TerrainHeightCache,

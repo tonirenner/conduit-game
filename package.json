@@ -14,12 +14,13 @@
     "preview": "bun ./dist/index.html"
   },
   "dependencies": {
+    "@conduit/planet": "workspace:*",
     "@conduit/web3d": "workspace:*",
     "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/three": "^0.185.1",
+    "@types/three": "^0.185.4",
     "typescript": "latest"
   }
 }

@@ -1,5 +1,5 @@
-import type {PlanetRenderTuning} from '../planet/Planet';
-import type {PlanetClass} from '../planet/model/PlanetDefinition';
+import type {PlanetRenderTuning} from '@conduit/planet/rendering';
+import type {PlanetClass} from '@conduit/planet/model';
 
 export type RenderTuningPanelOptions = {
 	initialTuning: PlanetRenderTuning;

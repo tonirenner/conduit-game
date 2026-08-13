@@ -6,6 +6,8 @@
     "strict": true,
     "types": ["three"],
     "paths": {
+      "@conduit/planet": ["./packages/conduit-planet/src/index.ts"],
+      "@conduit/planet/*": ["./packages/conduit-planet/src/*"],
       "@conduit/web3d": ["./packages/conduit-web3d/src/index.ts"],
       "@conduit/web3d/*": ["./packages/conduit-web3d/src/*"]
     },

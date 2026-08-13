@@ -2,7 +2,7 @@ import {
 	EARTH_RADIUS_METERS,
 	LIGHT_YEAR_METERS,
 } from './SpatialUnits';
-import type { PlanetClass } from '../../planet/model/PlanetDefinition';
+import type { PlanetClass } from '@conduit/planet/model';
 
 export type SpatialRenderMode =
 	| 'local'

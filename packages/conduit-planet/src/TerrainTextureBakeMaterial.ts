@@ -12,7 +12,7 @@ import type {
 import {
 	getTerrainProfileSettings,
 	type TerrainProfileKind,
-} from '../utils/noise';
+} from './terrain/noise';
 
 export type TerrainTextureBakeMaterialHandle = {
 	material: any;

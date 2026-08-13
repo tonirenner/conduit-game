@@ -5,7 +5,7 @@ import {
 	getTerrainSample,
 	type TerrainSample,
 	type TerrainSeedConfig,
-} from '../utils/noise';
+} from './terrain/noise';
 
 import type {
 	CubeFace,
