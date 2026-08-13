@@ -2,29 +2,28 @@ import * as THREE from 'three';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 
-const GEOMETRY_RESOLUTION = 48;
-const TEXTURE_RESOLUTION = 64;
+const GEOMETRY_RESOLUTION = 72;
+const TEXTURE_RESOLUTION = 96;
 const PATCH_EXTENT = 1.35;
+const REGIONAL_RELIEF_EXAGGERATION = 10;
 
 export class RegionalSurfacePatch {
   readonly group = new THREE.Group();
 
   private readonly sampler: PlanetTerrainSampler;
   private readonly anchor = new THREE.Vector3();
-  private readonly material = new THREE.MeshBasicMaterial({
+  private readonly material = new THREE.MeshStandardMaterial({
     transparent: true,
     opacity: 0,
     depthWrite: false,
     depthTest: false,
+    roughness: 0.9,
+    metalness: 0,
   });
   private mesh: THREE.Mesh | null = null;
   private texture: THREE.DataTexture | null = null;
 
-  constructor(
-    private readonly definition: PlanetDefinition,
-    private readonly renderRadius: number,
-    direction: THREE.Vector3,
-  ) {
+  constructor(private readonly definition: PlanetDefinition, private readonly renderRadius: number, direction: THREE.Vector3) {
     this.group.name = 'RegionalSurfacePatch';
     this.sampler = new PlanetTerrainSampler(definition);
     this.rebuild(direction);
@@ -49,19 +48,16 @@ export class RegionalSurfacePatch {
   private setOpacity(value: number): void {
     const opacity = THREE.MathUtils.clamp(value, 0, 1);
     this.material.opacity = opacity;
+    this.material.depthWrite = opacity > 0.96;
     this.group.visible = opacity > 0.001;
   }
 
   private rebuild(direction: THREE.Vector3): void {
     this.anchor.copy(direction).normalize();
-
     const up = this.anchor;
-    const reference = Math.abs(up.y) < 0.92
-      ? new THREE.Vector3(0, 1, 0)
-      : new THREE.Vector3(1, 0, 0);
+    const reference = Math.abs(up.y) < 0.92 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
     const east = new THREE.Vector3().crossVectors(reference, up).normalize();
     const north = new THREE.Vector3().crossVectors(up, east).normalize();
-
     const positions: number[] = [];
     const uvs: number[] = [];
     const indices: number[] = [];
@@ -73,18 +69,11 @@ export class RegionalSurfacePatch {
       for (let x = 0; x <= GEOMETRY_RESOLUTION; x++) {
         const u01 = x / GEOMETRY_RESOLUTION;
         const u = u01 * 2 - 1;
-        sampleDirection.copy(up)
-          .addScaledVector(east, u * PATCH_EXTENT)
-          .addScaledVector(north, v * PATCH_EXTENT)
-          .normalize();
-
+        sampleDirection.copy(up).addScaledVector(east, u * PATCH_EXTENT).addScaledVector(north, v * PATCH_EXTENT).normalize();
         const sample = this.sampler.sample(sampleDirection, false);
-        const radius = this.renderRadius * (sample.surfaceRadiusMeters / this.sampler.radiusMeters);
-        positions.push(
-          sample.direction.x * radius,
-          sample.direction.y * radius,
-          sample.direction.z * radius,
-        );
+        const exaggeratedSurfaceRadiusMeters = this.sampler.radiusMeters + sample.elevationMeters * REGIONAL_RELIEF_EXAGGERATION;
+        const radius = this.renderRadius * (exaggeratedSurfaceRadiusMeters / this.sampler.radiusMeters);
+        positions.push(sample.direction.x * radius, sample.direction.y * radius, sample.direction.z * radius);
         uvs.push(u01, 1 - v01);
       }
     }
@@ -128,23 +117,13 @@ export class RegionalSurfacePatch {
     const data = new Uint8Array(TEXTURE_RESOLUTION * TEXTURE_RESOLUTION * 4);
     const direction = new THREE.Vector3();
     const color = new THREE.Color();
-
     for (let y = 0; y < TEXTURE_RESOLUTION; y++) {
       const v = ((y + 0.5) / TEXTURE_RESOLUTION) * 2 - 1;
       for (let x = 0; x < TEXTURE_RESOLUTION; x++) {
         const u = ((x + 0.5) / TEXTURE_RESOLUTION) * 2 - 1;
-        direction.copy(up)
-          .addScaledVector(east, u * PATCH_EXTENT)
-          .addScaledVector(north, v * PATCH_EXTENT)
-          .normalize();
+        direction.copy(up).addScaledVector(east, u * PATCH_EXTENT).addScaledVector(north, v * PATCH_EXTENT).normalize();
         const sample = this.sampler.sample(direction, false);
-        resolveRegionalColor(
-          this.definition.class,
-          sample.landMask,
-          sample.rawTerrain.height,
-          sample.isWater,
-          color,
-        );
+        resolveRegionalColor(this.definition.class, sample.landMask, sample.rawTerrain.height, sample.isWater, color);
         const offset = (y * TEXTURE_RESOLUTION + x) * 4;
         data[offset] = Math.round(THREE.MathUtils.clamp(color.r, 0, 1) * 255);
         data[offset + 1] = Math.round(THREE.MathUtils.clamp(color.g, 0, 1) * 255);
@@ -152,14 +131,7 @@ export class RegionalSurfacePatch {
         data[offset + 3] = 255;
       }
     }
-
-    const texture = new THREE.DataTexture(
-      data,
-      TEXTURE_RESOLUTION,
-      TEXTURE_RESOLUTION,
-      THREE.RGBAFormat,
-      THREE.UnsignedByteType,
-    );
+    const texture = new THREE.DataTexture(data, TEXTURE_RESOLUTION, TEXTURE_RESOLUTION, THREE.RGBAFormat, THREE.UnsignedByteType);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
@@ -171,26 +143,14 @@ export class RegionalSurfacePatch {
   }
 }
 
-function resolveRegionalColor(
-  planetClass: PlanetClass,
-  landMask: number,
-  height: number,
-  isWater: boolean,
-  target: THREE.Color,
-): void {
+function resolveRegionalColor(planetClass: PlanetClass, landMask: number, height: number, isWater: boolean, target: THREE.Color): void {
   if (isWater) {
     target.setRGB(0.025, 0.10 + landMask * 0.08, 0.22 + landMask * 0.12);
     return;
   }
-
   const relief = THREE.MathUtils.clamp(height * 0.5 + 0.5, 0, 1);
-  if (planetClass === 'desert') {
-    target.setRGB(0.38 + relief * 0.34, 0.10 + relief * 0.24, 0.025 + relief * 0.06);
-  } else if (planetClass === 'ice') {
-    target.setRGB(0.48 + relief * 0.38, 0.58 + relief * 0.34, 0.66 + relief * 0.30);
-  } else if (planetClass === 'lava') {
-    target.setRGB(0.18 + relief * 0.55, 0.025 + relief * 0.12, 0.01);
-  } else {
-    target.setRGB(0.10 + relief * 0.24, 0.16 + relief * 0.30, 0.08 + relief * 0.16);
-  }
+  if (planetClass === 'desert') target.setRGB(0.38 + relief * 0.34, 0.10 + relief * 0.24, 0.025 + relief * 0.06);
+  else if (planetClass === 'ice') target.setRGB(0.48 + relief * 0.38, 0.58 + relief * 0.34, 0.66 + relief * 0.30);
+  else if (planetClass === 'lava') target.setRGB(0.18 + relief * 0.55, 0.025 + relief * 0.12, 0.01);
+  else target.setRGB(0.10 + relief * 0.24, 0.16 + relief * 0.30, 0.08 + relief * 0.16);
 }
