@@ -1,1 +1,1 @@
-export { GpuRegionalSurfaceTerrain as RegionalSurfacePatch } from './GpuRegionalSurfaceTerrain';
+export { HydraulicRegionalSurfaceTerrain as RegionalSurfacePatch } from './HydraulicRegionalSurfaceTerrain';
