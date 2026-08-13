@@ -19,11 +19,44 @@ export class PlanetLodTestScene implements FeatureTestScene {
   update(deltaSeconds:number):void{if(!this.context||!this.planet)return;this.planet.update(this.context.camera.position,deltaSeconds);this.planet.setRenderQuality('idle');this.updateStats();}
   dispose():void{this.planet?.dispose();this.planet=null;this.context?.scene.remove(this.root);disposeObject3D(this.root);this.root.clear();this.context=null;}
   reset():void{this.createPlanet();}
-  private createUi(root:HTMLElement):void{root.innerHTML=`<label style="display:block;margin:6px 0;">Class <select data-planet-class>${PLANET_CLASSES.map(p=>`<option value="${p}"${p===this.planetClass?' selected':''}>${formatPlanetClass(p)}</option>`).join('')}</select></label><label style="display:block;margin:6px 0;">Seed <input data-seed type="number" value="${this.seed}" style="width:110px;"></label><label style="display:block;margin:6px 0;">Climate Map <select data-climate-debug>${PLANET_CLIMATE_DEBUG_MODES.map(mode=>`<option value="${mode}"${mode===this.climateDebugMode?' selected':''}>${formatDebugMode(mode)}</option>`).join('')}</select></label><button data-apply-planet style="margin:4px;padding:6px 8px;">Apply</button><div data-planet-stats style="margin-top:8px;opacity:.78"></div>`;this.stats=root.querySelector('[data-planet-stats]');this.climateCanvas=root.querySelector('[data-climate-map]');}
-  private createPlanet():void{if(!this.context)return;this.planet?.dispose();this.planet=null;this.definition=null;this.profile=null;this.climateDiagnostics=null;this.root.clear();this.context.clearReport();const generatedDefinition=generatePlanetDefinition(this.seed,{name:`LOD ${this.seed}`,semiMajorAxis:1,starIrradiance:1,forcePlanetClass:this.planetClass});const definition=this.createDebugDefinition(generatedDefinition);const profile=this.createDebugRenderProfile(createPlanetRenderProfile(definition));this.definition=definition;this.profile=profile;this.climateDiagnostics=createPlanetClimateDiagnostics(definition);this.planet=new Planet(3,this.context.rendererMode,null,{gasCloudParticles:this.layerToggles.gasParticles&&(definition.class==='gas_giant'||definition.class==='ice_giant'),moonSystem:this.layerToggles.moons,nearSurfaceTerrain:this.layerToggles.nearSurfaceTerrain},definition,profile);this.root.add(this.planet.group);}
+
+  private createUi(root:HTMLElement):void{
+    root.innerHTML=`<label style="display:block;margin:6px 0;">Class <select data-planet-class>${PLANET_CLASSES.map(p=>`<option value="${p}"${p===this.planetClass?' selected':''}>${formatPlanetClass(p)}</option>`).join('')}</select></label><label style="display:block;margin:6px 0;">Seed <input data-seed type="number" value="${this.seed}" style="width:110px;"></label><label style="display:block;margin:6px 0;">Climate Map <select data-climate-debug>${PLANET_CLIMATE_DEBUG_MODES.map(mode=>`<option value="${mode}"${mode===this.climateDebugMode?' selected':''}>${formatDebugMode(mode)}</option>`).join('')}</select></label><button data-apply-planet style="margin:4px;padding:6px 8px;">Apply</button><canvas data-climate-map width="240" height="120" style="display:block;width:240px;height:120px;margin-top:8px;border:1px solid rgba(120,180,255,.35);border-radius:4px;image-rendering:pixelated;background:#05070a;"></canvas><div data-planet-stats style="margin-top:8px;opacity:.78"></div>`;
+    this.stats=root.querySelector<HTMLElement>('[data-planet-stats]');
+    this.climateCanvas=root.querySelector<HTMLCanvasElement>('[data-climate-map]');
+
+    root.querySelector<HTMLButtonElement>('[data-apply-planet]')?.addEventListener('click',()=>{
+      const input=root.querySelector<HTMLInputElement>('[data-seed]');
+      const select=root.querySelector<HTMLSelectElement>('[data-planet-class]');
+      const nextSeed=Number(input?.value??this.seed);
+      this.seed=Number.isFinite(nextSeed)?Math.max(1,Math.floor(nextSeed)):this.seed;
+      this.planetClass=isPlanetClass(select?.value)?select.value:this.planetClass;
+      this.createPlanet();
+    });
+
+    root.querySelector<HTMLSelectElement>('[data-climate-debug]')?.addEventListener('change',(event)=>{
+      this.climateDebugMode=(event.currentTarget as HTMLSelectElement).value as ClimateDebugMode;
+      this.updateClimateMap();
+    });
+  }
+
+  private createPlanet():void{
+    if(!this.context)return;
+    this.planet?.dispose();this.planet=null;this.definition=null;this.profile=null;this.climateDiagnostics=null;this.root.clear();this.context.clearReport();
+    const generatedDefinition=generatePlanetDefinition(this.seed,{name:`LOD ${this.seed}`,semiMajorAxis:1,starIrradiance:1,forcePlanetClass:this.planetClass});
+    const definition=this.createDebugDefinition(generatedDefinition);
+    const profile=this.createDebugRenderProfile(createPlanetRenderProfile(definition));
+    this.definition=definition;this.profile=profile;this.climateDiagnostics=createPlanetClimateDiagnostics(definition);
+    this.planet=new Planet(3,this.context.rendererMode,null,{gasCloudParticles:this.layerToggles.gasParticles&&(definition.class==='gas_giant'||definition.class==='ice_giant'),moonSystem:this.layerToggles.moons,nearSurfaceTerrain:this.layerToggles.nearSurfaceTerrain},definition,profile);
+    this.root.add(this.planet.group);
+    this.context.report({status:'pass',label:'planet created',detail:`${definition.class} / seed ${definition.seed}`});
+    this.updateClimateMap();
+  }
+
   private createDebugDefinition(definition:PlanetDefinition):PlanetDefinition{if(this.layerToggles.ocean)return definition;const d={...definition,composition:{...definition.composition,water:0},surface:{...definition.surface,hasOcean:false,oceanLevel:-1},atmosphere:{...definition.atmosphere,cloudCoverage:this.layerToggles.clouds?definition.atmosphere.cloudCoverage:0}};return {...d,resources:generatePlanetResourceProfile({planetClass:d.class,composition:d.composition,atmosphere:d.atmosphere,surface:d.surface,climate:d.climate})};}
   private createDebugRenderProfile(profile:PlanetRenderProfile):PlanetRenderProfile{return {...profile,enableOcean:profile.enableOcean&&this.layerToggles.ocean,enableAtmosphere:profile.enableAtmosphere&&this.layerToggles.atmosphere,enableClouds:profile.enableClouds&&this.layerToggles.clouds,enableRings:profile.enableRings&&this.layerToggles.rings};}
   private updateStats():void{if(!this.planet||!this.context||!this.stats||!this.definition||!this.profile)return;const terrain=this.planet.getTerrainStats();const visualProfile=getPlanetClassVisualProfile(this.profile.surfacePalette as SurfacePaletteKind);const labScale=getPlanetScaleDiagnostics(this.definition.physical.radius,3);const gameRenderRadius=getSystemPlanetRenderRadius(this.definition.physical.radius,this.definition.class);const gameScale=getPlanetScaleDiagnostics(this.definition.physical.radius,gameRenderRadius);this.stats.innerHTML=`class: ${this.planetClass}<br>renderer: ${this.context.rendererMode}<br>real radius: ${formatKilometers(labScale.physicalRadiusKilometers)} km<br>game radius: ${gameRenderRadius.toFixed(1)}u (${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>visual profile: ${format01(visualProfile.ambientBoost)}<br>coast: ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart,OCEAN_COASTLINE_PROFILE.waterHintEnd)}<br>patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>max lod: ${terrain.maxLevel}`;}
+  private updateClimateMap():void{if(!this.climateCanvas||!this.definition)return;drawPlanetClimateDebugMap(this.climateCanvas,this.definition,this.climateDebugMode);}
 }
 function isPlanetClass(value:string|undefined):value is PlanetClass{return PLANET_CLASSES.includes(value as PlanetClass);}
 function formatPlanetClass(v:PlanetClass):string{return v.split('_').map(p=>p.charAt(0).toUpperCase()+p.slice(1)).join(' ');}
