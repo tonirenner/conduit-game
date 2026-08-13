@@ -10,7 +10,7 @@ import type { ClimateDebugMode } from '@conduit/planet/climate';
 import { getPlanetScaleDiagnostics, getSystemPlanetRenderRadius } from '../../../spatial/SpatialRenderScale';
 
 const LAB_PLANET_RADIUS = 3;
-const SURFACE_TRANSITION_START_METERS = 6_000_000;
+const SURFACE_TRANSITION_START_METERS = 9_000_000;
 const SURFACE_TRANSITION_END_METERS = 500_000;
 
 const PLANET_CLASSES: PlanetClass[] = ['barren','rocky','terrestrial','ocean','desert','ice','lava','toxic','carbon','metal_rich','gas_giant','ice_giant'];
