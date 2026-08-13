@@ -5,7 +5,6 @@ import { TurretTrackingTestScene } from './scenes/combat/TurretTrackingTestScene
 import { WeaponFireTestScene } from './scenes/combat/WeaponFireTestScene';
 import { ShipCombatTestScene } from './scenes/combat/ShipCombatTestScene';
 import { PlanetLodTestScene } from './scenes/planets/PlanetLodTestScene';
-import { PlanetApproachTestScene } from './scenes/planets/PlanetApproachTestScene';
 import { PostFxTestScene } from './scenes/rendering/PostFxTestScene';
 import { StudioLightingTestScene } from './scenes/rendering/StudioLightingTestScene';
 
@@ -73,14 +72,6 @@ registerFeatureTest({
 	category: 'Planets',
 	description: 'Inspect Planet renderer LOD and terrain stats in isolation.',
 	create: () => new PlanetLodTestScene(),
-});
-
-registerFeatureTest({
-	id: 'planet-approach',
-	name: 'Planet Approach & Landing',
-	category: 'Planets',
-	description: 'Fly into meter-scale streamed terrain, touch down, and take off again.',
-	create: () => new PlanetApproachTestScene(),
 });
 
 registerFeatureTest({
