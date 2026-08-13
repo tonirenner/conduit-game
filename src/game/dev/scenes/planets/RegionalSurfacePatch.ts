@@ -1,1 +1,1 @@
-export { RegionalSurfaceHandoffTerrain as RegionalSurfacePatch } from './RegionalSurfaceHandoffTerrain';
+export { HydraulicRegionalSurfaceTerrain as RegionalSurfacePatch } from './HydraulicRegionalSurfaceTerrain';
