@@ -3,16 +3,16 @@ import { MeshStandardNodeMaterial } from 'three/webgpu';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 
-const GRID_RESOLUTION = 192;
-const MAP_RESOLUTION = 192;
 const RELIEF_EXAGGERATION = 8;
-const EXTENT_REBUILD_THRESHOLD = 0.16;
+const EXTENT_REBUILD_THRESHOLD = 0.14;
 
 export class GpuRegionalSurfaceTerrain {
 	readonly group = new THREE.Group();
 	private readonly sampler: PlanetTerrainSampler;
 	private readonly anchor = new THREE.Vector3();
 	private currentExtent = 1.1;
+	private gridResolution = 160;
+	private mapResolution = 192;
 	private mesh: THREE.Mesh | null = null;
 	private maps: THREE.Texture[] = [];
 	private readonly material = new MeshStandardNodeMaterial({
@@ -32,6 +32,7 @@ export class GpuRegionalSurfaceTerrain {
 		this.group.name = 'GpuRegionalSurfaceTerrain';
 		this.sampler = new PlanetTerrainSampler(definition);
 		this.currentExtent = this.getPatchExtent(cameraRenderPosition);
+		this.applyResolution(cameraRenderPosition);
 		this.rebuild(cameraRenderPosition);
 		this.setOpacity(0);
 	}
@@ -39,11 +40,19 @@ export class GpuRegionalSurfaceTerrain {
 	update(cameraRenderPosition: THREE.Vector3, opacity: number): void {
 		const direction = cameraRenderPosition.clone().normalize();
 		const extent = this.getPatchExtent(cameraRenderPosition);
+		const nextResolution = this.getResolution(cameraRenderPosition);
+		const resolutionChanged =
+			nextResolution.grid !== this.gridResolution ||
+			nextResolution.map !== this.mapResolution;
+
 		if (
 			direction.dot(this.anchor) < 0.992 ||
-			Math.abs(extent / this.currentExtent - 1) > EXTENT_REBUILD_THRESHOLD
+			Math.abs(extent / this.currentExtent - 1) > EXTENT_REBUILD_THRESHOLD ||
+			resolutionChanged
 		) {
 			this.currentExtent = extent;
+			this.gridResolution = nextResolution.grid;
+			this.mapResolution = nextResolution.map;
 			this.rebuild(cameraRenderPosition);
 		}
 		this.setOpacity(opacity);
@@ -65,16 +74,33 @@ export class GpuRegionalSurfaceTerrain {
 		this.group.visible = opacity > 0.001;
 	}
 
-	private getPatchExtent(cameraRenderPosition: THREE.Vector3): number {
-		const altitudeMeters = Math.max(
+	private getAltitudeMeters(cameraRenderPosition: THREE.Vector3): number {
+		return Math.max(
 			0,
 			(cameraRenderPosition.length() / this.renderRadius - 1) * this.sampler.radiusMeters,
 		);
+	}
+
+	private getPatchExtent(cameraRenderPosition: THREE.Vector3): number {
+		const altitudeMeters = this.getAltitudeMeters(cameraRenderPosition);
 		return THREE.MathUtils.clamp(
-			0.045 + (altitudeMeters / Math.max(1, this.sampler.radiusMeters)) * 1.35,
-			0.055,
+			0.038 + (altitudeMeters / Math.max(1, this.sampler.radiusMeters)) * 1.08,
+			0.045,
 			1.1,
 		);
+	}
+
+	private getResolution(cameraRenderPosition: THREE.Vector3): { grid: number; map: number } {
+		const altitudeMeters = this.getAltitudeMeters(cameraRenderPosition);
+		if (altitudeMeters > 6_000_000) return { grid: 160, map: 192 };
+		if (altitudeMeters > 3_000_000) return { grid: 192, map: 256 };
+		return { grid: 256, map: 320 };
+	}
+
+	private applyResolution(cameraRenderPosition: THREE.Vector3): void {
+		const resolution = this.getResolution(cameraRenderPosition);
+		this.gridResolution = resolution.grid;
+		this.mapResolution = resolution.map;
 	}
 
 	private rebuild(cameraRenderPosition: THREE.Vector3): void {
@@ -91,9 +117,9 @@ export class GpuRegionalSurfaceTerrain {
 		this.material.displacementScale = field.elevationRangeRender * RELIEF_EXAGGERATION;
 		this.material.displacementBias = field.minElevationRender * RELIEF_EXAGGERATION;
 		this.material.normalMap = textures.normal;
-		this.material.normalScale.set(1.55, 1.55);
+		this.material.normalScale.set(1.75, 1.75);
 		this.material.aoMap = textures.ao;
-		this.material.aoMapIntensity = 1.05;
+		this.material.aoMapIntensity = 1.08;
 		this.material.roughnessMap = textures.roughness;
 		this.material.needsUpdate = true;
 
@@ -111,17 +137,18 @@ export class GpuRegionalSurfaceTerrain {
 	}
 
 	private buildGeometry(basis: SurfaceBasis): THREE.BufferGeometry {
+		const resolution = this.gridResolution;
 		const positions: number[] = [];
 		const normals: number[] = [];
 		const uvs: number[] = [];
 		const indices: number[] = [];
 		const direction = new THREE.Vector3();
 
-		for (let y = 0; y <= GRID_RESOLUTION; y++) {
-			const v01 = y / GRID_RESOLUTION;
+		for (let y = 0; y <= resolution; y++) {
+			const v01 = y / resolution;
 			const v = v01 * 2 - 1;
-			for (let x = 0; x <= GRID_RESOLUTION; x++) {
-				const u01 = x / GRID_RESOLUTION;
+			for (let x = 0; x <= resolution; x++) {
+				const u01 = x / resolution;
 				const u = u01 * 2 - 1;
 				sampleDirection(direction, basis, u, v, this.currentExtent);
 				positions.push(
@@ -134,9 +161,9 @@ export class GpuRegionalSurfaceTerrain {
 			}
 		}
 
-		const stride = GRID_RESOLUTION + 1;
-		for (let y = 0; y < GRID_RESOLUTION; y++) {
-			for (let x = 0; x < GRID_RESOLUTION; x++) {
+		const stride = resolution + 1;
+		for (let y = 0; y < resolution; y++) {
+			for (let x = 0; x < resolution; x++) {
 				const a = y * stride + x;
 				const b = a + 1;
 				const c = a + stride;
@@ -157,7 +184,8 @@ export class GpuRegionalSurfaceTerrain {
 	}
 
 	private sampleField(basis: SurfaceBasis): TerrainField {
-		const count = MAP_RESOLUTION * MAP_RESOLUTION;
+		const resolution = this.mapResolution;
+		const count = resolution * resolution;
 		const elevation = new Float32Array(count);
 		const landMask = new Float32Array(count);
 		const mountainMask = new Float32Array(count);
@@ -168,13 +196,13 @@ export class GpuRegionalSurfaceTerrain {
 		let minElevation = Number.POSITIVE_INFINITY;
 		let maxElevation = Number.NEGATIVE_INFINITY;
 
-		for (let y = 0; y < MAP_RESOLUTION; y++) {
-			const v = ((y + 0.5) / MAP_RESOLUTION) * 2 - 1;
-			for (let x = 0; x < MAP_RESOLUTION; x++) {
-				const u = ((x + 0.5) / MAP_RESOLUTION) * 2 - 1;
+		for (let y = 0; y < resolution; y++) {
+			const v = ((y + 0.5) / resolution) * 2 - 1;
+			for (let x = 0; x < resolution; x++) {
+				const u = ((x + 0.5) / resolution) * 2 - 1;
 				sampleDirection(direction, basis, u, v, this.currentExtent);
 				const sample = this.sampler.sample(direction, false);
-				const i = y * MAP_RESOLUTION + x;
+				const i = y * resolution + x;
 				elevation[i] = sample.elevationMeters;
 				landMask[i] = sample.landMask;
 				mountainMask[i] = sample.rawTerrain.mountainMask;
@@ -202,42 +230,49 @@ export class GpuRegionalSurfaceTerrain {
 	}
 
 	private buildMaps(field: TerrainField): TerrainMaps {
-		const count = MAP_RESOLUTION * MAP_RESOLUTION;
+		const resolution = this.mapResolution;
+		const count = resolution * resolution;
 		const colorData = new Uint8Array(count * 4);
-		const heightData = new Uint8Array(count * 4);
+		const heightData = new Float32Array(count * 4);
 		const normalData = new Uint8Array(count * 4);
 		const aoData = new Uint8Array(count * 4);
 		const roughnessData = new Uint8Array(count * 4);
 		const color = new THREE.Color();
 		const range = Math.max(1, field.maxElevation - field.minElevation);
 
-		for (let y = 0; y < MAP_RESOLUTION; y++) {
-			for (let x = 0; x < MAP_RESOLUTION; x++) {
-				const i = y * MAP_RESOLUTION + x;
+		for (let y = 0; y < resolution; y++) {
+			for (let x = 0; x < resolution; x++) {
+				const i = y * resolution + x;
 				const o = i * 4;
 				const h = field.elevation[i];
-				const left = field.elevation[y * MAP_RESOLUTION + Math.max(0, x - 1)];
-				const right = field.elevation[y * MAP_RESOLUTION + Math.min(MAP_RESOLUTION - 1, x + 1)];
-				const down = field.elevation[Math.max(0, y - 1) * MAP_RESOLUTION + x];
-				const up = field.elevation[Math.min(MAP_RESOLUTION - 1, y + 1) * MAP_RESOLUTION + x];
+				const left = field.elevation[y * resolution + Math.max(0, x - 1)];
+				const right = field.elevation[y * resolution + Math.min(resolution - 1, x + 1)];
+				const down = field.elevation[Math.max(0, y - 1) * resolution + x];
+				const up = field.elevation[Math.min(resolution - 1, y + 1) * resolution + x];
 				const dx = (right - left) / range;
 				const dy = (up - down) / range;
-				const slope = THREE.MathUtils.clamp(Math.hypot(dx, dy) * 6.5, 0, 1);
+				const slope = THREE.MathUtils.clamp(Math.hypot(dx, dy) * 8.0, 0, 1);
 				const curvature = THREE.MathUtils.clamp(
-					Math.abs(left + right + down + up - h * 4) / range * 18,
+					Math.abs(left + right + down + up - h * 4) / range * 24,
 					0,
 					1,
 				);
 				const mountain = field.mountainMask[i];
 				const erosion = field.erosionMask[i];
 				const river = field.riverMask[i];
-				const rock = THREE.MathUtils.clamp(
-					slope * 0.72 + mountain * 0.48 + erosion * 0.24 - river * 0.38,
+				const rockRaw = THREE.MathUtils.clamp(
+					slope * 0.76 + mountain * 0.50 + erosion * 0.26 - river * 0.36,
 					0,
 					1,
 				);
-				const valley = THREE.MathUtils.clamp(river * 0.78 + (1 - slope) * erosion * 0.24, 0, 1);
-				const plain = THREE.MathUtils.clamp(1 - rock - valley * 0.55, 0, 1);
+				const valleyRaw = THREE.MathUtils.clamp(
+					river * 0.82 + (1 - slope) * erosion * 0.26,
+					0,
+					1,
+				);
+				const rock = smoothMask(rockRaw, 0.18, 0.72);
+				const valley = smoothMask(valleyRaw, 0.16, 0.66);
+				const plain = THREE.MathUtils.clamp(1 - rock - valley * 0.58, 0, 1);
 
 				resolveSplatColor(
 					this.definition.class,
@@ -256,40 +291,42 @@ export class GpuRegionalSurfaceTerrain {
 				colorData[o + 3] = 255;
 
 				const normalizedHeight = THREE.MathUtils.clamp((h - field.minElevation) / range, 0, 1);
-				setGray(heightData, o, normalizedHeight);
+				setFloatGray(heightData, o, normalizedHeight);
 
 				const micro = deterministicDetail(x, y, this.definition.render.terrainSeed);
-				const nx = -dx * (7.5 + rock * 3.5) + (micro - 0.5) * 0.055 * rock;
-				const ny = -dy * (7.5 + rock * 3.5) + (0.5 - micro) * 0.055 * rock;
-				const normal = new THREE.Vector3(nx, ny, 1).normalize();
-				normalData[o] = toByte(normal.x * 0.5 + 0.5);
-				normalData[o + 1] = toByte(normal.y * 0.5 + 0.5);
-				normalData[o + 2] = toByte(normal.z * 0.5 + 0.5);
+				const micro2 = deterministicDetail(x * 3 + 17, y * 3 - 11, this.definition.render.terrainSeed + 97);
+				const detail = ((micro - 0.5) * 0.65 + (micro2 - 0.5) * 0.35) * (0.075 + rock * 0.055);
+				const nx = -dx * (8.5 + rock * 4.5) + detail;
+				const ny = -dy * (8.5 + rock * 4.5) - detail * 0.83;
+				const invLength = 1 / Math.max(0.000001, Math.hypot(nx, ny, 1));
+				normalData[o] = toByte(nx * invLength * 0.5 + 0.5);
+				normalData[o + 1] = toByte(ny * invLength * 0.5 + 0.5);
+				normalData[o + 2] = toByte(invLength * 0.5 + 0.5);
 				normalData[o + 3] = 255;
 
 				const cavity = THREE.MathUtils.clamp(
-					curvature * 0.46 + valley * 0.34 + erosion * curvature * 0.28,
+					curvature * 0.54 + valley * 0.38 + erosion * curvature * 0.32,
 					0,
-					0.82,
+					0.86,
 				);
 				setGray(aoData, o, 1 - cavity);
 
 				const roughness = field.water[i]
 					? 0.38
 					: THREE.MathUtils.clamp(
-						0.68 + plain * 0.12 + rock * 0.20 + erosion * 0.10 - valley * 0.08,
-						0.54,
+						0.66 + plain * 0.11 + rock * 0.23 + erosion * 0.11 - valley * 0.09,
+						0.52,
 						1,
 					);
 				setGray(roughnessData, o, roughness);
 			}
 		}
 
-		const colorMap = makeTexture(colorData, true);
-		const heightMap = makeTexture(heightData, false);
-		const normalMap = makeTexture(normalData, false);
-		const aoMap = makeTexture(aoData, false);
-		const roughnessMap = makeTexture(roughnessData, false);
+		const colorMap = makeByteTexture(colorData, resolution, true);
+		const heightMap = makeFloatTexture(heightData, resolution);
+		const normalMap = makeByteTexture(normalData, resolution, false);
+		const aoMap = makeByteTexture(aoData, resolution, false);
+		const roughnessMap = makeByteTexture(roughnessData, resolution, false);
 		return {
 			color: colorMap,
 			height: heightMap,
@@ -344,14 +381,7 @@ function sampleDirection(
 		.normalize();
 }
 
-function makeTexture(data: Uint8Array, srgb: boolean): THREE.DataTexture {
-	const texture = new THREE.DataTexture(
-		data,
-		MAP_RESOLUTION,
-		MAP_RESOLUTION,
-		THREE.RGBAFormat,
-		THREE.UnsignedByteType,
-	);
+function configureTexture(texture: THREE.DataTexture, srgb: boolean): THREE.DataTexture {
 	texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
 	texture.minFilter = THREE.LinearFilter;
 	texture.magFilter = THREE.LinearFilter;
@@ -361,12 +391,51 @@ function makeTexture(data: Uint8Array, srgb: boolean): THREE.DataTexture {
 	return texture;
 }
 
+function makeByteTexture(data: Uint8Array, resolution: number, srgb: boolean): THREE.DataTexture {
+	return configureTexture(
+		new THREE.DataTexture(
+			data,
+			resolution,
+			resolution,
+			THREE.RGBAFormat,
+			THREE.UnsignedByteType,
+		),
+		srgb,
+	);
+}
+
+function makeFloatTexture(data: Float32Array, resolution: number): THREE.DataTexture {
+	return configureTexture(
+		new THREE.DataTexture(
+			data,
+			resolution,
+			resolution,
+			THREE.RGBAFormat,
+			THREE.FloatType,
+		),
+		false,
+	);
+}
+
 function setGray(data: Uint8Array, offset: number, value: number): void {
 	const byte = toByte(value);
 	data[offset] = byte;
 	data[offset + 1] = byte;
 	data[offset + 2] = byte;
 	data[offset + 3] = 255;
+}
+
+function setFloatGray(data: Float32Array, offset: number, value: number): void {
+	const clamped = THREE.MathUtils.clamp(value, 0, 1);
+	data[offset] = clamped;
+	data[offset + 1] = clamped;
+	data[offset + 2] = clamped;
+	data[offset + 3] = 1;
+}
+
+function smoothMask(value: number, low: number, high: number): number {
+	const t = THREE.MathUtils.clamp((value - low) / Math.max(0.000001, high - low), 0, 1);
+	return t * t * (3 - 2 * t);
 }
 
 function toByte(value: number): number {
