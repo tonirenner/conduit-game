@@ -3,11 +3,11 @@ import type { BiomeId } from '../climate';
 import type { PlanetClass, PlanetDefinition } from '../model';
 import {
 	createPlanetRenderProfile,
-} from '../rendering/PlanetRenderProfile';
+} from '@conduit/planet/rendering';
 import {
 	createSurfaceRenderProfile,
 	type SurfacePaletteKind,
-} from '../rendering/SurfaceRenderProfile';
+} from '@conduit/planet/rendering';
 import type { PlanetSurfaceSample } from './PlanetTerrainSampler';
 
 export type PlanetNearViewVisualProfile = {

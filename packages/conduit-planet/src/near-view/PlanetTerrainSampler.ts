@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { getClimateSample, type BiomeId, type ClimateSample } from '../climate';
 import type { PlanetDefinition } from '../model';
-import { resolveTerrainProfileKind } from '../rendering/TerrainRenderProfile';
+import { resolveTerrainProfileKind } from '@conduit/planet/rendering';
 import {
 	createTerrainSeedConfig,
 	getTerrainSample,
