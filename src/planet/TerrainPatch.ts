@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { HorizonCulling } from './HorizonCulling';
+import type { HorizonCulling } from '@conduit/web3d/performance';
 
 import type {
 	CubeFace,

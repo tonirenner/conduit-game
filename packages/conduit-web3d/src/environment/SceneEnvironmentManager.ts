@@ -145,7 +145,9 @@ export function restoreSceneEnvironment(
 
 	scene.environment = snapshot.environment;
 	scene.background = snapshot.background;
-	sceneWithEnvironment.environmentIntensity = snapshot.environmentIntensity;
+	if (snapshot.environmentIntensity !== undefined) {
+		sceneWithEnvironment.environmentIntensity = snapshot.environmentIntensity;
+	}
 
 	if (sceneWithEnvironment.environmentRotation && snapshot.environmentRotation) {
 		sceneWithEnvironment.environmentRotation.copy(snapshot.environmentRotation);

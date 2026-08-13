@@ -16,6 +16,9 @@
     },
     "packages/conduit-web3d": {
       "name": "@conduit/web3d",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
       "peerDependencies": {
         "three": "^0.185.1",
       },

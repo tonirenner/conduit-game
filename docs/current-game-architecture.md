@@ -65,7 +65,7 @@ This document captures the current prototype architecture before the singleplaye
   - Canvas-based system minimap with points and viewport rectangle.
 - `src/game/ui/BuildMenu.ts`
   - DOM build/production menu. It is UI-only but currently wired directly from `GamePrototypeScene`.
-- `src/game/rendering/SystemNebulaBackdrop.ts`, `WormholeNodeVisual.ts`
+- `packages/conduit-web3d/src/environment/SystemNebulaBackdrop.ts`, `src/game/rendering/WormholeNodeVisual.ts`
 - `packages/conduit-web3d/src/environment/DynamicEnvironmentProbe.ts`
   - Render-only environment, wormhole, and reflection-probe helpers.
 

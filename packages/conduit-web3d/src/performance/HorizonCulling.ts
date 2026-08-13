@@ -57,6 +57,9 @@ const DEFAULT_OPTIONS: HorizonCullingOptions = {
 	minCameraHeightForCulling: 0.22,
 };
 
+/**
+ * Visibility test for bounding spheres positioned around an origin-centered sphere.
+ */
 export class HorizonCulling {
 	private readonly options: HorizonCullingOptions;
 

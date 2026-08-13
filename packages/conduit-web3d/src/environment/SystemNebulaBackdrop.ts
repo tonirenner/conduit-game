@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { disposeObject3D } from '../debug';
+
 export type SystemNebulaBackdropOptions = {
 	seed: number;
 };
@@ -16,6 +18,7 @@ export class SystemNebulaBackdrop {
 	public readonly group = new THREE.Group();
 
 	private readonly nebulaSprites: THREE.Sprite[] = [];
+	private dustPointTexture: THREE.CanvasTexture | null = null;
 	private pointCloud: THREE.Points | null = null;
 	private seed: number;
 
@@ -54,11 +57,12 @@ export class SystemNebulaBackdrop {
 	dispose(): void {
 		for (const child of this.group.children.slice()) {
 			this.group.remove(child);
-			this.disposeObject(child);
+			disposeObject3D(child);
 		}
 
 		this.nebulaSprites.length = 0;
 		this.pointCloud = null;
+		this.dustPointTexture = null;
 	}
 
 	private rebuild(): void {
@@ -106,16 +110,20 @@ export class SystemNebulaBackdrop {
 
 		geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
+		const material = new THREE.MeshBasicMaterial({
+			                                             side: THREE.BackSide,
+			                                             vertexColors: true,
+			                                             transparent: true,
+			                                             opacity: 0.07,
+			                                             depthWrite: false,
+			                                             depthTest: true,
+		                                             });
+
+		material.toneMapped = false;
+
 		const mesh = new THREE.Mesh(
 			geometry,
-			new THREE.MeshBasicMaterial({
-				                            side: THREE.BackSide,
-				                            vertexColors: true,
-				                            transparent: true,
-				                            opacity: 0.26,
-				                            depthWrite: false,
-				                            depthTest: true,
-			                            }),
+			material,
 		);
 
 		mesh.name = 'System Soft Nebula Field';
@@ -147,11 +155,13 @@ export class SystemNebulaBackdrop {
 				                                          ),
 				                                          color,
 				                                          transparent: true,
-				                                          opacity: 0.035 + this.hash01(index, 131) * 0.065,
+				                                          opacity: 0.006 + this.hash01(index, 131) * 0.016,
 				                                          depthWrite: false,
 				                                          depthTest: true,
-				                                          blending: THREE.AdditiveBlending,
+				                                          blending: THREE.NormalBlending,
 			                                          });
+
+			material.toneMapped = false;
 
 			const sprite = new THREE.Sprite(material);
 			const theta = this.hash01(index, 137) * Math.PI * 2;
@@ -204,11 +214,13 @@ export class SystemNebulaBackdrop {
 				                                          map: texture,
 				                                          color,
 				                                          transparent: true,
-				                                          opacity: 0.06 + this.hash01(index, 31) * 0.10,
+				                                          opacity: 0.012 + this.hash01(index, 31) * 0.020,
 				                                          depthWrite: false,
 				                                          depthTest: true,
-				                                          blending: THREE.AdditiveBlending,
+				                                          blending: THREE.NormalBlending,
 			                                          });
+
+			material.toneMapped = false;
 
 			const sprite = new THREE.Sprite(material);
 
@@ -237,7 +249,7 @@ export class SystemNebulaBackdrop {
 	}
 
 	private createNebulaPointCloud(palette: NebulaPalette): THREE.Points {
-		const count = 18000;
+		const count = 6200;
 		const positions = new Float32Array(count * 3);
 		const colors = new Float32Array(count * 3);
 		const color = new THREE.Color();
@@ -264,7 +276,7 @@ export class SystemNebulaBackdrop {
 				.lerp(palette.accentA, mix * 0.44)
 				.lerp(palette.accentB, Math.max(0, mix - 0.55) * 0.38);
 
-			const alphaLike = 0.30 + this.hash01(index, 83) * 0.52;
+			const alphaLike = 0.06 + this.hash01(index, 83) * 0.16;
 
 			colors[index * 3] = color.r * alphaLike;
 			colors[index * 3 + 1] = color.g * alphaLike;
@@ -276,15 +288,19 @@ export class SystemNebulaBackdrop {
 		geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
 		const material = new THREE.PointsMaterial({
-			                                          size: 2.8,
+			                                          map: this.getDustPointTexture(),
+			                                          size: 1.10,
 			                                          sizeAttenuation: true,
 			                                          vertexColors: true,
 			                                          transparent: true,
-			                                          opacity: 0.16,
+			                                          opacity: 0.022,
+			                                          alphaTest: 0.12,
 			                                          depthWrite: false,
 			                                          depthTest: true,
-			                                          blending: THREE.AdditiveBlending,
+			                                          blending: THREE.NormalBlending,
 		                                          });
+
+		material.toneMapped = false;
 
 		const cloud = new THREE.Points(geometry, material);
 		cloud.name = 'System Volumetric Fake Nebula PointCloud';
@@ -348,6 +364,51 @@ export class SystemNebulaBackdrop {
 		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.needsUpdate = true;
 
+		return texture;
+	}
+
+	private getDustPointTexture(): THREE.CanvasTexture {
+		if (this.dustPointTexture) {
+			return this.dustPointTexture;
+		}
+
+		const canvas = document.createElement('canvas');
+		canvas.width = 64;
+		canvas.height = 64;
+
+		const context = canvas.getContext('2d');
+
+		if (!context) {
+			this.dustPointTexture = new THREE.CanvasTexture(canvas);
+			return this.dustPointTexture;
+		}
+
+		const center = canvas.width * 0.5;
+		const gradient = context.createRadialGradient(
+			center,
+			center,
+			0,
+			center,
+			center,
+			center,
+		);
+
+		gradient.addColorStop(0.00, 'rgba(255,255,255,0.26)');
+		gradient.addColorStop(0.18, 'rgba(255,255,255,0.10)');
+		gradient.addColorStop(0.42, 'rgba(255,255,255,0.018)');
+		gradient.addColorStop(1.00, 'rgba(255,255,255,0.00)');
+
+		context.fillStyle = gradient;
+		context.fillRect(0, 0, canvas.width, canvas.height);
+
+		const texture = new THREE.CanvasTexture(canvas);
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.minFilter = THREE.LinearFilter;
+		texture.magFilter = THREE.LinearFilter;
+		texture.generateMipmaps = false;
+		texture.needsUpdate = true;
+
+		this.dustPointTexture = texture;
 		return texture;
 	}
 
@@ -424,33 +485,4 @@ export class SystemNebulaBackdrop {
 		return (value >>> 0) / 4294967295;
 	}
 
-	private disposeObject(object: THREE.Object3D): void {
-		object.traverse((item) => {
-			if (item instanceof THREE.Mesh || item instanceof THREE.Points) {
-				item.geometry.dispose();
-
-				const material = item.material;
-
-				if (Array.isArray(material)) {
-					for (const entry of material) {
-						entry.dispose();
-					}
-					return;
-				}
-
-				if ('map' in material && material.map) {
-					material.map.dispose();
-				}
-
-				material.dispose();
-			}
-
-			if (item instanceof THREE.Sprite) {
-				const material = item.material;
-
-				material.map?.dispose();
-				material.dispose();
-			}
-		});
-	}
 }

@@ -11,7 +11,7 @@ import {
 import {
 	HorizonCulling,
 	type HorizonCullingStats,
-} from './HorizonCulling';
+} from '@conduit/web3d/performance';
 
 import { CachedTerrainSource } from './CachedTerrainSource';
 

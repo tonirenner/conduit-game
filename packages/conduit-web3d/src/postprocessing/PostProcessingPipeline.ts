@@ -105,7 +105,8 @@ export class PostProcessingPipeline {
 	render(): void {
 		if (
 			!this.enabled ||
-			this.initializationFailed
+			this.initializationFailed ||
+			this.rendererMode !== 'webgpu'
 		) {
 			this.renderer.render(
 				this.scene,
@@ -229,6 +230,7 @@ export class PostProcessingPipeline {
 
 	private startInitialization(): void {
 		if (
+			this.rendererMode !== 'webgpu' ||
 			this.initializationPromise ||
 			this.runtime ||
 			this.initializationFailed
@@ -294,6 +296,7 @@ export class PostProcessingPipeline {
 			output,
 			normalView,
 			float,
+			smoothstep,
 			vec4,
 		} = tsl as any;
 
@@ -431,12 +434,24 @@ export class PostProcessingPipeline {
 			 */
 			const aoOutput =
 				aoPass.getTextureNode();
+			const foregroundMask =
+				float(1.0).sub(
+					smoothstep(
+						float(0.995),
+						float(1.0),
+						sceneDepth.r,
+					),
+				);
+			const maskedAoStrength =
+				float(profile.aoStrength).mul(
+					foregroundMask,
+				);
 
 			workingColor =
 				vec4(
 					sceneColor.rgb.mul(
 						float(1.0).sub(
-							float(profile.aoStrength).mul(
+							maskedAoStrength.mul(
 								float(1.0).sub(aoOutput.r),
 							),
 						),

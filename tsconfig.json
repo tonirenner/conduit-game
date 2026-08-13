@@ -5,10 +5,9 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "types": ["three"],
-    "baseUrl": ".",
     "paths": {
-      "@conduit/web3d": ["packages/conduit-web3d/src/index.ts"],
-      "@conduit/web3d/*": ["packages/conduit-web3d/src/*"]
+      "@conduit/web3d": ["./packages/conduit-web3d/src/index.ts"],
+      "@conduit/web3d/*": ["./packages/conduit-web3d/src/*"]
     },
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,

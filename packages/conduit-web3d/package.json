@@ -12,9 +12,13 @@
     "./debug": "./src/debug/index.ts",
     "./camera": "./src/camera/index.ts",
     "./lighting": "./src/lighting/index.ts",
-    "./postprocessing": "./src/postprocessing/index.ts"
+    "./postprocessing": "./src/postprocessing/index.ts",
+    "./performance": "./src/performance/index.ts"
   },
   "peerDependencies": {
     "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
   }
 }

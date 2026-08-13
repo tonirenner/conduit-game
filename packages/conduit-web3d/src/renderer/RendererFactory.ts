@@ -79,7 +79,7 @@ export function configureRenderer(renderer: Web3DRenderer): void {
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
 
 	renderer.outputColorSpace = THREE.SRGBColorSpace;
-	renderer.toneMapping = THREE.NoToneMapping;
+	renderer.toneMapping = THREE.ACESFilmicToneMapping;
 	renderer.toneMappingExposure = 1.0;
 
 	renderer.domElement.style.position = 'fixed';

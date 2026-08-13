@@ -163,6 +163,7 @@ export class Planet {
 				                                       : 'gas_giant',
 			                                       radius,
 			                                       seed: this.definition?.seed ?? 1,
+			                                       rendererMode: this.rendererMode,
 			                                       enableCloudParticles:
 			                                       this.features.gasCloudParticles,
 		                                       });
@@ -284,9 +285,12 @@ export class Planet {
 			ambient: this.renderTuning.ambient,
 		};
 
-		if (this.rendererMode === 'webgpu') {
-			materialTuning.exposure = 1.36 * this.renderTuning.exposureScale;
-		}
+		materialTuning.exposure =
+			(
+				this.rendererMode === 'webgpu'
+				? 1.36
+				: 1.24
+			) * this.renderTuning.exposureScale;
 
 		this.surfaceMaterial?.setRenderTuning?.(materialTuning);
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
+    AssetPromiseCache,
     configureObjectMaterials,
     ensureUv2FromUv,
     loadGltfObject,
@@ -13,8 +14,10 @@ import {
     type PlanetRendererMode,
 } from '../../planet/Planet';
 import { createPlanetRenderProfile } from '../../planet/rendering/PlanetRenderProfile';
-import { DynamicEnvironmentProbe } from '@conduit/web3d/environment';
-import { SystemNebulaBackdrop } from './SystemNebulaBackdrop';
+import {
+    DynamicEnvironmentProbe,
+    SystemNebulaBackdrop,
+} from '@conduit/web3d/environment';
 import { WormholeNodeVisual } from './WormholeNodeVisual';
 import {
     applyShipMaterialLightingProfile,
@@ -148,16 +151,13 @@ const ORBITAL_HANGER_GLB_URL = `/models/orbital_hanger.glb`;
 const HQ_GLB_URL = `/models/hq.glb`;
 const FRIGATE_GLB_URL = `/models/frigate.glb`;
 
-let capitalShipModelPromise: Promise<THREE.Object3D> | null = null;
+const modelAssetCache = new AssetPromiseCache();
 let capitalShipModelWarningShown = false;
 
-let orbitalHangerModelPromise: Promise<THREE.Object3D> | null = null;
 let orbitalHangerModelWarningShown = false;
 
-let hqModelPromise: Promise<THREE.Object3D> | null = null;
 let hqModelWarningShown = false;
 
-let frigateModelPromise: Promise<THREE.Object3D> | null = null;
 let frigateModelWarningShown = false;
 
 export class GamePrototypeScene {
@@ -1505,14 +1505,18 @@ export class GamePrototypeScene {
 
        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
+       const material = new THREE.MeshBasicMaterial({
+                                                      side: THREE.DoubleSide,
+                                                      vertexColors: true,
+                                                      depthWrite: false,
+                                                      depthTest: false,
+                                                   });
+
+       material.toneMapped = false;
+
        const dome = new THREE.Mesh(
           geometry,
-          new THREE.MeshBasicMaterial({
-                                         side: THREE.BackSide,
-                                         vertexColors: true,
-                                         depthWrite: false,
-                                         depthTest: false,
-                                      }),
+          material,
        );
 
        dome.name = 'Vertex Color Skydome';
@@ -1528,7 +1532,7 @@ export class GamePrototypeScene {
              color: palette.nebulaA,
              position: new THREE.Vector3(-150, 36, -270),
              scale: new THREE.Vector2(260, 118),
-             opacity: 0.36,
+             opacity: 0.30,
              rotation: -0.22,
              seedOffset: 11,
           },
@@ -1536,7 +1540,7 @@ export class GamePrototypeScene {
              color: palette.nebulaB,
              position: new THREE.Vector3(190, -16, -230),
              scale: new THREE.Vector2(220, 92),
-             opacity: 0.24,
+             opacity: 0.20,
              rotation: 0.34,
              seedOffset: 23,
           },
@@ -1544,7 +1548,7 @@ export class GamePrototypeScene {
              color: palette.accent,
              position: new THREE.Vector3(48, 82, -310),
              scale: new THREE.Vector2(150, 64),
-             opacity: 0.18,
+             opacity: 0.15,
              rotation: 0.08,
              seedOffset: 37,
           },
@@ -1553,17 +1557,19 @@ export class GamePrototypeScene {
        group.name = 'Backdrop Nebula Layers';
 
        for (const layer of layers) {
-          const sprite = new THREE.Sprite(
-             new THREE.SpriteMaterial({
-                                         map: this.createNebulaTexture(layer.color, this.options.seed + layer.seedOffset),
-                                         color: layer.color,
-                                         transparent: true,
-                                         opacity: layer.opacity,
-                                         blending: THREE.AdditiveBlending,
-                                         depthWrite: false,
-                                         depthTest: true,
-                                      }),
-          );
+          const material = new THREE.SpriteMaterial({
+                                                     map: this.createNebulaTexture(layer.color, this.options.seed + layer.seedOffset),
+                                                     color: layer.color,
+                                                     transparent: true,
+                                                     opacity: layer.opacity,
+                                                     blending: THREE.NormalBlending,
+                                                     depthWrite: false,
+                                                     depthTest: true,
+                                                  });
+
+          material.toneMapped = false;
+
+          const sprite = new THREE.Sprite(material);
 
           sprite.name = 'Soft Nebula Billboard';
           sprite.position.copy(layer.position);
@@ -1613,17 +1619,21 @@ export class GamePrototypeScene {
        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
+       const material = new THREE.PointsMaterial({
+                                                   size: 1.05,
+                                                   sizeAttenuation: false,
+                                                   vertexColors: true,
+                                                   transparent: true,
+                                                   opacity: 0.76,
+                                                   depthWrite: false,
+                                                   depthTest: true,
+                                                });
+
+       material.toneMapped = false;
+
        const stars = new THREE.Points(
           geometry,
-          new THREE.PointsMaterial({
-                                      size: 1.05,
-                                      sizeAttenuation: false,
-                                      vertexColors: true,
-                                      transparent: true,
-                                      opacity: 0.76,
-                                      depthWrite: false,
-                                      depthTest: true,
-                                   }),
+          material,
        );
 
        stars.name = 'Backdrop Star Field';
@@ -1992,8 +2002,9 @@ export class GamePrototypeScene {
     }
 
     private loadFrigateModel(): Promise<THREE.Object3D> {
-       if (!frigateModelPromise) {
-          frigateModelPromise =
+       return modelAssetCache.loadObject(
+          FRIGATE_GLB_URL,
+          () =>
              loadGltfObject(
                 FRIGATE_GLB_URL,
                 { name: 'Frigate GLB Source' },
@@ -2036,16 +2047,15 @@ export class GamePrototypeScene {
                 }
 
                 throw error;
-             });
-       }
-
-       return frigateModelPromise.then((model) => model.clone(true));
+              }),
+       ).then((model) => model.clone(true));
     }
 
 
     private loadCapitalShipModel(): Promise<THREE.Object3D> {
-       if (!capitalShipModelPromise) {
-          capitalShipModelPromise =
+       return modelAssetCache.loadObject(
+          CAPITAL_SHIP_OBJ_URL,
+          () =>
              loadObjMtlObject(
                 CAPITAL_SHIP_OBJ_URL,
                 CAPITAL_SHIP_MTL_URL,
@@ -2081,10 +2091,8 @@ export class GamePrototypeScene {
                 }
 
                 throw error;
-             });
-       }
-
-       return capitalShipModelPromise.then((model) => model.clone(true));
+              }),
+       ).then((model) => model.clone(true));
     }
 
 
@@ -2145,8 +2153,9 @@ export class GamePrototypeScene {
     }
 
     private loadOrbitalHangerModel(): Promise<THREE.Object3D> {
-       if (!orbitalHangerModelPromise) {
-          orbitalHangerModelPromise =
+       return modelAssetCache.loadObject(
+          ORBITAL_HANGER_GLB_URL,
+          () =>
              loadGltfObject(
                 ORBITAL_HANGER_GLB_URL,
                 { name: 'Orbital Hanger GLB Source' },
@@ -2179,15 +2188,14 @@ export class GamePrototypeScene {
                 }
 
                 throw error;
-             });
-       }
-
-       return orbitalHangerModelPromise.then((model) => model.clone(true));
+              }),
+       ).then((model) => model.clone(true));
     }
 
     private loadHqModel(): Promise<THREE.Object3D> {
-       if (!hqModelPromise) {
-          hqModelPromise =
+       return modelAssetCache.loadObject(
+          HQ_GLB_URL,
+          () =>
              loadGltfObject(
                 HQ_GLB_URL,
                 { name: 'HQ GLB Source' },
@@ -2220,10 +2228,8 @@ export class GamePrototypeScene {
                 }
 
                 throw error;
-             });
-       }
-
-       return hqModelPromise.then((model) => model.clone(true));
+              }),
+       ).then((model) => model.clone(true));
     }
 
     private createOrbitalHangerFallback(): THREE.Object3D {

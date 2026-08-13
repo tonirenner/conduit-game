@@ -101,6 +101,7 @@ Current files:
 - `packages/conduit-web3d/src/environment/DynamicEnvironmentProbe.ts`
 - `packages/conduit-web3d/src/environment/ExrEnvironmentLoader.ts`
 - `packages/conduit-web3d/src/environment/SceneEnvironmentManager.ts`
+- `packages/conduit-web3d/src/environment/SystemNebulaBackdrop.ts`
 - profile constants remain in `src/game/rendering/ShipMaterialLightingProfile.ts`
 
 Assessment:
@@ -108,6 +109,7 @@ Assessment:
 - `DynamicEnvironmentProbe` is almost generic. It only has a comment mentioning the current skydome/backdrop behavior.
 - EXR environment loading is extracted.
 - `SceneEnvironmentManager` now owns reusable scene environment application: EXR environment map, optional visible background, environment intensity, environment/background rotation, tone mapping, exposure, snapshot/restore, and cleanup.
+- `SystemNebulaBackdrop` owns a reusable seeded Three.js nebula field with camera-relative positioning, deterministic rebuilds and resource cleanup.
 - `GAME_ENVIRONMENT_PROBE_PROFILE` is game-specific as a concrete preset, but the profile type itself is generic.
 
 Conduit target:
@@ -117,6 +119,7 @@ Conduit target:
   DynamicEnvironmentProbe
   loadExrEnvironment()
   SceneEnvironmentManager
+  SystemNebulaBackdrop
 ```
 
 Game target:
@@ -368,7 +371,7 @@ Possible later split:
 ```text
 Conduit:
   generic LOD sphere / cube sphere infrastructure
-  generic horizon/frustum helpers
+  generic frustum helpers
   generic render texture bake helper
 
 Game/Planet package:
@@ -378,6 +381,11 @@ Game/Planet package:
   gas giant style
   gameplay resource interpretation
 ```
+
+Current progress:
+
+- The origin-centered spherical `HorizonCulling` helper now lives in `@conduit/web3d/performance`.
+- Planet-specific CubeSphere construction, terrain patches, LOD profiles and terrain data remain in `src/planet`.
 
 ## Modules That Must Stay In Game
 
@@ -574,6 +582,11 @@ Extracted to `@conduit/web3d`:
 - `environment/DynamicEnvironmentProbe`
 - `environment/ExrEnvironmentLoader`
 - `camera/CameraFraming`
+- `postprocessing/PostProcessingPipeline`
+- `lighting/StudioLightingRig`
+- `environment/SceneEnvironmentManager`
+- `environment/SystemNebulaBackdrop`
+- `performance/HorizonCulling`
 
 Reusable helpers now included:
 
@@ -586,7 +599,7 @@ Game/app files now using Conduit directly:
 
 - `src/main.ts` imports `RenderQuality` from `@conduit/web3d/renderer`
 - `src/main.ts` imports renderer creation/fallback/render frame helpers from `@conduit/web3d/renderer`
-- `src/game/rendering/GamePrototypeScene.ts` imports `DynamicEnvironmentProbe` from `@conduit/web3d/environment`
+- `src/game/rendering/GamePrototypeScene.ts` imports `DynamicEnvironmentProbe` and `SystemNebulaBackdrop` from `@conduit/web3d/environment`
 - Feature Lab scenes import debug helpers from `@conduit/web3d/debug`
 - `StudioLightingTestScene` uses Conduit EXR loading, material snapshots, object disposal and camera framing
 - `GamePrototypeScene`, `ShipModelTestScene`, and `StudioLightingTestScene` use Conduit GLTF/OBJ/MTL asset loading, UV2 fallback, material traversal helpers, and object normalization
@@ -603,7 +616,6 @@ The app and Feature Lab now import these modules directly from `@conduit/web3d`.
 
 Still intentionally not extracted:
 
-- `PostProcessingPipeline`
 - `GamePrototypeScene`
 - planet renderer
 - combat/engine VFX systems
@@ -612,5 +624,20 @@ Still intentionally not extracted:
 Next recommended step:
 
 1. Verify package resolution with the normal dev server after each extraction step.
-2. Consider replacing app-level module promise caches with `AssetPromiseCache` only where it reduces duplication without hiding asset-specific fallback behavior.
+2. Continue using `AssetPromiseCache` where it reduces duplication without hiding asset-specific fallback behavior; `GamePrototypeScene` now uses it for shared model templates while keeping warnings, preparation and fallbacks game-owned.
 3. Continue extracting only generic object/material preparation helpers. Asset-specific orientation, scale profiles, weapon nodes, engine nodes, and gameplay rules stay in the Game.
+
+### 2026-08-13 Performance And Asset Cache Follow-Up
+
+- Added the `@conduit/web3d/performance` public subpath.
+- Moved generic spherical horizon-culling logic and its diagnostics into that subpath.
+- Updated `CubeSphere` and `TerrainPatch` to consume the package API while leaving planet LOD policy in the game.
+- Replaced four manual model promise caches in `GamePrototypeScene` with the existing `AssetPromiseCache`.
+- Added focused Bun tests for horizon-culling behavior, cache reuse, retry after rejection and independent object clones.
+
+### 2026-08-13 System Nebula Backdrop Extraction
+
+- Moved the current tuned `SystemNebulaBackdrop` implementation into `@conduit/web3d/environment` without changing its constructor, update, reseed or disposal contract.
+- Reused the shared object disposal helper so generated geometry, materials and textures are released consistently.
+- Kept the separate strategic `GamePrototypeScene` backdrop in the game because its HDR peaks are coupled to the game environment-probe source group.
+- Added focused tests for deterministic generation, camera-relative updates, reseeding and owned-resource disposal.

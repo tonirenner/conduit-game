@@ -6,3 +6,4 @@ export * from './debug';
 export * from './camera';
 export * from './lighting';
 export * from './postprocessing';
+export * from './performance';

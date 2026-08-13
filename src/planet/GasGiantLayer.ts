@@ -10,6 +10,7 @@ export type GasGiantLayerOptions = {
 	radius: number;
 	seed: number;
 	enableCloudParticles?: boolean;
+	rendererMode?: 'webgl' | 'webgpu';
 };
 
 type CloudParticleLayer = {
@@ -258,8 +259,18 @@ export class GasGiantLayer {
 			                                                roughness: this.profile.body.roughness,
 			                                                metalness: 0.0,
 			                                                emissive: this.profile.body.emissive,
-			                                                emissiveIntensity: this.profile.body.emissiveIntensity,
+			                                                emissiveIntensity:
+				                                                this.profile.body.emissiveIntensity *
+				                                                (
+					                                                this.options.rendererMode === 'webgl'
+					                                                ? 2.15
+					                                                : 1.0
+				                                                ),
 		                                                });
+
+		if (this.options.rendererMode === 'webgl') {
+			material.toneMapped = false;
+		}
 
 		const mesh = new THREE.Mesh(
 			geometry,
@@ -301,6 +312,11 @@ export class GasGiantLayer {
 						                                                this.profile.cloudShells.opacityMin,
 						                                                this.profile.cloudShells.opacityStart -
 						                                                index * this.profile.cloudShells.opacityStep,
+					                                                ) *
+					                                                (
+						                                                this.options.rendererMode === 'webgl'
+						                                                ? 0.72
+						                                                : 1.0
 					                                                ),
 				                                                depthWrite: false,
 				                                                depthTest: true,
@@ -731,7 +747,13 @@ export class GasGiantLayer {
 		const material = new THREE.MeshBasicMaterial({
 			                                             color: this.profile.atmosphere.color,
 			                                             transparent: true,
-			                                             opacity: this.profile.atmosphere.opacity,
+			                                             opacity:
+				                                             this.profile.atmosphere.opacity *
+				                                             (
+					                                             this.options.rendererMode === 'webgl'
+					                                             ? 0.82
+					                                             : 1.0
+				                                             ),
 			                                             side: THREE.BackSide,
 			                                             depthWrite: false,
 			                                             depthTest: true,
