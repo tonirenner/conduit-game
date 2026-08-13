@@ -28,19 +28,22 @@ export class PlanetSurfaceViewRuntime {
 	readonly referenceFrame: PlanetReferenceFrame;
 	readonly terrain: PlanetNearViewTerrain;
 
-	private readonly renderMetersScale: number;
+	private readonly baseMetersToRenderScale: number;
 	private readonly cameraPlanetMeters = new THREE.Vector3();
 	private lastTerrainOpacity = -1;
+	private worldScale = 1;
 
 	constructor(
 		readonly definition: PlanetDefinition,
 		readonly renderRadius: number,
-		initialCameraRenderPosition: THREE.Vector3,
+		initialCameraWorldPosition: THREE.Vector3,
+		initialWorldScale = 1,
 	) {
 		this.sampler = new PlanetTerrainSampler(definition);
-		this.renderMetersScale = renderRadius / this.sampler.radiusMeters;
-		this.cameraPlanetMeters.copy(initialCameraRenderPosition)
-			.divideScalar(this.renderMetersScale);
+		this.baseMetersToRenderScale = renderRadius / this.sampler.radiusMeters;
+		this.worldScale = Math.max(1, initialWorldScale);
+		this.cameraPlanetMeters.copy(initialCameraWorldPosition)
+			.divideScalar(this.getMetersToWorldScale());
 		const initialDirection = this.cameraPlanetMeters.clone().normalize();
 		this.referenceFrame = new PlanetReferenceFrame(this.cameraPlanetMeters);
 		this.terrain = new PlanetNearViewTerrain(
@@ -50,13 +53,17 @@ export class PlanetSurfaceViewRuntime {
 		);
 		this.group = this.terrain.group;
 		this.group.name = 'PlanetSurfaceViewRuntime';
-		this.syncRenderTransform();
+		this.syncWorldTransform();
 		this.terrain.setEnabled(false);
 	}
 
-	update(cameraRenderPosition: THREE.Vector3): PlanetSurfaceViewUpdate {
-		this.cameraPlanetMeters.copy(cameraRenderPosition)
-			.divideScalar(this.renderMetersScale);
+	update(
+		cameraWorldPosition: THREE.Vector3,
+		worldScale = this.worldScale,
+	): PlanetSurfaceViewUpdate {
+		this.worldScale = Math.max(1, worldScale);
+		this.cameraPlanetMeters.copy(cameraWorldPosition)
+			.divideScalar(this.getMetersToWorldScale());
 
 		const direction = this.cameraPlanetMeters.clone().normalize();
 		const surface = this.sampler.sample(direction, false);
@@ -67,7 +74,7 @@ export class PlanetSurfaceViewRuntime {
 		const transition = getPlanetSurfaceViewTransition(altitudeMeters);
 
 		this.referenceFrame.update(this.cameraPlanetMeters);
-		this.syncRenderTransform();
+		this.syncWorldTransform();
 
 		let terrain = this.terrain.getStats();
 		if (transition.terrainPrepared) {
@@ -87,14 +94,19 @@ export class PlanetSurfaceViewRuntime {
 		};
 	}
 
+	getMetersToWorldScale(): number {
+		return this.baseMetersToRenderScale * this.worldScale;
+	}
+
 	dispose(): void {
 		this.terrain.dispose();
 	}
 
-	private syncRenderTransform(): void {
+	private syncWorldTransform(): void {
+		const metersToWorld = this.getMetersToWorldScale();
 		this.group.position.copy(this.referenceFrame.originPlanetMeters)
-			.multiplyScalar(this.renderMetersScale);
-		this.group.scale.setScalar(this.renderMetersScale);
+			.multiplyScalar(metersToWorld);
+		this.group.scale.setScalar(metersToWorld);
 	}
 
 	private setTerrainOpacity(opacity: number): void {
