@@ -55,6 +55,44 @@ export function appendRegularGridIndices(
 	}
 }
 
+export type TerrainGridStitchEdges = {
+	top: boolean;
+	right: boolean;
+	bottom: boolean;
+	left: boolean;
+};
+
+export function createStitchedGridIndices(
+	resolution: number,
+	edges: TerrainGridStitchEdges,
+): number[] {
+	const indices: number[] = [];
+	const rowSize = resolution + 1;
+	const mapVertex = (x: number, y: number): number => {
+		let mappedX = x;
+		let mappedY = y;
+
+		if (edges.top && y === 0 && x % 2 === 1) mappedX = x - 1;
+		if (edges.bottom && y === resolution && x % 2 === 1) mappedX = x - 1;
+		if (edges.left && x === 0 && y % 2 === 1) mappedY = y - 1;
+		if (edges.right && x === resolution && y % 2 === 1) mappedY = y - 1;
+
+		return mappedX + mappedY * rowSize;
+	};
+
+	for (let y = 0; y < resolution; y++) {
+		for (let x = 0; x < resolution; x++) {
+			const a = mapVertex(x, y);
+			const b = mapVertex(x, y + 1);
+			const c = mapVertex(x + 1, y);
+			const d = mapVertex(x + 1, y + 1);
+			indices.push(a, c, b, c, d, b);
+		}
+	}
+
+	return indices;
+}
+
 export function getCubeFaceIndex(normal: Vector3Like): number {
 	if (normal.x > 0.5) return 0;
 	if (normal.x < -0.5) return 1;

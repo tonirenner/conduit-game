@@ -43,6 +43,7 @@ type LodBalanceEvaluation = {
 
 type PatchBoundaryEdge = {
 	leaf: TerrainPatchLeaf;
+	side: 'top' | 'right' | 'bottom' | 'left';
 	key: string;
 	min: number;
 	max: number;
@@ -69,6 +70,7 @@ export class CubeSphere extends THREE.Group {
 	private readonly terrainSource: TerrainSource;
 
 	private lastLodDebugLogTime = 0;
+	private currentLodProfile: TerrainLodProfile = 'far';
 
 	private readonly lodProfiles: Record<TerrainLodProfile, LodOptions> = {
 		far: {
@@ -82,17 +84,17 @@ export class CubeSphere extends THREE.Group {
 		},
 
 		approach: {
-			maxLevel: 6,
+			maxLevel: 10,
 			splitMultiplier: 3.7,
 		},
 
 		near: {
-			maxLevel: 7,
+			maxLevel: 14,
 			splitMultiplier: 4.3,
 		},
 
 		surface: {
-			maxLevel: 7,
+			maxLevel: 18,
 			splitMultiplier: 5.0,
 		},
 	};
@@ -103,6 +105,7 @@ export class CubeSphere extends THREE.Group {
 		material: THREE.Material,
 		private readonly useGpuVertexDisplacement: boolean = false,
 		terrainSeedConfig: TerrainSeedConfig = DEFAULT_TERRAIN_SEED_CONFIG,
+		private readonly terrainHeightScale = 1,
 	) {
 		super();
 
@@ -133,6 +136,7 @@ export class CubeSphere extends THREE.Group {
 				this.terrainSource,
 				0,
 				this.useGpuVertexDisplacement,
+				this.terrainHeightScale,
 			);
 
 			this.rootPatches.push(patch);
@@ -145,24 +149,6 @@ export class CubeSphere extends THREE.Group {
 	}
 
 	updateLOD(cameraPosition: THREE.Vector3): void {
-		/**
-		 * Contract:
-		 * cameraPosition is planet-local, i.e. relative to Planet.group.
-		 *
-		 * PlanetView worked before because Planet.group is located at 0/0/0,
-		 * so planet-local and world-space were effectively identical.
-		 *
-		 * In Game/SystemView the planet group is placed somewhere inside the
-		 * system. TerrainPatch.getCenterWorld() returns world-space centers.
-		 * Passing the planet-local camera directly to TerrainPatch.updateLOD()
-		 * mixes coordinate spaces and keeps the automatic LOD too coarse.
-		 */
-		if (this.parent) {
-			this.parent.updateMatrixWorld(true);
-		} else {
-			this.updateMatrixWorld(true);
-		}
-
 		this.horizonCulling.resetFrameStats();
 
 		const cameraDistance = cameraPosition.length();
@@ -177,12 +163,8 @@ export class CubeSphere extends THREE.Group {
 			      ? heightAboveSurface / this.radius
 			      : heightAboveSurface;
 
-		const cameraWorldPosition =
-			      this.parent
-			      ? this.parent.localToWorld(cameraPosition.clone())
-			      : cameraPosition.clone();
-
 		const nextProfile = this.selectLodProfile(normalizedHeight);
+		this.currentLodProfile = nextProfile;
 
 		const frameSplitBudget = this.getFrameSplitBudget(nextProfile);
 
@@ -204,18 +186,13 @@ export class CubeSphere extends THREE.Group {
 			nextProfile,
 		);
 
-		const profileHorizonCullingEnabled =
-			      nextProfile === 'far' ||
-			      nextProfile === 'orbit' ||
-			      nextProfile === 'approach';
-
 		this.horizonCulling.setEnabled(
-			this.horizonCullingOverride ?? profileHorizonCullingEnabled,
+			this.horizonCullingOverride ?? true,
 		);
 
 		for (const patch of this.rootPatches) {
 			patch.updateLOD(
-				cameraWorldPosition,
+				cameraPosition,
 				lodOptions,
 				this.horizonCulling,
 			);
@@ -231,6 +208,7 @@ export class CubeSphere extends THREE.Group {
 				lodOptions.maxLevel,
 				this.getFrameBalanceBudget(nextProfile),
 			);
+			this.applyEdgeStitching();
 			return;
 		}
 
@@ -239,6 +217,7 @@ export class CubeSphere extends THREE.Group {
 			splits: 0,
 			passes: 0,
 		};
+		this.applyEdgeStitching();
 	}
 
 	setHorizonCullingEnabled(enabled: boolean): void {
@@ -260,6 +239,9 @@ export class CubeSphere extends THREE.Group {
 		totalPatches: number;
 		visibleMeshes: number;
 		maxLevel: number;
+		profile: TerrainLodProfile;
+		approximateVertexSpacing: number;
+		morphingPatches: number;
 		balance: {
 			splits: number;
 			passes: number;
@@ -269,6 +251,7 @@ export class CubeSphere extends THREE.Group {
 		let totalPatches = 0;
 		let visibleMeshes = 0;
 		let maxLevel = 0;
+		let morphingPatches = 0;
 
 		for (const patch of this.rootPatches) {
 			const stats = patch.getStats();
@@ -276,12 +259,18 @@ export class CubeSphere extends THREE.Group {
 			totalPatches += stats.totalPatches;
 			visibleMeshes += stats.visibleMeshes;
 			maxLevel = Math.max(maxLevel, stats.maxLevel);
+			morphingPatches += stats.morphingPatches;
 		}
 
 		return {
 			totalPatches,
 			visibleMeshes,
 			maxLevel,
+			profile: this.currentLodProfile,
+			approximateVertexSpacing:
+				(this.radius * 2) /
+				(Math.pow(2, maxLevel) * Math.max(1, this.resolution)),
+			morphingPatches,
 			balance: {
 				...this.lodBalanceStats,
 			},
@@ -496,21 +485,25 @@ export class CubeSphere extends THREE.Group {
 
 			for (const edge of [
 				{
+					side: 'left' as const,
 					key: `f${leaf.address.faceId}:v:${this.numberKey(bounds.x)}`,
 					min: bounds.y,
 					max: bottom,
 				},
 				{
+					side: 'right' as const,
 					key: `f${leaf.address.faceId}:v:${this.numberKey(right)}`,
 					min: bounds.y,
 					max: bottom,
 				},
 				{
+					side: 'top' as const,
 					key: `f${leaf.address.faceId}:h:${this.numberKey(bounds.y)}`,
 					min: bounds.x,
 					max: right,
 				},
 				{
+					side: 'bottom' as const,
 					key: `f${leaf.address.faceId}:h:${this.numberKey(bottom)}`,
 					min: bounds.x,
 					max: right,
@@ -520,6 +513,7 @@ export class CubeSphere extends THREE.Group {
 
 				edges.push({
 					           leaf,
+					           side: edge.side,
 					           key: edge.key,
 					           min: edge.min,
 					           max: edge.max,
@@ -584,10 +578,79 @@ export class CubeSphere extends THREE.Group {
 	): PatchBoundaryEdge {
 		return {
 			leaf,
+			side: this.getLeafEdgeSide(leaf, edge),
 			key: edge.cubeEdgeKey,
 			min: edge.min,
 			max: edge.max,
 		};
+	}
+
+	private getLeafEdgeSide(
+		leaf: TerrainPatchLeaf,
+		edge: TerrainPatchEdgeAddress,
+	): 'top' | 'right' | 'bottom' | 'left' {
+		if (edge === leaf.address.edges.top) return 'top';
+		if (edge === leaf.address.edges.right) return 'right';
+		if (edge === leaf.address.edges.bottom) return 'bottom';
+		return 'left';
+	}
+
+	private applyEdgeStitching(): void {
+		const leavesByFace = this.collectLeavesByFace();
+		const edgesByKey = new Map<string, PatchBoundaryEdge[]>();
+		const stitchByPatch = new Map<TerrainPatch, {
+			top: boolean;
+			right: boolean;
+			bottom: boolean;
+			left: boolean;
+		}>();
+
+		for (const leaves of leavesByFace.values()) {
+			for (const [key, edges] of this.collectFaceLocalEdgesByKey(leaves)) {
+				edgesByKey.set(`local:${key}`, edges);
+			}
+		}
+
+		for (const [key, edges] of this.collectBoundaryEdgesByKey(leavesByFace)) {
+			edgesByKey.set(`boundary:${key}`, edges);
+		}
+
+		for (const leaves of leavesByFace.values()) {
+			for (const leaf of leaves) {
+				stitchByPatch.set(leaf.patch, {
+					top: false,
+					right: false,
+					bottom: false,
+					left: false,
+				});
+			}
+		}
+
+		for (const edges of edgesByKey.values()) {
+			for (let index = 0; index < edges.length; index++) {
+				for (let neighborIndex = index + 1; neighborIndex < edges.length; neighborIndex++) {
+					const edge = edges[index];
+					const neighbor = edges[neighborIndex];
+					if (
+						edge.leaf === neighbor.leaf ||
+						!this.areCubeBoundaryEdgesOverlapping(edge, neighbor) ||
+						Math.abs(edge.leaf.level - neighbor.leaf.level) !== 1
+					) {
+						continue;
+					}
+
+					const finer = edge.leaf.level > neighbor.leaf.level
+						? edge
+						: neighbor;
+					const flags = stitchByPatch.get(finer.leaf.patch);
+					if (flags) flags[finer.side] = true;
+				}
+			}
+		}
+
+		for (const [patch, edges] of stitchByPatch) {
+			patch.setEdgeStitching(edges);
+		}
 	}
 
 	private areCubeBoundaryEdgesOverlapping(
@@ -675,13 +738,13 @@ export class CubeSphere extends THREE.Group {
 				return 4;
 
 			case 'approach':
-				return 4;
+				return 8;
 
 			case 'near':
-				return 3;
+				return 10;
 
 			case 'surface':
-				return 2;
+				return 12;
 		}
 	}
 
@@ -697,10 +760,10 @@ export class CubeSphere extends THREE.Group {
 				return 10;
 
 			case 'near':
-				return 8;
+				return 14;
 
 			case 'surface':
-				return 6;
+				return 18;
 		}
 	}
 
@@ -716,10 +779,10 @@ export class CubeSphere extends THREE.Group {
 				return 4;
 
 			case 'near':
-				return 3;
+				return 2;
 
 			case 'surface':
-				return 3;
+				return 1;
 		}
 	}
 

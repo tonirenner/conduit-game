@@ -1,4 +1,5 @@
 export * from './model';
+export * from './near-view';
 export {
 	generatePlanetDefinition,
 	type PlanetGenerationOptions,

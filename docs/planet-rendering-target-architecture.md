@@ -4,7 +4,7 @@ This document translates the StarEngine/Genesis-style references into a realisti
 
 ## Goal
 
-Planets should become deterministic, class-driven game objects whose simulation data, visual rendering, resources and later points of interest are derived from the same source data.
+Planets should become deterministic, class-driven, landable game objects whose simulation data, orbital rendering, near-view terrain, resources and later points of interest are derived from the same source data.
 
 The target is not to copy Star Citizen directly. The target is to build a practical version that fits our current stack:
 
@@ -12,7 +12,7 @@ The target is not to copy Star Citizen directly. The target is to build a practi
 PlanetDefinition
   -> Climate / Biome / Resource Data
   -> Game State
-  -> Planet Renderer
+  -> Orbit Renderer / Near-View Runtime
   -> Feature Lab Diagnostics
 ```
 
@@ -128,12 +128,41 @@ near/orbit
   optional patch/chunk subdivision later
 ```
 
-True terrain patch/chunk LOD should wait until:
+Adaptive cube-sphere patch LOD now exists for the orbital renderer. It is not by itself sufficient for landing: planet-radius geometry uses compressed render units and cannot provide stable meter-scale collision or flight.
+
+Further orbital LOD work should wait until:
 
 - planet class visuals are stable
 - scale diagnostics are trusted
 - WebGL/WebGPU inputs are aligned
 - Feature Lab can compare LOD levels reliably
+
+## Landable Near-View Architecture
+
+The target experience is a continuous-looking flight from orbit through the atmosphere to a physical surface. One render scale cannot safely cover strategic system distances and meter-scale landing, so the experience uses explicit coordinate frames:
+
+```text
+system frame (compressed orbital readability)
+  -> planet-centered approach frame
+  -> camera-relative surface frame (1 unit = 1 meter)
+```
+
+Simulation positions remain planet-fixed and meter-based. Switching frames changes only their render representation. A floating origin follows the observer in near view so generated Float32 terrain remains precise around planets with radii of millions of meters.
+
+The current generated `PlanetDefinition.physical.radius` is still expressed in Earth-radius units for compatibility with the existing generator. Near-view code converts it once through `getPlanetRadiusMeters()` and never mixes that normalized value with meter-space positions.
+
+The shared surface contract is:
+
+```text
+PlanetSurfaceCoordinate
+  -> PlanetTerrainSampler
+  -> elevation / normal / land-water / climate / biome
+  -> terrain chunks + ship contact + later POIs/resources
+```
+
+Near terrain uses stable chunk addresses, cached height-dependent LOD rings and shared deterministic edge samples. Coarser boundary chunks remain behind finer coverage during clipmap movement, avoiding exposed skirt walls or temporary holes. Rendering and landing queries must use the same planet definition, terrain seed and physical elevation profile. Water, excessive slope and excessive contact velocity prevent a valid landing.
+
+The first vertical slice deliberately covers ship approach, surface flight, landing and takeoff. Character traversal, buildings, vegetation and persistent surface POIs come later.
 
 ## Object Container Direction
 
@@ -174,13 +203,12 @@ Current diagnostic direction:
 
 ## Near-Term Work
 
-1. Make Planet LOD scene the canonical comparison tool for all planet classes.
-2. Surface climate/biome diagnostics per selected class and seed.
-3. Document which values are planet-class defaults and which are render-quality overrides.
-4. Improve Ocean masks and coastline sharpness.
-5. Strengthen Lava atmosphere/rim profile.
-6. Split Gas/Ice Giant visual logic from rocky/ocean planet assumptions.
-7. Keep far-distance gas/cloud particles subtle.
+1. Validate the `Planet Approach & Landing` lab scene across landable classes and seeds.
+2. Connect SystemView planet focus to the approach frame without a visible scene cut.
+3. Retire the legacy single-patch `NearSurfaceTerrainLayer` after the deep `CubeSphere` LOD path is validated in production scenes.
+4. Surface active LOD and render-quality diagnostics in both planet lab scenes.
+5. Document which values are planet-class defaults and which are render-quality overrides.
+6. Continue visual parity passes for Ocean coastlines, Lava atmosphere and Gas/Ice Giant depth.
 
 ## Current Implementation Direction
 
@@ -223,13 +251,22 @@ The first Planet Tech implementation step is diagnostics-focused:
 - `AtmosphereVisualProfile` now holds shared effective atmosphere values and lava rim/tint strength consumed by both WebGL and WebGPU atmosphere layers.
 - `GasGiantVisualProfile` now centralizes gas/ice giant shell depth, atmosphere shell, band texture, cloud particles and far-distance particle fade.
 - Local persistent worlds are normalized on load so older planet definitions without `resources` receive the derived resource profile.
+- `PlanetSurfaceCoordinate` now stores stable planet-relative direction and altitude independently of render scale.
+- `PlanetTerrainSampler` maps the production terrain seed to physical elevation, terrain normals, land/water, climate and biome samples.
+- `PlanetReferenceFrame` provides camera-relative meter rendering with controlled floating-origin shifts.
+- `CubeSphere` now remains the visible terrain from orbit to surface. Its LOD operates in planet-local coordinates, reaches ground-scale patch levels, rebases mesh vertices around patch origins and stitches 2:1 boundaries without visible skirts.
+- `PlanetNearViewTerrain` remains available as a diagnostic/streaming prototype, but the Approach scene no longer renders it as a competing surface.
+- `PlanetLandingController` validates a multi-point ship footprint against water, slope and contact-speed limits.
+- `PlanetLandingSiteSelector` chooses deterministic, landable mid-latitude starts so the surface preset represents the selected planet class instead of defaulting to a polar ice cap.
+- Below 100 km the production planet uses physical meter scale and shared metric elevation; higher altitudes blend back to compact orbit scale without switching planet geometry. Patch morphing introduces newly refined vertices progressively during descent.
+- The Feature Lab now includes a `Planet Approach & Landing` scene for orbit/atmosphere/surface starts, flight, landing and takeoff diagnostics. Orbit and atmosphere use the same production `Planet` renderer as the rest of the game; the meter-scale chunks take over only near the surface.
 
 This keeps the next visual passes grounded in data. If Ocean, Lava, Gas Giant or Ice Giant reads wrong, the first question should be whether the class definition/profile data is wrong, before renderer-specific shader math is changed.
 
 ## Long-Term Work
 
-1. Patch/chunk LOD for terrain.
-2. GPU-assisted culling for dense procedural fields.
-3. Object-container streaming.
-4. Planet-scale volumetric cloud approximations.
+1. Worker/GPU-assisted chunk generation and culling for dense surface terrain.
+2. Object-container streaming across orbital and surface frames.
+3. Planet-scale volumetric cloud approximations.
+4. Character traversal after ship landing.
 5. Surface POIs and resource distribution derived from the same planet data.

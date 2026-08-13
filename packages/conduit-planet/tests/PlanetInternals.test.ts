@@ -11,6 +11,7 @@ import { createCloudLayerProfile } from '../src/rendering/CloudVisualProfile';
 import { sampleColorRamp } from '../src/rendering/ColorRamp';
 import {
 	appendRegularGridIndices,
+	createStitchedGridIndices,
 	createDefaultCubeFaces,
 	getCubeFaceIndex,
 } from '../src/terrain/TerrainGeometryUtils';
@@ -108,6 +109,27 @@ describe('planet internal helpers', () => {
 			[1, 0, 0],
 			[-1, 0, 0],
 		]);
+	});
+
+	test('collapses fine edge vertices for two-to-one LOD stitching', () => {
+		const regular = createStitchedGridIndices(4, {
+			top: false,
+			right: false,
+			bottom: false,
+			left: false,
+		});
+		const stitched = createStitchedGridIndices(4, {
+			top: true,
+			right: false,
+			bottom: false,
+			left: false,
+		});
+
+		expect(regular).toContain(1);
+		expect(regular).toContain(3);
+		expect(stitched).not.toContain(1);
+		expect(stitched).not.toContain(3);
+		expect(stitched).toHaveLength(regular.length);
 	});
 
 	test('samples parameterized color ramps without changing boundaries', () => {

@@ -9,6 +9,7 @@
     "./generation": "./src/generation/index.ts",
     "./climate": "./src/climate/index.ts",
     "./terrain": "./src/terrain/index.ts",
+    "./near-view": "./src/near-view/index.ts",
     "./rendering": "./src/rendering/index.ts",
     "./diagnostics": "./src/diagnostics/index.ts"
   },

@@ -150,6 +150,8 @@ export function createPlanetSurfaceNodeMaterial(
 	const coolIceTint = color(0xaeb2a7);
 
 	const terrainHeightAttribute = attribute('terrainHeight', 'float');
+	const terrainDisplacementAttribute = attribute('terrainDisplacement', 'float');
+	const patchOriginAttribute = attribute('patchOrigin', 'vec3');
 	const terrainDataUv = attribute('terrainDataUv', 'vec2');
 	const sphereNormal = normalize(attribute('sphereNormal', 'vec3'));
 
@@ -695,7 +697,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		);
 	}
 
-	const gpuVertexHeight = terrainHeightAttribute;
+	const gpuVertexHeight = terrainDisplacementAttribute;
 
 	/**
 	 * Phase 5c.1b:
@@ -706,9 +708,9 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * moves vertices in the vertex stage from the terrainHeight attribute.
 	 * The same baked atlas data is used for surface masks.
 	 */
-	material.positionNode = sphereNormal.mul(
-		float(planetRadius).add(gpuVertexHeight),
-	);
+	material.positionNode = sphereNormal
+		.mul(float(planetRadius).add(gpuVertexHeight))
+		.sub(patchOriginAttribute);
 
 	const waterHint = oneMinus(
 		smoothstep(

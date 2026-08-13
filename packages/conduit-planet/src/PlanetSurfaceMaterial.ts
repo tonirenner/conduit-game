@@ -129,6 +129,9 @@ export function createPlanetSurfaceMaterial(
 			                                uVisualDirectLightScale: {
 				                                value: 1.02,
 			                                },
+			                                uTerrainMorph: {
+				                                value: 1.0,
+			                                },
 		                                },
 		                                vertexShader: `
 			varying vec3 vColor;
@@ -137,17 +140,24 @@ export function createPlanetSurfaceMaterial(
 			varying vec3 vLocalNormal;
 
 			varying vec3 vWorldNormal;
-			varying vec3 vWorldPosition;
+			attribute vec3 sphereNormal;
+			attribute vec3 patchOrigin;
+			attribute vec3 morphPosition;
+			varying vec3 vSphereNormal;
+			varying vec3 vPlanetPosition;
+			uniform float uTerrainMorph;
 
 			void main() {
 				vColor = color;
 
-				vLocalPosition = position;
+				vec3 morphedPosition = mix(morphPosition, position, uTerrainMorph);
+				vLocalPosition = morphedPosition;
 				vLocalNormal = normal;
+				vSphereNormal = sphereNormal;
+				vPlanetPosition = morphedPosition + patchOrigin;
 
-				vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+				vec4 worldPosition = modelMatrix * vec4(morphedPosition, 1.0);
 
-				vWorldPosition = worldPosition.xyz;
 				vWorldNormal = normalize(mat3(modelMatrix) * normal);
 
 				gl_Position = projectionMatrix * viewMatrix * worldPosition;
@@ -162,7 +172,8 @@ export function createPlanetSurfaceMaterial(
 			varying vec3 vLocalNormal;
 
 			varying vec3 vWorldNormal;
-			varying vec3 vWorldPosition;
+			varying vec3 vSphereNormal;
+			varying vec3 vPlanetPosition;
 
 			uniform float uPlanetRadius;
 			uniform float uAtmosphereRadius;
@@ -739,7 +750,7 @@ export function createPlanetSurfaceMaterial(
 				float twilight
 			) {
 				float cameraHeight = length(uCameraPosition);
-				float viewDistance = length(uCameraPosition - vWorldPosition);
+				float viewDistance = length(uCameraPosition - vPlanetPosition);
 
 				float atmosphereThickness =
 					max(0.001, uAtmosphereRadius - uPlanetRadius);
@@ -867,13 +878,13 @@ export function createPlanetSurfaceMaterial(
 			void main() {
 				// Surface-/Terrain-/Noise-Sampling bleibt im lokalen Planet-Raum.
 				// Lighting/View/Aerial-Perspective bleibt im World Space.
-				vec3 localGeometricNormal = normalize(vLocalPosition);
-				vec3 worldGeometricNormal = normalize(vWorldPosition);
+				vec3 localGeometricNormal = normalize(vSphereNormal);
+				vec3 worldGeometricNormal = normalize(vSphereNormal);
 
 				vec3 meshNormal = normalize(vWorldNormal);
 
-				vec3 viewDirection = normalize(uCameraPosition - vWorldPosition);
-				vec3 cameraToSurface = normalize(vWorldPosition - uCameraPosition);
+				vec3 viewDirection = normalize(uCameraPosition - vPlanetPosition);
+				vec3 cameraToSurface = normalize(vPlanetPosition - uCameraPosition);
 				vec3 sunDirection = normalize(uSunDirection);
 
 				TerrainSample surfaceSample = getTerrainSampleGL(localGeometricNormal);

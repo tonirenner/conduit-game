@@ -17,6 +17,7 @@ import {RingSystemLayer} from './RingSystemLayer';
 import {MoonSystemLayer} from './MoonSystemLayer';
 import {ToxicHazeLayer} from './ToxicHazeLayer';
 import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
+import {getPlanetRenderHeightScale} from './near-view/PlanetElevationProfile';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
 import type {PlanetDefinition} from '@conduit/planet/model';
@@ -89,6 +90,7 @@ export class Planet {
 	private readonly atmosphereRadius: number;
 
 	private currentRenderQuality: PlanetRenderQuality = 'idle';
+	private autoRotationEnabled = true;
 	private bakedTerrainEnabled                       = true;
 	private readonly features: PlanetRenderFeatures;
 	private readonly surfaceProfile: SurfaceRenderProfile | null;
@@ -502,7 +504,7 @@ export class Planet {
 	}
 
 	update(cameraPosition: THREE.Vector3, deltaSeconds: number): void {
-		if (this.planet) {
+		if (this.planet && this.autoRotationEnabled) {
 			this.planet.rotation.y += 0.0008;
 		}
 
@@ -527,6 +529,10 @@ export class Planet {
 		this.webGPUAtmosphere?.update();
 
 		this.planet?.updateLOD(cameraPosition);
+	}
+
+	setAutoRotationEnabled(enabled: boolean): void {
+		this.autoRotationEnabled = enabled;
 	}
 
 	setRenderQuality(quality: PlanetRenderQuality): void {
@@ -824,6 +830,9 @@ export class Planet {
 			material,
 			this.rendererMode === 'webgpu',
 			this.terrainSeedConfig,
+			this.definition
+				? getPlanetRenderHeightScale(this.definition, radius)
+				: 1,
 		);
 
 		cubeSphere.name        = 'PlanetTerrain';
@@ -1295,6 +1304,9 @@ export class Planet {
 		totalPatches: number;
 		visibleMeshes: number;
 		maxLevel: number;
+		profile: import('./CubeSphere').TerrainLodProfile;
+		approximateVertexSpacing: number;
+		morphingPatches: number;
 		balance: {
 			splits: number;
 			passes: number;
@@ -1313,6 +1325,9 @@ export class Planet {
 				totalPatches: 0,
 				visibleMeshes: 0,
 				maxLevel: 0,
+				profile: 'far',
+				approximateVertexSpacing: 0,
+				morphingPatches: 0,
 				balance: {
 					splits: 0,
 					passes: 0,
