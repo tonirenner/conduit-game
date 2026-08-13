@@ -6,11 +6,10 @@ import { applyRegionalHydraulicErosion } from './RegionalHydraulicErosion';
 
 const ORBIT_HANDOFF_START_METERS = 9_000_000;
 const ORBIT_HANDOFF_END_METERS = 7_500_000;
-const EDGE_FEATHER_WIDTH = 0.18;
-const EDGE_ALPHA_RESOLUTION = 64;
+const EDGE_MORPH_WIDTH = 0.10;
 
 /**
- * Adds deterministic hydraulic erosion plus a feathered orbit -> regional
+ * Adds deterministic hydraulic erosion plus a geometry-only orbit -> regional
  * handoff without changing the stable GPU terrain renderer itself.
  */
 export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
@@ -21,8 +20,6 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 	private hydraulicResolution = 0;
 	private rawDisplacementScale = 0;
 	private rawDisplacementBias = 0;
-	private edgeAlphaMap: THREE.DataTexture | null = null;
-	private edgeAlphaData: Uint8Array | null = null;
 	private lastSeamStrength = Number.NaN;
 
 	constructor(
@@ -44,9 +41,6 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 	}
 
 	override dispose(): void {
-		this.edgeAlphaMap?.dispose();
-		this.edgeAlphaMap = null;
-		this.edgeAlphaData = null;
 		this.hydraulicHeight = null;
 		super.dispose();
 	}
@@ -115,7 +109,15 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 		this.rawDisplacementBias = material.displacementBias;
 		material.normalScale.set(1.35, 1.35);
 		material.aoMapIntensity = 0.78;
-		this.ensureEdgeAlphaMap(material);
+
+		// The previous local alpha feather exposed the orbit renderer through the
+		// regional patch and created bright islands. Keep the patch closed and let
+		// geometry do the handoff instead.
+		if (material.alphaMap) {
+			material.alphaMap = null;
+			material.needsUpdate = true;
+		}
+
 		this.rebuildDerivedMaps(material, heightData, resolution);
 		this.lastHeightTexture = heightTexture;
 		this.lastSeamStrength = Number.NaN;
@@ -136,7 +138,7 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 			ORBIT_HANDOFF_END_METERS,
 			ORBIT_HANDOFF_START_METERS,
 		);
-		if (!force && Number.isFinite(this.lastSeamStrength) && Math.abs(seamStrength - this.lastSeamStrength) < 0.035) return;
+		if (!force && Number.isFinite(this.lastSeamStrength) && Math.abs(seamStrength - this.lastSeamStrength) < 0.025) return;
 
 		const image = heightTexture.image as { data?: ArrayBufferView };
 		if (!(image.data instanceof Float32Array)) return;
@@ -152,7 +154,7 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 				const u = x / Math.max(1, resolution - 1);
 				const i = y * resolution + x;
 				const edgeDistance = Math.min(u, 1 - u, v, 1 - v);
-				const interior = smooth01(edgeDistance / EDGE_FEATHER_WIDTH);
+				const interior = smooth01(edgeDistance / EDGE_MORPH_WIDTH);
 				const edgeMorph = seamStrength * (1 - interior);
 				const value = THREE.MathUtils.lerp(this.hydraulicHeight[i], neutralHeight, edgeMorph);
 				const offset = i * 4;
@@ -162,51 +164,7 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 			}
 		}
 		heightTexture.needsUpdate = true;
-		this.updateEdgeAlpha(seamStrength);
 		this.lastSeamStrength = seamStrength;
-	}
-
-	private ensureEdgeAlphaMap(material: THREE.MeshStandardMaterial): void {
-		if (!this.edgeAlphaMap || !this.edgeAlphaData) {
-			this.edgeAlphaData = new Uint8Array(EDGE_ALPHA_RESOLUTION * EDGE_ALPHA_RESOLUTION * 4);
-			this.edgeAlphaMap = new THREE.DataTexture(
-				this.edgeAlphaData,
-				EDGE_ALPHA_RESOLUTION,
-				EDGE_ALPHA_RESOLUTION,
-				THREE.RGBAFormat,
-				THREE.UnsignedByteType,
-			);
-			this.edgeAlphaMap.colorSpace = THREE.NoColorSpace;
-			this.edgeAlphaMap.minFilter = THREE.LinearFilter;
-			this.edgeAlphaMap.magFilter = THREE.LinearFilter;
-			this.edgeAlphaMap.wrapS = this.edgeAlphaMap.wrapT = THREE.ClampToEdgeWrapping;
-			this.edgeAlphaMap.generateMipmaps = false;
-		}
-		if (material.alphaMap !== this.edgeAlphaMap) {
-			material.alphaMap = this.edgeAlphaMap;
-			material.needsUpdate = true;
-		}
-	}
-
-	private updateEdgeAlpha(seamStrength: number): void {
-		if (!this.edgeAlphaMap || !this.edgeAlphaData) return;
-		const resolution = EDGE_ALPHA_RESOLUTION;
-		for (let y = 0; y < resolution; y++) {
-			const v = y / Math.max(1, resolution - 1);
-			for (let x = 0; x < resolution; x++) {
-				const u = x / Math.max(1, resolution - 1);
-				const edgeDistance = Math.min(u, 1 - u, v, 1 - v);
-				const interior = smooth01(edgeDistance / EDGE_FEATHER_WIDTH);
-				const alpha = THREE.MathUtils.lerp(1, interior, seamStrength);
-				const value = toByte(alpha);
-				const o = (y * resolution + x) * 4;
-				this.edgeAlphaData[o] = value;
-				this.edgeAlphaData[o + 1] = value;
-				this.edgeAlphaData[o + 2] = value;
-				this.edgeAlphaData[o + 3] = 255;
-			}
-		}
-		this.edgeAlphaMap.needsUpdate = true;
 	}
 
 	private rebuildDerivedMaps(
@@ -261,11 +219,23 @@ export class HydraulicRegionalSurfaceTerrain extends GpuRegionalSurfaceTerrain {
 }
 
 function getReliefScale(altitudeMeters: number): number {
-	if (altitudeMeters >= 9_000_000) return 0.22;
-	if (altitudeMeters >= 7_500_000) return THREE.MathUtils.lerp(0.35, 0.22, (altitudeMeters - 7_500_000) / 1_500_000);
-	if (altitudeMeters >= 4_500_000) return THREE.MathUtils.lerp(0.58, 0.35, (altitudeMeters - 4_500_000) / 3_000_000);
-	if (altitudeMeters >= 2_000_000) return THREE.MathUtils.lerp(0.72, 0.58, (altitudeMeters - 2_000_000) / 2_500_000);
-	if (altitudeMeters >= 500_000) return THREE.MathUtils.lerp(0.80, 0.72, (altitudeMeters - 500_000) / 1_500_000);
+	if (altitudeMeters >= 9_000_000) return 0.18;
+	if (altitudeMeters >= 7_500_000) {
+		const t = smooth01((9_000_000 - altitudeMeters) / 1_500_000);
+		return THREE.MathUtils.lerp(0.18, 0.30, t);
+	}
+	if (altitudeMeters >= 4_500_000) {
+		const t = smooth01((7_500_000 - altitudeMeters) / 3_000_000);
+		return THREE.MathUtils.lerp(0.30, 0.54, t);
+	}
+	if (altitudeMeters >= 2_000_000) {
+		const t = smooth01((4_500_000 - altitudeMeters) / 2_500_000);
+		return THREE.MathUtils.lerp(0.54, 0.68, t);
+	}
+	if (altitudeMeters >= 500_000) {
+		const t = smooth01((2_000_000 - altitudeMeters) / 1_500_000);
+		return THREE.MathUtils.lerp(0.68, 0.78, t);
+	}
 	return 0.80;
 }
 
