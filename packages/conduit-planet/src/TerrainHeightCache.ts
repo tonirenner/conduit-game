@@ -11,6 +11,17 @@ import type {
 	CubeFace,
 	PatchBounds,
 } from './TerrainPatch';
+import {
+	sampleColorRamp,
+	type ColorRampSegment,
+} from './rendering/ColorRamp';
+
+const WATER_COLOR_RAMP: readonly ColorRampSegment[] = [
+	{ start: 0.00, end: 0.30, from: 0x071f2f, to: 0x0c3545 },
+	{ start: 0.30, end: 0.43, from: 0x0c3545, to: 0x155463 },
+	{ start: 0.43, end: 0.54, from: 0x155463, to: 0x1d6a70 },
+	{ start: 0.54, end: 0.62, from: 0x1d6a70, to: 0x56614d },
+];
 
 export type TerrainHeightGrid = {
 	key: string;
@@ -192,39 +203,9 @@ export class TerrainHeightCache {
 		const land = sample.landMask;
 		const height = sample.height;
 
-		const deepWater = new THREE.Color(0x071f2f);
-		const midWater = new THREE.Color(0x0c3545);
-		const shallowWater = new THREE.Color(0x155463);
-		const coastalWater = new THREE.Color(0x1d6a70);
-		const wetCoast = new THREE.Color(0x56614d);
+		const waterColor = sampleColorRamp(land, WATER_COLOR_RAMP);
 
-		if (land < 0.30) {
-			return deepWater.clone().lerp(
-				midWater,
-				this.smoothstep(0.00, 0.30, land),
-			);
-		}
-
-		if (land < 0.43) {
-			return midWater.clone().lerp(
-				shallowWater,
-				this.smoothstep(0.30, 0.43, land),
-			);
-		}
-
-		if (land < 0.54) {
-			return shallowWater.clone().lerp(
-				coastalWater,
-				this.smoothstep(0.43, 0.54, land),
-			);
-		}
-
-		if (land < 0.62) {
-			return coastalWater.clone().lerp(
-				wetCoast,
-				this.smoothstep(0.54, 0.62, land),
-			);
-		}
+		if (waterColor) return waterColor;
 
 		const lowLand = new THREE.Color(0x315d35);
 		const grass = new THREE.Color(0x3f6d3b);

@@ -19,17 +19,17 @@ import {ToxicHazeLayer} from './ToxicHazeLayer';
 import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
-import type {PlanetDefinition} from './model/PlanetDefinition';
-import type {PlanetResourceProfile} from './model/PlanetDefinition';
-import type {PlanetRenderProfile} from './rendering/PlanetRenderProfile';
-import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from './rendering/SurfaceRenderProfile';
-import {resolveTerrainProfileKind} from './rendering/TerrainRenderProfile';
+import type {PlanetDefinition} from '@conduit/planet/model';
+import type {PlanetResourceProfile} from '@conduit/planet/model';
+import type {PlanetRenderProfile} from '@conduit/planet/rendering';
+import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from '@conduit/planet/rendering';
+import {resolveTerrainProfileKind} from '@conduit/planet/rendering';
 import {
 	createAtmosphereRenderProfileValues,
 	type AtmosphereRenderProfileValues,
-} from './rendering/AtmosphereVisualProfile';
+} from '@conduit/planet/rendering';
 
-import {mergePlanetRenderFeatures, type PlanetRenderFeatures,} from './rendering/PlanetRenderFeatures';
+import {mergePlanetRenderFeatures, type PlanetRenderFeatures,} from '@conduit/planet/rendering';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
@@ -70,15 +70,15 @@ export type PlanetDebugLayerVisibility = Partial<{
 export class Planet {
 	public readonly group: THREE.Group;
 
-	private surfaceMaterial?: PlanetSurfaceRuntimeMaterial;
-	private planetBody?: THREE.Mesh;
-	private planet?: CubeSphere;
+	private readonly surfaceMaterial?: PlanetSurfaceRuntimeMaterial;
+	private readonly planetBody?: THREE.Mesh;
+	private readonly planet?: CubeSphere;
 	private atmosphere?: AtmosphereLayer;
 	private webGPUAtmosphere?: WebGPUAtmosphereLayer;
 	private clouds?: CloudLayer;
 	private webGPUClouds?: WebGPUCloudLayer;
-	private depthOccluder?: THREE.Mesh;
-	private gasGiantLayer?: GasGiantLayer;
+	private readonly depthOccluder?: THREE.Mesh;
+	private readonly gasGiantLayer?: GasGiantLayer;
 	private ringSystemLayer?: RingSystemLayer;
 	private moonSystemLayer?: MoonSystemLayer;
 	private toxicHazeLayer?: ToxicHazeLayer;
@@ -191,25 +191,6 @@ export class Planet {
 			surfaceTextureStrength: 1.0,
 			bakedTerrainBlend: 1.0,
 		};
-	}
-
-	private isLavaSurfaceRenderer(): boolean {
-		if (this.rendererKind !== 'solid_surface') {
-			return false;
-		}
-
-		if (this.definition?.class === 'lava') {
-			return true;
-		}
-
-		if (this.surfaceProfile?.palette === 'lava') {
-			return true;
-		}
-
-		return (
-			new URLSearchParams(window.location.search)
-				.get('surface') === 'lava'
-		);
 	}
 
 	setRenderTuning(
@@ -329,18 +310,6 @@ export class Planet {
 				: 0,
 			);
 		}
-	}
-
-	private isIceSurfaceRenderer(): boolean {
-		if (this.rendererKind !== 'solid_surface') {
-			return false;
-		}
-
-		if (this.definition?.class === 'ice') {
-			return true;
-		}
-
-		return this.surfaceProfile?.palette === 'ice';
 	}
 
 	private createCloudLayer(): void {
@@ -921,10 +890,6 @@ export class Planet {
 			!this.bakedTerrainEnabled,
 		);
 
-		return this.bakedTerrainEnabled;
-	}
-
-	isBakedTerrainEnabled(): boolean {
 		return this.bakedTerrainEnabled;
 	}
 

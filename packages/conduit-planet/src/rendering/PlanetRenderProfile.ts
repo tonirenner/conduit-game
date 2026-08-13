@@ -1,7 +1,7 @@
 import type {
 	PlanetClass,
 	PlanetDefinition,
-} from '../model/PlanetDefinition';
+} from '@conduit/planet/model';
 
 export type PlanetRendererKind =
 	| 'solid_surface'

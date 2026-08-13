@@ -1,4 +1,5 @@
-import type { PlanetClass } from '../model/PlanetDefinition';
+import type { PlanetClass } from '@conduit/planet';
+import { clamp01, lerp } from '../internal/ProceduralMath';
 
 export type AtmosphereRenderProfileValues = {
 	density: number;
@@ -22,6 +23,15 @@ export type LavaAtmosphereVisualProfile = {
 	mieDiscScale: number;
 	rimStrength: number;
 	tintMix: number;
+};
+
+export type AtmosphereLayerProfile = {
+	tint: string;
+	lavaMix: number;
+	sunIntensity: number;
+	atmosphereAlpha: number;
+	scatteringBoost: number;
+	opacity: number;
 };
 
 export const LAVA_ATMOSPHERE_VISUAL_PROFILE: LavaAtmosphereVisualProfile = {
@@ -111,4 +121,36 @@ export function isLavaAtmosphereProfile(
 		normalizedColor === '#d65a32' ||
 		normalizedColor === '#b66f48' ||
 		normalizedColor === LAVA_ATMOSPHERE_VISUAL_PROFILE.tint;
+}
+
+export function createAtmosphereLayerProfile(
+	density: number,
+	haze: number,
+	atmosphereColor: string,
+	atmospherePalette: string,
+): AtmosphereLayerProfile {
+	const atmosphereStrength = Math.max(
+		clamp01(density / 2.5),
+		clamp01(haze),
+	);
+	const isLava = isLavaAtmosphereProfile(
+		atmosphereColor,
+		atmospherePalette,
+	);
+	const lavaScale = isLava ? LAVA_ATMOSPHERE_VISUAL_PROFILE : null;
+
+	return {
+		tint: isLava
+			? LAVA_ATMOSPHERE_VISUAL_PROFILE.tint
+			: atmosphereColor,
+		lavaMix: isLava ? 1.0 : 0.0,
+		sunIntensity: lerp(30.0, 54.0, atmosphereStrength) *
+			(lavaScale?.sunIntensityScale ?? 1.0),
+		atmosphereAlpha: lerp(0.22, 0.92, atmosphereStrength) *
+			(lavaScale?.atmosphereAlphaScale ?? 1.0),
+		scatteringBoost: lerp(0.35, 1.18, atmosphereStrength) *
+			(lavaScale?.scatteringBoostScale ?? 1.0),
+		opacity: lerp(0.24, 0.64, atmosphereStrength) *
+			(lavaScale?.opacityScale ?? 1.0),
+	};
 }

@@ -1,6 +1,12 @@
 export * from '../Planet';
 export * from '../Sun';
-export * from './AtmosphereVisualProfile';
+export {
+	LAVA_ATMOSPHERE_VISUAL_PROFILE,
+	createAtmosphereRenderProfileValues,
+	isLavaAtmosphereProfile,
+	type AtmosphereRenderProfileValues,
+	type LavaAtmosphereVisualProfile,
+} from './AtmosphereVisualProfile';
 export * from './GasGiantVisualProfile';
 export * from './OceanCoastlineProfile';
 export * from './PlanetClassVisualProfile';

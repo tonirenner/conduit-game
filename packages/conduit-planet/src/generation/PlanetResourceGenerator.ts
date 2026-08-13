@@ -1,11 +1,11 @@
-import type { PlanetMaterialComposition } from '../model/PlanetComposition';
+import type { PlanetMaterialComposition } from '@conduit/planet/model';
 import type {
 	PlanetAtmosphereDefinition,
 	PlanetClass,
 	PlanetClimateDefinition,
 	PlanetResourceProfile,
 	PlanetSurfaceDefinition,
-} from '../model/PlanetDefinition';
+} from '@conduit/planet/model';
 
 export function generatePlanetResourceProfile(
 	input: {

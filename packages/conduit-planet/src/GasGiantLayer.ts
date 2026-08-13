@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { createMulberry32 } from './internal/DeterministicRandom';
 import {
 	getGasGiantVisualProfile,
 	type GasGiantLayerKind,
 	type GasGiantVisualProfile,
-} from './rendering/GasGiantVisualProfile';
+} from '@conduit/planet/rendering';
 
 export type GasGiantLayerOptions = {
 	kind: GasGiantLayerKind;
@@ -59,7 +60,7 @@ export class GasGiantLayer {
 		private readonly options: GasGiantLayerOptions,
 	) {
 		this.profile = getGasGiantVisualProfile(options.kind);
-		this.rng = createSeededRandom(
+		this.rng = createMulberry32(
 			options.seed ^
 			(options.kind === 'ice_giant' ? 0x71ce : 0x9a5a),
 		);
@@ -424,15 +425,7 @@ export class GasGiantLayer {
 		this.paintCloudVolumeWisps(context, width, height, shellIndex, field);
 		this.blendHorizontalTextureSeam(context, width, height, 40);
 
-		const texture = new THREE.CanvasTexture(canvas);
-
-		texture.wrapS = THREE.RepeatWrapping;
-		texture.wrapT = THREE.ClampToEdgeWrapping;
-		texture.repeat.set(1, 1);
-		texture.offset.set(0, 0);
-		texture.needsUpdate = true;
-
-		return texture;
+		return createWrappedCanvasTexture(canvas);
 	}
 
 	private sampleCloudVolumeAlpha(
@@ -804,25 +797,13 @@ export class GasGiantLayer {
 			this.paintStorms(context, width, height, field);
 			this.paintShearWisps(context, width, height, field);
 		} else {
-			this.paintIceHaze(context, width, height, field);
+			this.paintIceHaze(context, width, height);
 			this.paintSoftIceWisps(context, width, height, field);
 		}
 
 		this.blendHorizontalTextureSeam(context, width, height, 72);
 
-		const texture = new THREE.CanvasTexture(canvas);
-
-		texture.wrapS = THREE.RepeatWrapping;
-		texture.wrapT = THREE.ClampToEdgeWrapping;
-		texture.repeat.set(1, 1);
-		texture.offset.set(0, 0);
-		texture.needsUpdate = true;
-
-		if ('colorSpace' in texture) {
-			texture.colorSpace = THREE.SRGBColorSpace;
-		}
-
-		return texture;
+		return createWrappedCanvasTexture(canvas, true);
 	}
 
 	private paintTurbulentBands(
@@ -1150,8 +1131,7 @@ export class GasGiantLayer {
 	private paintIceHaze(
 		context: CanvasRenderingContext2D,
 		width: number,
-		height: number,
-		field: TurbulenceField,
+		height: number
 	): void {
 		const haze = context.createRadialGradient(
 			width * 0.5,
@@ -1276,7 +1256,7 @@ function createTurbulenceField(
 	seed: number,
 	kind: GasGiantLayerKind,
 ): TurbulenceField {
-	const rng = createSeededRandom(
+	const rng = createMulberry32(
 		(seed ^ 0x7f4a7c15) >>> 0,
 	);
 
@@ -1439,27 +1419,19 @@ function smoothstep(t: number): number {
 	return t * t * (3 - 2 * t);
 }
 
-function createSeededRandom(seed: number): () => number {
-	let value = seed >>> 0;
+function createWrappedCanvasTexture(
+	canvas: HTMLCanvasElement,
+	useSrgbColorSpace = false,
+): THREE.CanvasTexture {
+	const texture = new THREE.CanvasTexture(canvas);
 
-	return () => {
-		value += 0x6d2b79f5;
+	texture.wrapS = THREE.RepeatWrapping;
+	texture.wrapT = THREE.ClampToEdgeWrapping;
+	texture.repeat.set(1, 1);
+	texture.offset.set(0, 0);
+	texture.needsUpdate = true;
 
-		let mixed = value;
+	if (useSrgbColorSpace) texture.colorSpace = THREE.SRGBColorSpace;
 
-		mixed = Math.imul(
-			mixed ^ (mixed >>> 15),
-			mixed | 1,
-		);
-
-		mixed ^= mixed + Math.imul(
-			mixed ^ (mixed >>> 7),
-			mixed | 61,
-		);
-
-		return (
-			((mixed ^ (mixed >>> 14)) >>> 0) /
-			4294967296
-		);
-	};
+	return texture;
 }

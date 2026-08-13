@@ -6,12 +6,11 @@ import type {
 } from '@conduit/web3d/renderer';
 
 import {
-	createDefaultCubeFaces,
 	TerrainTextureSet,
-	type TerrainTextureFace,
 } from './TerrainTextureSet';
 
 import { createTerrainTextureBakeMaterial } from './TerrainTextureBakeMaterial';
+import { createDefaultCubeFaces } from '@conduit/planet/terrain';
 import type {TerrainProfileKind} from './terrain/noise';
 
 export type TerrainTextureBakeOptions = {
@@ -75,8 +74,7 @@ export class TerrainTextureBakeManager {
 			atlasRows,
 		);
 
-		const faceDefinitions = createDefaultCubeFaces();
-		const faces: TerrainTextureFace[] = [];
+		const cubeFaces = createDefaultCubeFaces();
 
 		const previousRenderTarget = this.renderer.getRenderTarget();
 
@@ -88,8 +86,8 @@ export class TerrainTextureBakeManager {
 
 		this.renderer.setScissorTest(true);
 
-		for (let index = 0; index < faceDefinitions.length; index++) {
-			const definition = faceDefinitions[index];
+		for (let index = 0; index < cubeFaces.length; index++) {
+			const face = cubeFaces[index];
 
 			const column = index % atlasColumns;
 			const row = Math.floor(index / atlasColumns);
@@ -111,15 +109,9 @@ export class TerrainTextureBakeManager {
 				options.resolution,
 			);
 
-			this.bakeMaterial.setFace(definition.face);
+			this.bakeMaterial.setFace(face);
 
 			await this.renderBakeScene();
-
-			faces.push({
-				           index,
-				           name: definition.name,
-				           face: definition.face,
-			           });
 		}
 
 		this.renderer.setScissorTest(previousScissorTest);
@@ -132,7 +124,6 @@ export class TerrainTextureBakeManager {
 				atlasColumns,
 				atlasRows,
 			},
-			faces,
 			atlasTarget,
 		);
 	}

@@ -1,5 +1,3 @@
-export type PlanetRenderQuality = 'moving' | 'idle';
-
 export type PlanetRaymarchStepProfile = {
 	moving: number;
 	idle: number;

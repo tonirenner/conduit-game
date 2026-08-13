@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { setSeededVectorOffset } from './internal/DeterministicRandom';
 
 import {
 	attribute,
@@ -23,9 +24,9 @@ import {
 import { SUN_DIRECTION } from './Sun';
 
 import type { TerrainTextureSet } from './TerrainTextureSet';
-import { getPlanetClassVisualProfile } from './rendering/PlanetClassVisualProfile';
-import { OCEAN_COASTLINE_PROFILE } from './rendering/OceanCoastlineProfile';
-import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
+import { getPlanetClassVisualProfile } from '@conduit/planet/rendering';
+import { OCEAN_COASTLINE_PROFILE } from '@conduit/planet/rendering';
+import type { SurfaceRenderProfile } from '@conduit/planet/rendering';
 
 /**
  * Phase 6c.1:
@@ -144,14 +145,11 @@ export function createPlanetSurfaceNodeMaterial(
 
 	const coastTint = color(0x56614d);
 	const warmDayTint = color(0xffffff);
-	const mountainTint = color(0x69675b);
 	const mountainLightTint = color(0xaea89a);
 	const highlandTint = color(0x716a4e);
 	const coolIceTint = color(0xaeb2a7);
 
 	const terrainHeightAttribute = attribute('terrainHeight', 'float');
-	const landMaskAttribute = attribute('landMask', 'float');
-	const mountainMaskAttribute = attribute('mountainMask', 'float');
 	const terrainDataUv = attribute('terrainDataUv', 'vec2');
 	const sphereNormal = normalize(attribute('sphereNormal', 'vec3'));
 
@@ -1646,12 +1644,6 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 		),
 	);
 
-	const dayWarmth = smoothstep(
-		0.08,
-		0.86,
-		ndl,
-	).mul(0.035);
-
 	const mountainContrast = mountainMaterial
 		.mul(
 			smoothstep(
@@ -2364,35 +2356,7 @@ fn detail_fbm(p_input: vec3<f32>) -> f32 {
 	 * 0.0 = legacy proceduralTerrainSample fallback
 	 */
 	(material as any).setTerrainSeed = (seed: number): void => {
-		let state = Math.floor(seed) >>> 0;
-
-		if (state === 0) {
-			state = 1;
-		}
-
-		const nextRandom = (): number => {
-			state += 0x6d2b79f5;
-
-			let t = state;
-
-			t = Math.imul(
-				t ^ (t >>> 15),
-				t | 1,
-			);
-
-			t ^= t + Math.imul(
-				t ^ (t >>> 7),
-				t | 61,
-			);
-
-			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-		};
-
-		terrainSeedOffset.value.set(
-			nextRandom() * 2 - 1,
-			nextRandom() * 2 - 1,
-			nextRandom() * 2 - 1,
-		).multiplyScalar(240.0);
+		setSeededVectorOffset(terrainSeedOffset.value, seed);
 	};
 
 	(material as any).setForcedLavaSurface = (enabled: boolean): void => {

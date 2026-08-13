@@ -10,7 +10,7 @@ import {
 import { SUN_DIRECTION } from './Sun';
 import {
 	LAVA_ATMOSPHERE_VISUAL_PROFILE,
-	isLavaAtmosphereProfile,
+	createAtmosphereLayerProfile,
 } from './rendering/AtmosphereVisualProfile';
 
 export type WebGPUAtmosphereQuality = 'moving' | 'idle';
@@ -97,73 +97,20 @@ export class WebGPUAtmosphereLayer {
 		atmosphereColor = '#8ec5ff',
 		atmospherePalette = '',
 	): void {
-		const normalizedDensity = THREE.MathUtils.clamp(
-			density / 2.5,
-			0,
-			1,
-		);
-
-		const normalizedHaze = THREE.MathUtils.clamp(
+		const profile = createAtmosphereLayerProfile(
+			density,
 			haze,
-			0,
-			1,
-		);
-
-		const atmosphereStrength = Math.max(
-			normalizedDensity,
-			normalizedHaze,
-		);
-
-		const isLavaAtmosphere = isLavaAtmosphereProfile(
 			atmosphereColor,
 			atmospherePalette,
 		);
 
-		const colorValue = new THREE.Color(
-			isLavaAtmosphere
-			? LAVA_ATMOSPHERE_VISUAL_PROFILE.tint
-			: atmosphereColor,
-		);
-
-		this.atmosphereTint.value.copy(colorValue);
-		this.profileLavaAtmosphereMix = isLavaAtmosphere ? 1.0 : 0.0;
+		this.atmosphereTint.value.set(profile.tint);
+		this.profileLavaAtmosphereMix = profile.lavaMix;
 		this.lavaAtmosphereMix.value = this.profileLavaAtmosphereMix;
-
-
-		this.profileSunIntensity = THREE.MathUtils.lerp(
-			30.0,
-			54.0,
-			atmosphereStrength,
-		);
-
-		this.profileAtmosphereAlpha = THREE.MathUtils.lerp(
-			0.22,
-			0.92,
-			atmosphereStrength,
-		);
-
-		this.profileScatteringBoost = THREE.MathUtils.lerp(
-			0.35,
-			1.18,
-			atmosphereStrength,
-		);
-
-		this.profileOpacity = THREE.MathUtils.lerp(
-			0.24,
-			0.64,
-			atmosphereStrength,
-		);
-
-		if (isLavaAtmosphere) {
-			this.profileSunIntensity *=
-				LAVA_ATMOSPHERE_VISUAL_PROFILE.sunIntensityScale;
-			this.profileAtmosphereAlpha *=
-				LAVA_ATMOSPHERE_VISUAL_PROFILE.atmosphereAlphaScale;
-			this.profileScatteringBoost *=
-				LAVA_ATMOSPHERE_VISUAL_PROFILE.scatteringBoostScale;
-			this.profileOpacity *=
-				LAVA_ATMOSPHERE_VISUAL_PROFILE.opacityScale;
-		}
+		this.profileSunIntensity = profile.sunIntensity;
+		this.profileAtmosphereAlpha = profile.atmosphereAlpha;
+		this.profileScatteringBoost = profile.scatteringBoost;
+		this.profileOpacity = profile.opacity;
 
 		this.sunIntensity.value = this.profileSunIntensity;
 		this.atmosphereAlpha.value = this.profileAtmosphereAlpha;

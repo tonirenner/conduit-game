@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { SUN_DIRECTION } from './Sun';
+import {
+	createCloudLayerProfile,
+	type CloudClimateProfile,
+} from './rendering/CloudVisualProfile';
 
 export type CloudRenderQuality = 'moving' | 'idle';
 
@@ -761,95 +765,20 @@ export class CloudLayer {
 	setCloudProfile(
 		cloudCoverage: number,
 		atmosphereDensity: number,
-		climate?: {
-			cloudPersistence?: number;
-			stormActivity?: number;
-			windStrength?: number;
-			ashLoad?: number;
-		},
+		climate?: CloudClimateProfile,
 	): void {
-		const normalizedCoverage = THREE.MathUtils.clamp(
+		const profile = createCloudLayerProfile(
 			cloudCoverage,
-			0,
-			1,
-		);
-		const cloudPersistence = THREE.MathUtils.clamp(
-			climate?.cloudPersistence ?? normalizedCoverage,
-			0,
-			1,
-		);
-		const stormActivity = THREE.MathUtils.clamp(
-			climate?.stormActivity ?? 0,
-			0,
-			1,
-		);
-		const windStrength = THREE.MathUtils.clamp(
-			climate?.windStrength ?? 0,
-			0,
-			1,
-		);
-		const ashLoad = THREE.MathUtils.clamp(
-			climate?.ashLoad ?? 0,
-			0,
-			1,
-		);
-		const effectiveCoverage = THREE.MathUtils.clamp(
-			normalizedCoverage * 0.62 +
-			cloudPersistence * 0.28 +
-			stormActivity * 0.10 -
-			ashLoad * 0.08,
-			0,
-			1,
+			atmosphereDensity,
+			climate,
 		);
 
-		const normalizedDensity = THREE.MathUtils.clamp(
-			atmosphereDensity / 2.5,
-			0,
-			1,
-		);
-
-		this.profileCloudCoverage = THREE.MathUtils.lerp(
-			0.66,
-			0.43,
-			effectiveCoverage,
-		);
-
-		this.profileCloudDensity = THREE.MathUtils.lerp(
-			1.20,
-			2.85,
-			Math.max(
-				effectiveCoverage,
-				normalizedDensity,
-				stormActivity * 0.82,
-			),
-		);
-
-		this.profileCloudAlpha = THREE.MathUtils.lerp(
-			0.28,
-			0.92,
-			THREE.MathUtils.clamp(
-				effectiveCoverage * 0.84 +
-				cloudPersistence * 0.16 -
-				ashLoad * 0.10,
-				0,
-				1,
-			),
-		);
-		this.profileClimateInfluence = THREE.MathUtils.lerp(
-			0.18,
-			0.36,
-			cloudPersistence,
-		);
-		this.profileWeatherInfluence = THREE.MathUtils.lerp(
-			0.12,
-			0.34,
-			Math.max(stormActivity, windStrength * 0.72),
-		);
-		this.profileStormInfluence = THREE.MathUtils.lerp(
-			0.06,
-			0.24,
-			stormActivity,
-		);
+		this.profileCloudCoverage = profile.coverage;
+		this.profileCloudDensity = profile.density;
+		this.profileCloudAlpha = profile.alpha;
+		this.profileClimateInfluence = profile.climateInfluence;
+		this.profileWeatherInfluence = profile.weatherInfluence;
+		this.profileStormInfluence = profile.stormInfluence;
 
 		this.material.uniforms.uCoverage.value = this.profileCloudCoverage;
 		this.material.uniforms.uDensity.value = this.profileCloudDensity;

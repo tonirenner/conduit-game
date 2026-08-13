@@ -7,8 +7,8 @@ import {
 	getClimateDebugColor,
 	getClimateSample,
 } from '../climate/Climate';
-import type { PlanetDefinition } from '../model/PlanetDefinition';
-import { resolveTerrainProfileKind } from '../rendering/TerrainRenderProfile';
+import type { PlanetDefinition } from '@conduit/planet';
+import { resolveTerrainProfileKind } from '@conduit/planet/rendering';
 import {
 	createTerrainSeedConfig,
 	getTerrainSample,
@@ -56,7 +56,6 @@ export function createPlanetClimateDiagnostics(
 	const width = options?.width ?? 96;
 	const height = options?.height ?? 48;
 	const terrainSeedConfig = createPlanetTerrainSeedConfig(definition);
-	const normal = new THREE.Vector3();
 	const biomeCounts = new Map<BiomeId, number>();
 	let sampleCount = 0;
 	let temperature = 0;
@@ -72,55 +71,39 @@ export function createPlanetClimateDiagnostics(
 	let coast = 0;
 	let land = 0;
 
-	for (let y = 0; y < height; y++) {
-		const v = y / (height - 1);
-		const latitude = (0.5 - v) * Math.PI;
-		const cosLatitude = Math.cos(latitude);
-		const sinLatitude = Math.sin(latitude);
+	forEachEquirectangularSample(width, height, (_x, _y, normal) => {
+		const terrainSample = getTerrainSample(normal, terrainSeedConfig);
+		const climateSample = getClimateSample(
+			normal,
+			terrainSample.height,
+			terrainSample.landMask,
+		);
 
-		for (let x = 0; x < width; x++) {
-			const u = x / (width - 1);
-			const longitude = (u * 2 - 1) * Math.PI;
+		sampleCount++;
+		temperature += climateSample.temperature;
+		humidity += climateSample.humidity;
+		aridity += climateSample.aridity;
+		vegetation += climateSample.vegetation;
+		snow += climateSample.snow;
+		cloudPotential += climateSample.cloudPotential;
+		terrainHeight += climateSample.height;
+		landMask += climateSample.landMask;
 
-			normal.set(
-				cosLatitude * Math.cos(longitude),
-				sinLatitude,
-				cosLatitude * Math.sin(longitude),
-			);
-
-			const terrainSample = getTerrainSample(normal, terrainSeedConfig);
-			const climateSample = getClimateSample(
-				normal,
-				terrainSample.height,
-				terrainSample.landMask,
-			);
-
-			sampleCount++;
-			temperature += climateSample.temperature;
-			humidity += climateSample.humidity;
-			aridity += climateSample.aridity;
-			vegetation += climateSample.vegetation;
-			snow += climateSample.snow;
-			cloudPotential += climateSample.cloudPotential;
-			terrainHeight += climateSample.height;
-			landMask += climateSample.landMask;
-
-			if (climateSample.landMask < 0.34) {
-				deepOcean++;
-			} else if (climateSample.landMask < 0.58) {
-				shallowOcean++;
-			} else if (climateSample.landMask < 0.68) {
-				coast++;
-			} else {
-				land++;
-			}
-
-			biomeCounts.set(
-				climateSample.biome,
-				(biomeCounts.get(climateSample.biome) ?? 0) + 1,
-			);
+		if (climateSample.landMask < 0.34) {
+			deepOcean++;
+		} else if (climateSample.landMask < 0.58) {
+			shallowOcean++;
+		} else if (climateSample.landMask < 0.68) {
+			coast++;
+		} else {
+			land++;
 		}
-	}
+
+		biomeCounts.set(
+			climateSample.biome,
+			(biomeCounts.get(climateSample.biome) ?? 0) + 1,
+		);
+	});
 
 	const dominantBiomes = Array.from(biomeCounts.entries())
 		.map(([biome, count]) => ({
@@ -180,39 +163,19 @@ export function drawPlanetClimateDebugMap(
 	const imageData = context.createImageData(width, height);
 	const data = imageData.data;
 	const terrainSeedConfig = createPlanetTerrainSeedConfig(definition);
-	const normal = new THREE.Vector3();
 
-	for (let y = 0; y < height; y++) {
-		const v = y / (height - 1);
-		const latitude = (0.5 - v) * Math.PI;
-		const cosLatitude = Math.cos(latitude);
-		const sinLatitude = Math.sin(latitude);
+	forEachEquirectangularSample(width, height, (x, y, normal) => {
+		const terrainSample = getTerrainSample(normal, terrainSeedConfig);
+		const climateSample = getClimateSample(
+			normal,
+			terrainSample.height,
+			terrainSample.landMask,
+		);
+		const color = getClimateDebugColor(climateSample, mode);
+		const index = (x + y * width) * 4;
 
-		for (let x = 0; x < width; x++) {
-			const u = x / (width - 1);
-			const longitude = (u * 2 - 1) * Math.PI;
-
-			normal.set(
-				cosLatitude * Math.cos(longitude),
-				sinLatitude,
-				cosLatitude * Math.sin(longitude),
-			);
-
-			const terrainSample = getTerrainSample(normal, terrainSeedConfig);
-			const climateSample = getClimateSample(
-				normal,
-				terrainSample.height,
-				terrainSample.landMask,
-			);
-			const color = getClimateDebugColor(climateSample, mode);
-			const index = (x + y * width) * 4;
-
-			data[index + 0] = color[0];
-			data[index + 1] = color[1];
-			data[index + 2] = color[2];
-			data[index + 3] = 255;
-		}
-	}
+		writeRgbPixel(data, index, color);
+	});
 
 	context.putImageData(imageData, 0, 0);
 	context.fillStyle = 'rgba(0, 0, 0, 0.62)';
@@ -220,6 +183,42 @@ export function drawPlanetClimateDebugMap(
 	context.font = '11px monospace';
 	context.fillStyle = '#d8ecff';
 	context.fillText(`${definition.class} / ${mode}`, 8, 14);
+}
+
+function forEachEquirectangularSample(
+	width: number,
+	height: number,
+	visit: (x: number, y: number, normal: THREE.Vector3) => void,
+): void {
+	const normal = new THREE.Vector3();
+
+	for (let y = 0; y < height; y++) {
+		const latitude = (0.5 - y / (height - 1)) * Math.PI;
+		const cosLatitude = Math.cos(latitude);
+		const sinLatitude = Math.sin(latitude);
+
+		for (let x = 0; x < width; x++) {
+			const longitude = (x / (width - 1) * 2 - 1) * Math.PI;
+
+			normal.set(
+				cosLatitude * Math.cos(longitude),
+				sinLatitude,
+				cosLatitude * Math.sin(longitude),
+			);
+			visit(x, y, normal);
+		}
+	}
+}
+
+function writeRgbPixel(
+	data: Uint8ClampedArray,
+	index: number,
+	color: [number, number, number],
+): void {
+	data[index] = color[0];
+	data[index + 1] = color[1];
+	data[index + 2] = color[2];
+	data[index + 3] = 255;
 }
 
 function createPlanetTerrainSeedConfig(

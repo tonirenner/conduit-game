@@ -1,9 +1,9 @@
 import type {
 	PlanetDefinition,
 	PlanetClass,
-} from '../model/PlanetDefinition';
+} from '@conduit/planet';
 
-import type { PlanetRenderProfile } from './PlanetRenderProfile';
+import type { PlanetRenderProfile } from '@conduit/planet';
 
 export type SurfacePaletteKind =
 	| 'barren'

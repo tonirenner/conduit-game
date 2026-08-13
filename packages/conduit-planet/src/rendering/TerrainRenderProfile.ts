@@ -1,5 +1,5 @@
 import type {TerrainProfileKind} from '../terrain/noise';
-import type {PlanetClass} from '../model/PlanetDefinition';
+import type {PlanetClass} from '@conduit/planet';
 
 export function resolveTerrainProfileKind(
 	planetClass: PlanetClass | string | undefined,

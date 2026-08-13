@@ -1,7 +1,7 @@
 import {
 	normalizeComposition,
 	type PlanetMaterialComposition,
-} from '../model/PlanetComposition';
+} from '@conduit/planet/model';
 
 import {
 	type PlanetAtmosphereDefinition,
@@ -13,7 +13,7 @@ import {
 	type PlanetPhysicalDefinition,
 	type PlanetRingDefinition,
 	type PlanetSurfaceDefinition,
-} from '../model/PlanetDefinition';
+} from '@conduit/planet/model';
 
 import { SeededRandom } from './SeededRandom';
 import { resolvePlanetClass } from './PlanetClassResolver';

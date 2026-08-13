@@ -4,7 +4,8 @@ import {
 	getTerrainSample,
 	type TerrainSeedConfig,
 } from './terrain/noise';
-import type { SurfaceRenderProfile } from './rendering/SurfaceRenderProfile';
+import type { SurfaceRenderProfile } from '@conduit/planet/rendering';
+import { appendRegularGridIndices } from './terrain/TerrainGeometryUtils';
 
 export type NearSurfaceTerrainLayerOptions = {
 	radius: number;
@@ -141,17 +142,7 @@ export class NearSurfaceTerrainLayer {
 			}
 		}
 
-		for (let y = 0; y < this.resolution; y++) {
-			for (let x = 0; x < this.resolution; x++) {
-				const a = x + y * rowSize;
-				const b = x + (y + 1) * rowSize;
-				const c = x + 1 + y * rowSize;
-				const d = x + 1 + (y + 1) * rowSize;
-
-				indices.push(a, c, b);
-				indices.push(c, d, b);
-			}
-		}
+		appendRegularGridIndices(indices, this.resolution, rowSize);
 
 		const geometry = new THREE.BufferGeometry();
 		geometry.setAttribute(

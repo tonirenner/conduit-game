@@ -1,5 +1,5 @@
-import type { PlanetClass } from '../model/PlanetDefinition';
-import type { PlanetMaterialComposition } from '../model/PlanetComposition';
+import type { PlanetClass } from '@conduit/planet';
+import type { PlanetMaterialComposition } from '@conduit/planet';
 
 /**
  * Phase 6b.6:

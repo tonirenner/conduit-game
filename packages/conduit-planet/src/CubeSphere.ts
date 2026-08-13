@@ -19,11 +19,9 @@ import {
 	DEFAULT_TERRAIN_SEED_CONFIG,
 	type TerrainSeedConfig,
 } from './terrain/noise';
+import { createDefaultCubeFaces } from '@conduit/planet/terrain';
 
-import type {
-	TerrainSource,
-	TerrainSourceStats,
-} from './TerrainSource';
+import type { TerrainSource } from './TerrainSource';
 
 export type TerrainLodProfile =
 	| 'far'
@@ -62,21 +60,14 @@ export class CubeSphere extends THREE.Group {
 	private horizonCullingOverride: boolean | null = null;
 
 	/**
-	 * Phase 5c.1 hotfix:
-	 *
-	 * Do not use TextureTerrainSource here.
-	 *
-	 * TextureTerrainSource performs a CPU-side full-face bake and causes
-	 * brutal startup time. In the WebGPU path the visible surface already uses
-	 * the GPU-baked terrain atlas, so CPU geometry only needs the old lazy
-	 * patch cache for:
+	 * In the WebGPU path the visible surface uses the GPU-baked terrain atlas,
+	 * so CPU geometry only needs the lazy patch cache for:
 	 * - initial patch attributes
 	 * - normals
 	 * - LOD / bounds
 	 */
 	private readonly terrainSource: TerrainSource;
 
-	private currentLodProfile: TerrainLodProfile = 'orbit';
 	private lastLodDebugLogTime = 0;
 
 	private readonly lodProfiles: Record<TerrainLodProfile, LodOptions> = {
@@ -128,7 +119,7 @@ export class CubeSphere extends THREE.Group {
 			minCameraHeightForCulling: 0.42,
 		});
 
-		for (const face of this.createFaces()) {
+		for (const face of createDefaultCubeFaces()) {
 			const patch = new TerrainPatch(
 				face,
 				{
@@ -193,8 +184,6 @@ export class CubeSphere extends THREE.Group {
 
 		const nextProfile = this.selectLodProfile(normalizedHeight);
 
-		this.currentLodProfile = nextProfile;
-
 		const frameSplitBudget = this.getFrameSplitBudget(nextProfile);
 
 		const lodOptions: LodOptions = {
@@ -252,25 +241,6 @@ export class CubeSphere extends THREE.Group {
 		};
 	}
 
-	getCurrentLodProfile(): TerrainLodProfile {
-		return this.currentLodProfile;
-	}
-
-	getCurrentLodOptions(): LodOptions {
-		return this.lodProfiles[this.currentLodProfile];
-	}
-
-	getTerrainSourceStats(): TerrainSourceStats {
-		return this.terrainSource.getStats();
-	}
-
-	/**
-	 * Backwards-compatible alias for existing HUD/debug code.
-	 */
-	getTerrainHeightCacheStats(): TerrainSourceStats {
-		return this.getTerrainSourceStats();
-	}
-
 	setHorizonCullingEnabled(enabled: boolean): void {
 		this.horizonCullingOverride = enabled;
 		this.horizonCulling.setEnabled(enabled);
@@ -280,22 +250,6 @@ export class CubeSphere extends THREE.Group {
 		for (const patch of this.rootPatches) {
 			patch.setFrustumCullingEnabled(enabled);
 		}
-	}
-
-	setHorizonCullingDebug(debug: boolean): void {
-		this.horizonCulling.setDebug(debug);
-	}
-
-	isHorizonCullingEnabled(): boolean {
-		return this.horizonCulling.isEnabled();
-	}
-
-	isHorizonCullingDebugEnabled(): boolean {
-		return this.horizonCulling.isDebugEnabled();
-	}
-
-	getHorizonCulling(): HorizonCulling {
-		return this.horizonCulling;
 	}
 
 	getHorizonCullingStats(): HorizonCullingStats {
@@ -827,38 +781,4 @@ export class CubeSphere extends THREE.Group {
 		});
 	}
 
-	private createFaces(): CubeFace[] {
-		return [
-			{
-				normal: new THREE.Vector3(1, 0, 0),
-				up: new THREE.Vector3(0, 1, 0),
-				right: new THREE.Vector3(0, 0, -1),
-			},
-			{
-				normal: new THREE.Vector3(-1, 0, 0),
-				up: new THREE.Vector3(0, 1, 0),
-				right: new THREE.Vector3(0, 0, 1),
-			},
-			{
-				normal: new THREE.Vector3(0, 1, 0),
-				up: new THREE.Vector3(0, 0, 1),
-				right: new THREE.Vector3(-1, 0, 0),
-			},
-			{
-				normal: new THREE.Vector3(0, -1, 0),
-				up: new THREE.Vector3(0, 0, -1),
-				right: new THREE.Vector3(-1, 0, 0),
-			},
-			{
-				normal: new THREE.Vector3(0, 0, 1),
-				up: new THREE.Vector3(0, 1, 0),
-				right: new THREE.Vector3(1, 0, 0),
-			},
-			{
-				normal: new THREE.Vector3(0, 0, -1),
-				up: new THREE.Vector3(0, 1, 0),
-				right: new THREE.Vector3(-1, 0, 0),
-			},
-		];
-	}
 }

@@ -4,7 +4,7 @@ import {createPlanetSurfaceMaterial} from '../PlanetSurfaceMaterial';
 import {createPlanetSurfaceNodeMaterial} from '../PlanetSurfaceNodeMaterial';
 
 import type {TerrainTextureSet} from '../TerrainTextureSet';
-import type {SurfaceRenderProfile} from '../rendering/SurfaceRenderProfile';
+import type {SurfaceRenderProfile} from '@conduit/planet/rendering';
 
 export type PlanetSurfaceMaterialRendererMode = 'webgl' | 'webgpu';
 

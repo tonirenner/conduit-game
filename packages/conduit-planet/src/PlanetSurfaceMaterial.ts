@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import {SUN_DIRECTION} from './Sun';
-import { getPlanetClassVisualProfile } from './rendering/PlanetClassVisualProfile';
-import { OCEAN_COASTLINE_PROFILE } from './rendering/OceanCoastlineProfile';
-import type {SurfaceRenderProfile} from './rendering/SurfaceRenderProfile';
+import { getPlanetClassVisualProfile } from '@conduit/planet/rendering';
+import { OCEAN_COASTLINE_PROFILE } from '@conduit/planet/rendering';
+import type {SurfaceRenderProfile} from '@conduit/planet/rendering';
 
 export function createPlanetSurfaceMaterial(
 	radius           = 3,

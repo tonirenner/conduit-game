@@ -8,6 +8,10 @@ import type {
 	TerrainGrid,
 	TerrainSource,
 } from './TerrainSource';
+import {
+	appendRegularGridIndices,
+	getCubeFaceIndex,
+} from './terrain/TerrainGeometryUtils';
 
 export type {
 	CubeFace,
@@ -73,7 +77,7 @@ function createTerrainPatchAddress(
 	bounds: PatchBounds,
 	level: number,
 ): TerrainPatchAddress {
-	const faceId = getTerrainFaceIndexForFace(face);
+	const faceId = getCubeFaceIndex(face.normal);
 	const addressBounds = {
 		...bounds,
 	};
@@ -188,32 +192,6 @@ function createTerrainPatchEdgeAddress(
 		min,
 		max,
 	};
-}
-
-function getTerrainFaceIndexForFace(face: CubeFace): number {
-	const normal = face.normal;
-
-	if (normal.x > 0.5) {
-		return 0;
-	}
-
-	if (normal.x < -0.5) {
-		return 1;
-	}
-
-	if (normal.y > 0.5) {
-		return 2;
-	}
-
-	if (normal.y < -0.5) {
-		return 3;
-	}
-
-	if (normal.z > 0.5) {
-		return 4;
-	}
-
-	return 5;
 }
 
 function getCubePointForFace(
@@ -756,16 +734,6 @@ export class TerrainPatch extends THREE.Group {
 		const atlasColumn = terrainFaceIndex % 3;
 		const atlasRow = Math.floor(terrainFaceIndex / 3);
 
-		/**
-		 * Phase 5d.2:
-		 *
-		 * Keep atlas samples slightly inside each tile.
-		 * Without this, linear filtering can sample neighbouring atlas tiles
-		 * at exact face borders and create visible seams.
-		 *
-		 * This is expressed in face-local UV space.
-		 * 2 / 2048 = one conservative texel-ish inset for the current atlas.
-		 */
 		const atlasFaceUvInset = 2.0 / 2048.0;
 
 		for (let y = 0; y <= this.resolution; y++) {
@@ -846,17 +814,7 @@ export class TerrainPatch extends THREE.Group {
 			rowSize,
 		);
 
-		for (let y = 0; y < this.resolution; y++) {
-			for (let x = 0; x < this.resolution; x++) {
-				const a = x + y * rowSize;
-				const b = x + (y + 1) * rowSize;
-				const c = x + 1 + y * rowSize;
-				const d = x + 1 + (y + 1) * rowSize;
-
-				indices.push(a, c, b);
-				indices.push(c, d, b);
-			}
-		}
+		appendRegularGridIndices(indices, this.resolution, rowSize);
 
 		this.addSkirts(
 			positions,
@@ -1120,29 +1078,7 @@ export class TerrainPatch extends THREE.Group {
 	}
 
 	private getTerrainFaceIndex(): number {
-		const normal = this.face.normal;
-
-		if (normal.x > 0.5) {
-			return 0;
-		}
-
-		if (normal.x < -0.5) {
-			return 1;
-		}
-
-		if (normal.y > 0.5) {
-			return 2;
-		}
-
-		if (normal.y < -0.5) {
-			return 3;
-		}
-
-		if (normal.z > 0.5) {
-			return 4;
-		}
-
-		return 5;
+		return getCubeFaceIndex(this.face.normal);
 	}
 
 	private getTerrainPoint(sphereNormal: THREE.Vector3): THREE.Vector3 {
