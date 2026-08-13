@@ -30,6 +30,7 @@ export class PlanetSurfaceViewRuntime {
 
 	private readonly renderMetersScale: number;
 	private readonly cameraPlanetMeters = new THREE.Vector3();
+	private lastTerrainOpacity = -1;
 
 	constructor(
 		readonly definition: PlanetDefinition,
@@ -77,7 +78,7 @@ export class PlanetSurfaceViewRuntime {
 		}
 
 		this.terrain.setEnabled(transition.terrainVisible);
-		this.terrain.setOpacity(transition.terrainWeight);
+		this.setTerrainOpacity(transition.terrainWeight);
 
 		return {
 			altitudeMeters,
@@ -94,6 +95,24 @@ export class PlanetSurfaceViewRuntime {
 		this.group.position.copy(this.referenceFrame.originPlanetMeters)
 			.multiplyScalar(this.renderMetersScale);
 		this.group.scale.setScalar(this.renderMetersScale);
+	}
+
+	private setTerrainOpacity(opacity: number): void {
+		const nextOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
+		if (Math.abs(nextOpacity - this.lastTerrainOpacity) < 0.002) return;
+		this.lastTerrainOpacity = nextOpacity;
+
+		this.group.traverse((object) => {
+			if (!(object instanceof THREE.Mesh)) return;
+			const material = object.material;
+			if (!(material instanceof THREE.MeshStandardMaterial)) return;
+			material.transparent = nextOpacity < 0.999;
+			material.opacity = nextOpacity;
+			material.depthWrite = nextOpacity >= 0.98;
+			material.polygonOffset = true;
+			material.polygonOffsetFactor = -1;
+			material.polygonOffsetUnits = -1;
+		});
 	}
 }
 
