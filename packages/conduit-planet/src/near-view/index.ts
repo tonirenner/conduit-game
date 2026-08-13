@@ -8,5 +8,4 @@ export * from './PlanetNearViewTransition';
 export * from './PlanetPhysicalScale';
 export * from './PlanetReferenceFrame';
 export * from './PlanetSurfaceCoordinates';
-export * from './PlanetSurfaceViewRuntime';
 export * from './PlanetTerrainSampler';
