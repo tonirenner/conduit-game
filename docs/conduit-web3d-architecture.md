@@ -325,15 +325,17 @@ Remaining work:
 
 Current files:
 
-Current files:
-
+- `packages/conduit-web3d/src/effects/PortalSpriteEffect.ts`
+- `src/game/rendering/WormholeNodeVisual.ts`
 - `src/game/rendering/EngineVfxSystem.ts`
 - `src/game/rendering/CombatVfxSystem.ts`
 - `src/game/rendering/DummyAssetFactory.ts`
 
 Assessment:
 
-- These are mixed.
+- The animated portal sprite mechanism is now generic and extracted.
+- `WormholeNodeVisual` remains a game adapter that maps ownership to portal colors.
+- Combat and engine systems are still mixed.
 - Low-level visuals may become generic later.
 - Current systems know ships, combat events, weapon semantics, engine node conventions and fallback decisions.
 
@@ -341,6 +343,7 @@ Possible split:
 
 ```text
 Conduit:
+  PortalSpriteEffect
   ThrusterEffect
   BeamEffect
   ProjectileTrailEffect
@@ -353,7 +356,7 @@ Game:
   ship state interpretation
 ```
 
-Do not extract these first.
+Do not extract the complete combat or engine systems; split their low-level effects first.
 
 ### Planet Renderer
 
@@ -587,6 +590,7 @@ Extracted to `@conduit/web3d`:
 - `environment/SceneEnvironmentManager`
 - `environment/SystemNebulaBackdrop`
 - `performance/HorizonCulling`
+- `effects/PortalSpriteEffect`
 
 Reusable helpers now included:
 
@@ -604,6 +608,7 @@ Game/app files now using Conduit directly:
 - `StudioLightingTestScene` uses Conduit EXR loading, material snapshots, object disposal and camera framing
 - `GamePrototypeScene`, `ShipModelTestScene`, and `StudioLightingTestScene` use Conduit GLTF/OBJ/MTL asset loading, UV2 fallback, material traversal helpers, and object normalization
 - `ShipMaterialLightingProfile` keeps game-specific Frigate/Game probe constants but reuses Conduit material profile application
+- `WormholeNodeVisual` keeps ownership color rules in the game while extending the generic Conduit portal effect
 
 Compatibility shims removed:
 
@@ -641,3 +646,10 @@ Next recommended step:
 - Reused the shared object disposal helper so generated geometry, materials and textures are released consistently.
 - Kept the separate strategic `GamePrototypeScene` backdrop in the game because its HDR peaks are coupled to the game environment-probe source group.
 - Added focused tests for deterministic generation, camera-relative updates, reseeding and owned-resource disposal.
+
+### 2026-08-13 Portal Effect Extraction
+
+- Added the `@conduit/web3d/effects` public subpath with `PortalSpriteEffect`.
+- Moved sprite construction, generated textures, selection feedback, animation and resource cleanup into the generic effect.
+- Kept `WormholeOwner` and owner-to-color mapping in the game through the existing `WormholeNodeVisual` API.
+- Added focused tests for portal structure, colors, selection, animation and disposal.

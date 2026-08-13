@@ -7,3 +7,4 @@ export * from './camera';
 export * from './lighting';
 export * from './postprocessing';
 export * from './performance';
+export * from './effects';

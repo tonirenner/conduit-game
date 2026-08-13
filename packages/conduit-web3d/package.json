@@ -13,7 +13,8 @@
     "./camera": "./src/camera/index.ts",
     "./lighting": "./src/lighting/index.ts",
     "./postprocessing": "./src/postprocessing/index.ts",
-    "./performance": "./src/performance/index.ts"
+    "./performance": "./src/performance/index.ts",
+    "./effects": "./src/effects/index.ts"
   },
   "peerDependencies": {
     "three": "^0.185.1"

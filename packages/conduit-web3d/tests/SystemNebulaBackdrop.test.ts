@@ -8,49 +8,16 @@ import {
 import * as THREE from 'three';
 
 import { SystemNebulaBackdrop } from '../src/environment';
+import { installTestCanvasDocument } from './TestCanvasDocument';
 
-const originalDocument = globalThis.document;
+let restoreCanvasDocument: () => void;
 
 beforeAll(() => {
-	const gradient = {
-		addColorStop: () => undefined,
-	} as unknown as CanvasGradient;
-
-	Object.defineProperty(globalThis, 'document', {
-		configurable: true,
-		value: {
-			createElement: (tagName: string) => {
-				if (tagName !== 'canvas') {
-					throw new Error(`Unexpected element request: ${tagName}`);
-				}
-
-				const context = {
-					clearRect: () => undefined,
-					createRadialGradient: () => gradient,
-					fillRect: () => undefined,
-					fillStyle: '',
-				} as unknown as CanvasRenderingContext2D;
-
-				return {
-					width: 0,
-					height: 0,
-					getContext: () => context,
-				} as unknown as HTMLCanvasElement;
-			},
-		},
-	});
+	restoreCanvasDocument = installTestCanvasDocument();
 });
 
 afterAll(() => {
-	if (originalDocument) {
-		Object.defineProperty(globalThis, 'document', {
-			configurable: true,
-			value: originalDocument,
-		});
-		return;
-	}
-
-	Reflect.deleteProperty(globalThis, 'document');
+	restoreCanvasDocument();
 });
 
 describe('SystemNebulaBackdrop', () => {
