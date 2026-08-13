@@ -53,7 +53,7 @@ export class PlanetApproachTestScene implements FeatureTestScene {
 	private readonly pressedKeys = new Set<string>();
 	private stats: HTMLElement | null = null;
 	private seed = 3001;
-	private planetClass: PlanetClass = 'terrestrial';
+	private planetClass: PlanetClass = 'desert';
 	private requestLanding = false;
 	private lastUpdate: PlanetNearViewUpdate | null = null;
 	private lastState: PlanetApproachState | null = null;
@@ -100,7 +100,7 @@ export class PlanetApproachTestScene implements FeatureTestScene {
 		window.addEventListener('keydown', this.onKeyDown);
 		window.addEventListener('keyup', this.onKeyUp);
 		this.createUi(context.uiRoot);
-		this.createRuntime('surface');
+		this.createRuntime('orbit');
 	}
 
 	update(deltaSeconds: number): void {
