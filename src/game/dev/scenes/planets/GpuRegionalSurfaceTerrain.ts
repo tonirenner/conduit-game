@@ -91,9 +91,9 @@ export class GpuRegionalSurfaceTerrain {
 		this.material.displacementScale = field.elevationRangeRender * RELIEF_EXAGGERATION;
 		this.material.displacementBias = field.minElevationRender * RELIEF_EXAGGERATION;
 		this.material.normalMap = textures.normal;
-		this.material.normalScale.set(1.35, 1.35);
+		this.material.normalScale.set(1.55, 1.55);
 		this.material.aoMap = textures.ao;
-		this.material.aoMapIntensity = 0.85;
+		this.material.aoMapIntensity = 1.05;
 		this.material.roughnessMap = textures.roughness;
 		this.material.needsUpdate = true;
 
@@ -160,6 +160,9 @@ export class GpuRegionalSurfaceTerrain {
 		const count = MAP_RESOLUTION * MAP_RESOLUTION;
 		const elevation = new Float32Array(count);
 		const landMask = new Float32Array(count);
+		const mountainMask = new Float32Array(count);
+		const erosionMask = new Float32Array(count);
+		const riverMask = new Float32Array(count);
 		const water = new Uint8Array(count);
 		const direction = new THREE.Vector3();
 		let minElevation = Number.POSITIVE_INFINITY;
@@ -174,6 +177,9 @@ export class GpuRegionalSurfaceTerrain {
 				const i = y * MAP_RESOLUTION + x;
 				elevation[i] = sample.elevationMeters;
 				landMask[i] = sample.landMask;
+				mountainMask[i] = sample.rawTerrain.mountainMask;
+				erosionMask[i] = sample.rawTerrain.erosionMask;
+				riverMask[i] = sample.rawTerrain.riverMask;
 				water[i] = sample.isWater ? 1 : 0;
 				minElevation = Math.min(minElevation, sample.elevationMeters);
 				maxElevation = Math.max(maxElevation, sample.elevationMeters);
@@ -184,6 +190,9 @@ export class GpuRegionalSurfaceTerrain {
 		return {
 			elevation,
 			landMask,
+			mountainMask,
+			erosionMask,
+			riverMask,
 			water,
 			minElevation,
 			maxElevation,
@@ -213,10 +222,34 @@ export class GpuRegionalSurfaceTerrain {
 				const up = field.elevation[Math.min(MAP_RESOLUTION - 1, y + 1) * MAP_RESOLUTION + x];
 				const dx = (right - left) / range;
 				const dy = (up - down) / range;
-				const slope = THREE.MathUtils.clamp(Math.hypot(dx, dy) * 6, 0, 1);
-				const curvature = THREE.MathUtils.clamp(Math.abs(left + right + down + up - h * 4) / range * 18, 0, 1);
+				const slope = THREE.MathUtils.clamp(Math.hypot(dx, dy) * 6.5, 0, 1);
+				const curvature = THREE.MathUtils.clamp(
+					Math.abs(left + right + down + up - h * 4) / range * 18,
+					0,
+					1,
+				);
+				const mountain = field.mountainMask[i];
+				const erosion = field.erosionMask[i];
+				const river = field.riverMask[i];
+				const rock = THREE.MathUtils.clamp(
+					slope * 0.72 + mountain * 0.48 + erosion * 0.24 - river * 0.38,
+					0,
+					1,
+				);
+				const valley = THREE.MathUtils.clamp(river * 0.78 + (1 - slope) * erosion * 0.24, 0, 1);
+				const plain = THREE.MathUtils.clamp(1 - rock - valley * 0.55, 0, 1);
 
-				resolveColor(this.definition.class, field.landMask[i], h, field.water[i] === 1, slope, color);
+				resolveSplatColor(
+					this.definition.class,
+					field.landMask[i],
+					h,
+					field.water[i] === 1,
+					plain,
+					rock,
+					valley,
+					erosion,
+					color,
+				);
 				colorData[o] = toByte(color.r);
 				colorData[o + 1] = toByte(color.g);
 				colorData[o + 2] = toByte(color.b);
@@ -225,14 +258,29 @@ export class GpuRegionalSurfaceTerrain {
 				const normalizedHeight = THREE.MathUtils.clamp((h - field.minElevation) / range, 0, 1);
 				setGray(heightData, o, normalizedHeight);
 
-				const normal = new THREE.Vector3(-dx * 7, -dy * 7, 1).normalize();
+				const micro = deterministicDetail(x, y, this.definition.render.terrainSeed);
+				const nx = -dx * (7.5 + rock * 3.5) + (micro - 0.5) * 0.055 * rock;
+				const ny = -dy * (7.5 + rock * 3.5) + (0.5 - micro) * 0.055 * rock;
+				const normal = new THREE.Vector3(nx, ny, 1).normalize();
 				normalData[o] = toByte(normal.x * 0.5 + 0.5);
 				normalData[o + 1] = toByte(normal.y * 0.5 + 0.5);
 				normalData[o + 2] = toByte(normal.z * 0.5 + 0.5);
 				normalData[o + 3] = 255;
 
-				setGray(aoData, o, 1 - curvature * 0.65);
-				const roughness = field.water[i] ? 0.42 : THREE.MathUtils.clamp(0.72 + slope * 0.22, 0, 1);
+				const cavity = THREE.MathUtils.clamp(
+					curvature * 0.46 + valley * 0.34 + erosion * curvature * 0.28,
+					0,
+					0.82,
+				);
+				setGray(aoData, o, 1 - cavity);
+
+				const roughness = field.water[i]
+					? 0.38
+					: THREE.MathUtils.clamp(
+						0.68 + plain * 0.12 + rock * 0.20 + erosion * 0.10 - valley * 0.08,
+						0.54,
+						1,
+					);
 				setGray(roughnessData, o, roughness);
 			}
 		}
@@ -257,6 +305,9 @@ type SurfaceBasis = { up: THREE.Vector3; east: THREE.Vector3; north: THREE.Vecto
 type TerrainField = {
 	elevation: Float32Array;
 	landMask: Float32Array;
+	mountainMask: Float32Array;
+	erosionMask: Float32Array;
+	riverMask: Float32Array;
 	water: Uint8Array;
 	minElevation: number;
 	maxElevation: number;
@@ -279,12 +330,28 @@ function createBasis(up: THREE.Vector3): SurfaceBasis {
 	return { up, east, north };
 }
 
-function sampleDirection(target: THREE.Vector3, basis: SurfaceBasis, u: number, v: number, extent: number): THREE.Vector3 {
-	return target.copy(basis.up).addScaledVector(basis.east, u * extent).addScaledVector(basis.north, v * extent).normalize();
+function sampleDirection(
+	target: THREE.Vector3,
+	basis: SurfaceBasis,
+	u: number,
+	v: number,
+	extent: number,
+): THREE.Vector3 {
+	return target
+		.copy(basis.up)
+		.addScaledVector(basis.east, u * extent)
+		.addScaledVector(basis.north, v * extent)
+		.normalize();
 }
 
 function makeTexture(data: Uint8Array, srgb: boolean): THREE.DataTexture {
-	const texture = new THREE.DataTexture(data, MAP_RESOLUTION, MAP_RESOLUTION, THREE.RGBAFormat, THREE.UnsignedByteType);
+	const texture = new THREE.DataTexture(
+		data,
+		MAP_RESOLUTION,
+		MAP_RESOLUTION,
+		THREE.RGBAFormat,
+		THREE.UnsignedByteType,
+	);
 	texture.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
 	texture.minFilter = THREE.LinearFilter;
 	texture.magFilter = THREE.LinearFilter;
@@ -306,14 +373,66 @@ function toByte(value: number): number {
 	return Math.round(THREE.MathUtils.clamp(value, 0, 1) * 255);
 }
 
-function resolveColor(planetClass: PlanetClass, landMask: number, elevation: number, isWater: boolean, slope: number, target: THREE.Color): void {
+function deterministicDetail(x: number, y: number, seed: number): number {
+	const value = Math.sin(x * 12.9898 + y * 78.233 + seed * 0.0017) * 43758.5453;
+	return value - Math.floor(value);
+}
+
+function resolveSplatColor(
+	planetClass: PlanetClass,
+	landMask: number,
+	elevation: number,
+	isWater: boolean,
+	plain: number,
+	rock: number,
+	valley: number,
+	erosion: number,
+	target: THREE.Color,
+): void {
 	if (isWater) {
 		target.setRGB(0.025, 0.10 + landMask * 0.08, 0.20 + landMask * 0.14);
 		return;
 	}
+
 	const relief = THREE.MathUtils.clamp(elevation / 9000 * 0.5 + 0.5, 0, 1);
-	if (planetClass === 'desert') target.setRGB(0.48 + relief * 0.28 - slope * 0.12, 0.20 + relief * 0.25 - slope * 0.08, 0.055 + relief * 0.08);
-	else if (planetClass === 'ice') target.setRGB(0.62 + relief * 0.30, 0.70 + relief * 0.25, 0.76 + relief * 0.22);
-	else if (planetClass === 'lava') target.setRGB(0.20 + relief * 0.55, 0.035 + relief * 0.14, 0.01);
-	else target.setRGB(0.12 + relief * 0.24 - slope * 0.06, 0.18 + relief * 0.30, 0.09 + relief * 0.16);
+	const palette = getTerrainPalette(planetClass, relief);
+	const sum = Math.max(0.0001, plain + rock + valley);
+	const wp = plain / sum;
+	const wr = rock / sum;
+	const wv = valley / sum;
+	target.setRGB(
+		palette.plain.r * wp + palette.rock.r * wr + palette.valley.r * wv,
+		palette.plain.g * wp + palette.rock.g * wr + palette.valley.g * wv,
+		palette.plain.b * wp + palette.rock.b * wr + palette.valley.b * wv,
+	);
+	target.multiplyScalar(THREE.MathUtils.lerp(1.03, 0.84, erosion * rock));
 }
+
+function getTerrainPalette(planetClass: PlanetClass, relief: number): TerrainPalette {
+	if (planetClass === 'desert') return {
+		plain: new THREE.Color().setRGB(0.52 + relief * 0.20, 0.24 + relief * 0.18, 0.075 + relief * 0.07),
+		rock: new THREE.Color().setRGB(0.32 + relief * 0.18, 0.12 + relief * 0.10, 0.045 + relief * 0.04),
+		valley: new THREE.Color().setRGB(0.37 + relief * 0.14, 0.18 + relief * 0.10, 0.065 + relief * 0.045),
+	};
+	if (planetClass === 'ice') return {
+		plain: new THREE.Color().setRGB(0.70 + relief * 0.22, 0.77 + relief * 0.18, 0.82 + relief * 0.16),
+		rock: new THREE.Color().setRGB(0.42 + relief * 0.18, 0.52 + relief * 0.17, 0.58 + relief * 0.16),
+		valley: new THREE.Color().setRGB(0.54 + relief * 0.18, 0.65 + relief * 0.18, 0.71 + relief * 0.16),
+	};
+	if (planetClass === 'lava') return {
+		plain: new THREE.Color().setRGB(0.20 + relief * 0.40, 0.035 + relief * 0.10, 0.01),
+		rock: new THREE.Color().setRGB(0.08 + relief * 0.18, 0.018 + relief * 0.04, 0.008),
+		valley: new THREE.Color().setRGB(0.30 + relief * 0.44, 0.055 + relief * 0.12, 0.012),
+	};
+	return {
+		plain: new THREE.Color().setRGB(0.15 + relief * 0.22, 0.21 + relief * 0.24, 0.10 + relief * 0.12),
+		rock: new THREE.Color().setRGB(0.14 + relief * 0.18, 0.14 + relief * 0.17, 0.12 + relief * 0.14),
+		valley: new THREE.Color().setRGB(0.10 + relief * 0.15, 0.18 + relief * 0.20, 0.09 + relief * 0.11),
+	};
+}
+
+type TerrainPalette = {
+	plain: THREE.Color;
+	rock: THREE.Color;
+	valley: THREE.Color;
+};
