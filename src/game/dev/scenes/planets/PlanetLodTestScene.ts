@@ -12,6 +12,11 @@ import {
 	type SurfacePaletteKind,
 } from '@conduit/planet/rendering';
 import {
+	PlanetSurfaceViewRuntime,
+	getPlanetRadiusMeters,
+	type PlanetSurfaceViewUpdate,
+} from '@conduit/planet/near-view';
+import {
 	PLANET_CLIMATE_DEBUG_MODES,
 	createPlanetClimateDiagnostics,
 	drawPlanetClimateDebugMap,
@@ -22,6 +27,12 @@ import {
 	getPlanetScaleDiagnostics,
 	getSystemPlanetRenderRadius,
 } from '../../../spatial/SpatialRenderScale';
+
+const LAB_PLANET_RADIUS = 3;
+const SURFACE_SCALE_START_METERS = 1_500_000;
+const SURFACE_SCALE_END_METERS = 120_000;
+const SURFACE_RUNTIME_CREATE_METERS = 90_000;
+const SURFACE_RUNTIME_RELEASE_METERS = 140_000;
 
 const PLANET_CLASSES: PlanetClass[] = [
 	'barren',
@@ -54,7 +65,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	readonly id = 'planet-lod';
 	readonly name = 'Planet LOD';
 	readonly category = 'Planets' as const;
-	readonly description = 'Production Planet renderer with LOD stats.';
+	readonly description = 'Production Planet renderer with seamless orbit-to-surface scale handoff.';
 
 	private context: FeatureTestContext | null = null;
 	private readonly root = new THREE.Group();
@@ -62,6 +73,11 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private definition: PlanetDefinition | null = null;
 	private profile: PlanetRenderProfile | null = null;
 	private climateDiagnostics: PlanetClimateDiagnostics | null = null;
+	private surfaceRuntime: PlanetSurfaceViewRuntime | null = null;
+	private surfaceUpdate: PlanetSurfaceViewUpdate | null = null;
+	private surfaceAnchorDirection: THREE.Vector3 | null = null;
+	private worldScale = 1;
+	private scaleBlend = 0;
 	private stats: HTMLElement | null = null;
 	private climateCanvas: HTMLCanvasElement | null = null;
 	private seed = 3001;
@@ -84,6 +100,9 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		this.root.name = 'PlanetLodTestScene';
 		context.scene.add(this.root);
 		context.camera.position.set(0, 3.2, 9.5);
+		context.camera.near = 0.01;
+		context.camera.far = 2_000;
+		context.camera.updateProjectionMatrix();
 		context.controls.target.set(0, 0, 0);
 		context.controls.enablePan = false;
 		context.controls.update();
@@ -92,16 +111,43 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	}
 
 	update(deltaSeconds: number): void {
-		if (!this.context || !this.planet) {
+		if (!this.context || !this.planet || !this.definition) {
 			return;
 		}
 
-		this.planet.update(this.context.camera.position, deltaSeconds);
+		const physicalRadiusMeters = getPlanetRadiusMeters(this.definition);
+		let logicalCamera = this.context.camera.position.clone()
+			.divideScalar(this.worldScale);
+		let altitudeMeters = Math.max(
+			0,
+			(logicalCamera.length() / LAB_PLANET_RADIUS - 1) * physicalRadiusMeters,
+		);
+
+		this.updateWorldScale(logicalCamera, altitudeMeters, physicalRadiusMeters);
+
+		logicalCamera = this.context.camera.position.clone()
+			.divideScalar(this.worldScale);
+		altitudeMeters = Math.max(
+			0,
+			(logicalCamera.length() / LAB_PLANET_RADIUS - 1) * physicalRadiusMeters,
+		);
+
+		this.updateSurfaceRuntime(altitudeMeters);
+		this.surfaceUpdate = this.surfaceRuntime?.update(
+			this.context.camera.position,
+			this.worldScale,
+		) ?? null;
+
+		this.planet.group.visible =
+			!this.surfaceUpdate || this.surfaceUpdate.transition.planetVisible;
+
+		this.planet.update(logicalCamera, deltaSeconds);
 		this.planet.setRenderQuality('idle');
-		this.updateStats();
+		this.updateStats(altitudeMeters);
 	}
 
 	dispose(): void {
+		this.disposeSurfaceRuntime();
 		this.planet?.dispose();
 		this.planet = null;
 		this.context?.scene.remove(this.root);
@@ -112,6 +158,99 @@ export class PlanetLodTestScene implements FeatureTestScene {
 
 	reset(): void {
 		this.createPlanet();
+	}
+
+	private updateWorldScale(
+		logicalCamera: THREE.Vector3,
+		altitudeMeters: number,
+		physicalRadiusMeters: number,
+	): void {
+		if (!this.context || !this.planet) return;
+
+		const canUseSurface =
+			this.layerToggles.nearSurfaceTerrain &&
+			this.isLandableSurfaceClass();
+		const blend = canUseSurface
+			? getSurfaceScaleBlend(altitudeMeters)
+			: 0;
+		const physicalWorldScale = physicalRadiusMeters / LAB_PLANET_RADIUS;
+		const desiredScale = blend <= 0
+			? 1
+			: Math.exp(Math.log(physicalWorldScale) * blend);
+		const scaleRatio = desiredScale / this.worldScale;
+
+		if (Math.abs(scaleRatio - 1) > 0.000001) {
+			this.context.camera.position.multiplyScalar(scaleRatio);
+			this.context.controls.target.multiplyScalar(scaleRatio);
+			this.worldScale = desiredScale;
+			this.planet.group.scale.setScalar(this.worldScale);
+		}
+
+		if (blend > 0 && !this.surfaceAnchorDirection) {
+			this.surfaceAnchorDirection = logicalCamera.clone().normalize();
+		}
+
+		if (blend <= 0.0001) {
+			this.surfaceAnchorDirection = null;
+			this.context.controls.target.set(0, 0, 0);
+		} else if (this.surfaceAnchorDirection) {
+			const surfaceRadiusWorld = LAB_PLANET_RADIUS * this.worldScale;
+			this.context.controls.target.copy(this.surfaceAnchorDirection)
+				.multiplyScalar(surfaceRadiusWorld * blend);
+		}
+
+		this.scaleBlend = blend;
+		const metersToWorld =
+			(LAB_PLANET_RADIUS / physicalRadiusMeters) * this.worldScale;
+		this.context.camera.near = Math.max(0.01, metersToWorld * 0.25);
+		this.context.camera.far = Math.max(
+			2_000,
+			this.context.camera.position.length() * 3,
+		);
+		this.context.camera.updateProjectionMatrix();
+		this.context.controls.update();
+	}
+
+	private updateSurfaceRuntime(altitudeMeters: number): void {
+		if (!this.context || !this.definition) return;
+		const enabled =
+			this.layerToggles.nearSurfaceTerrain &&
+			this.isLandableSurfaceClass();
+
+		if (
+			enabled &&
+			!this.surfaceRuntime &&
+			altitudeMeters < SURFACE_RUNTIME_CREATE_METERS
+		) {
+			this.surfaceRuntime = new PlanetSurfaceViewRuntime(
+				this.definition,
+				LAB_PLANET_RADIUS,
+				this.context.camera.position,
+				this.worldScale,
+			);
+			this.root.add(this.surfaceRuntime.group);
+		}
+
+		if (
+			this.surfaceRuntime &&
+			(!enabled || altitudeMeters > SURFACE_RUNTIME_RELEASE_METERS)
+		) {
+			this.disposeSurfaceRuntime();
+		}
+	}
+
+	private disposeSurfaceRuntime(): void {
+		if (!this.surfaceRuntime) return;
+		this.root.remove(this.surfaceRuntime.group);
+		this.surfaceRuntime.dispose();
+		this.surfaceRuntime = null;
+		this.surfaceUpdate = null;
+	}
+
+	private isLandableSurfaceClass(): boolean {
+		return this.profile?.rendererKind === 'solid_surface' &&
+			this.definition?.class !== 'gas_giant' &&
+			this.definition?.class !== 'ice_giant';
 	}
 
 	private createUi(root: HTMLElement): void {
@@ -135,7 +274,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			this.createLayerToggleHtml('gasParticles', 'Gas Particles') +
 			this.createLayerToggleHtml('rings', 'Rings') +
 			this.createLayerToggleHtml('moons', 'Moons') +
-			this.createLayerToggleHtml('nearSurfaceTerrain', 'Near Terrain') +
+			this.createLayerToggleHtml('nearSurfaceTerrain', 'Near Terrain / Seamless Surface') +
 			this.createLayerToggleHtml('toxicHaze', 'Toxic Haze') +
 			`</div>` +
 			`<canvas data-climate-map width="240" height="120" style="display:block;width:240px;height:120px;margin-top:8px;border:1px solid rgba(120,180,255,.35);border-radius:4px;image-rendering:pixelated;background:#05070a;"></canvas>` +
@@ -148,7 +287,6 @@ export class PlanetLodTestScene implements FeatureTestScene {
 				const input = root.querySelector<HTMLInputElement>('[data-seed]');
 				const select = root.querySelector<HTMLSelectElement>('[data-planet-class]');
 				const nextSeed = Number(input?.value ?? this.seed);
-
 				this.seed = Number.isFinite(nextSeed) ? Math.max(1, Math.floor(nextSeed)) : this.seed;
 				this.planetClass = isPlanetClass(select?.value)
 					? select.value
@@ -174,15 +312,17 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	}
 
 	private createPlanet(): void {
-		if (!this.context) {
-			return;
-		}
+		if (!this.context) return;
 
+		this.disposeSurfaceRuntime();
 		this.planet?.dispose();
 		this.planet = null;
 		this.definition = null;
 		this.profile = null;
 		this.climateDiagnostics = null;
+		this.surfaceAnchorDirection = null;
+		this.worldScale = 1;
+		this.scaleBlend = 0;
 		this.root.clear();
 		this.context.clearReport();
 
@@ -200,7 +340,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		this.profile = profile;
 		this.climateDiagnostics = createPlanetClimateDiagnostics(definition);
 		this.planet = new Planet(
-			3,
+			LAB_PLANET_RADIUS,
 			this.context.rendererMode,
 			null,
 			{
@@ -211,7 +351,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 						definition.class === 'ice_giant'
 					),
 				moonSystem: this.layerToggles.moons,
-				nearSurfaceTerrain: this.layerToggles.nearSurfaceTerrain,
+				// The legacy one-patch near layer is replaced by PlanetSurfaceViewRuntime here.
+				nearSurfaceTerrain: false,
 			},
 			definition,
 			profile,
@@ -223,10 +364,15 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			gasLayer: true,
 			rings: this.layerToggles.rings,
 			moons: this.layerToggles.moons,
-			nearSurfaceTerrain: this.layerToggles.nearSurfaceTerrain,
+			nearSurfaceTerrain: false,
 			toxicHaze: this.layerToggles.toxicHaze,
 		});
 		this.root.add(this.planet.group);
+
+		this.context.camera.position.set(0, 3.2, 9.5);
+		this.context.controls.target.set(0, 0, 0);
+		this.context.controls.update();
+
 		this.context.report({
 			status: 'pass',
 			label: 'planet created',
@@ -256,9 +402,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private createDebugDefinition(
 		definition: PlanetDefinition,
 	): PlanetDefinition {
-		if (this.layerToggles.ocean) {
-			return definition;
-		}
+		if (this.layerToggles.ocean) return definition;
 
 		const debugDefinition = {
 			...definition,
@@ -297,25 +441,15 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		return {
 			...profile,
 			enableOcean: profile.enableOcean && this.layerToggles.ocean,
-			enableAtmosphere:
-				profile.enableAtmosphere &&
-				this.layerToggles.atmosphere,
-			enableClouds:
-				profile.enableClouds &&
-				this.layerToggles.clouds,
-			enableRings:
-				profile.enableRings &&
-				this.layerToggles.rings,
-			cloudCoverage: this.layerToggles.clouds
-				? profile.cloudCoverage
-				: 0,
-			atmosphereDensity: this.layerToggles.atmosphere
-				? profile.atmosphereDensity
-				: 0,
+			enableAtmosphere: profile.enableAtmosphere && this.layerToggles.atmosphere,
+			enableClouds: profile.enableClouds && this.layerToggles.clouds,
+			enableRings: profile.enableRings && this.layerToggles.rings,
+			cloudCoverage: this.layerToggles.clouds ? profile.cloudCoverage : 0,
+			atmosphereDensity: this.layerToggles.atmosphere ? profile.atmosphereDensity : 0,
 		};
 	}
 
-	private updateStats(): void {
+	private updateStats(altitudeMeters: number): void {
 		if (
 			!this.planet ||
 			!this.context ||
@@ -323,74 +457,73 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			!this.definition ||
 			!this.profile ||
 			!this.climateDiagnostics
-		) {
-			return;
-		}
+		) return;
 
 		const terrain = this.planet.getTerrainStats();
-		const distance = this.context.camera.position.length();
+		const logicalDistance = this.context.camera.position.length() / this.worldScale;
 		const climate = this.definition.climate;
 		const resources = this.definition.resources;
 		const gasStats = this.planet.getGasGiantDebugStats();
 		const visualProfile = getPlanetClassVisualProfile(
 			this.profile.surfacePalette as SurfacePaletteKind,
 		);
-		const labRenderRadius = 3;
+		const labScale = getPlanetScaleDiagnostics(
+			this.definition.physical.radius,
+			LAB_PLANET_RADIUS,
+		);
 		const gameRenderRadius = getSystemPlanetRenderRadius(
 			this.definition.physical.radius,
 			this.definition.class,
-		);
-		const labScale = getPlanetScaleDiagnostics(
-			this.definition.physical.radius,
-			labRenderRadius,
 		);
 		const gameScale = getPlanetScaleDiagnostics(
 			this.definition.physical.radius,
 			gameRenderRadius,
 		);
+		const local = this.surfaceUpdate?.terrain;
+		const transition = this.surfaceUpdate?.transition;
 
 		this.stats.innerHTML =
 			`class: ${this.planetClass}<br>` +
 			`renderer: ${this.context.rendererMode} / kind: ${this.profile.rendererKind}<br>` +
 			`surface: ${this.profile.surfacePalette} / atmosphere: ${this.profile.atmospherePalette} / clouds: ${this.profile.cloudPalette}<br>` +
 			`features: terrain ${formatBool(this.profile.enableTerrain)}, ocean ${formatBool(this.profile.enableOcean)}, atmosphere ${formatBool(this.profile.enableAtmosphere)}, clouds ${formatBool(this.profile.enableClouds)}, rings ${formatBool(this.profile.enableRings)}<br>` +
-			`layer toggles: surface ${formatBool(this.layerToggles.surface)}, ocean ${formatBool(this.layerToggles.ocean)}, atmosphere ${formatBool(this.layerToggles.atmosphere)}, clouds ${formatBool(this.layerToggles.clouds)}, gas particles ${formatBool(this.layerToggles.gasParticles)}<br>` +
 			`real radius: ${formatKilometers(labScale.physicalRadiusKilometers)} km<br>` +
-			`lab radius: ${labRenderRadius.toFixed(1)}u (${formatKilometers(labScale.kilometersPerRenderedUnit)} km/u)<br>` +
+			`lab radius: ${LAB_PLANET_RADIUS.toFixed(1)}u (${formatKilometers(labScale.kilometersPerRenderedUnit)} km/u)<br>` +
 			`game radius: ${gameRenderRadius.toFixed(1)}u (${formatKilometers(gameScale.kilometersPerRenderedUnit)} km/u, ${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>` +
+			`orbit->surface altitude: ${(altitudeMeters / 1000).toFixed(1)} km<br>` +
+			`world scale: ${formatScaleMultiplier(this.worldScale)} / blend ${(this.scaleBlend * 100).toFixed(0)}%<br>` +
+			`logical distance: ${logicalDistance.toFixed(4)}u / controls distance: ${this.context.camera.position.distanceTo(this.context.controls.target).toFixed(1)}u<br>` +
+			`cube patches: ${terrain.visibleMeshes}/${terrain.totalPatches} / LOD ${terrain.maxLevel}<br>` +
+			`local terrain: ${local ? `${local.visibleChunks} visible / ${local.cachedChunks} cached / ${(local.coverageRadiusMeters / 1000).toFixed(1)} km coverage` : 'standby'}<br>` +
+			`planet/local weight: ${transition ? `${transition.planetWeight.toFixed(2)} / ${transition.terrainWeight.toFixed(2)}` : '1.00 / 0.00'}<br>` +
 			`ocean level: ${format01(this.profile.oceanLevel)} terrain roughness: ${format01(this.profile.terrainRoughness)} mountain: ${format01(this.profile.mountainScale)}<br>` +
 			`atmo density: ${format01(this.profile.atmosphereDensity)} cloud coverage: ${format01(this.profile.cloudCoverage)}<br>` +
-			`effective atmo: ${formatAtmosphereRenderValues(this.planet.getAtmosphereRenderProfileValues())}<br>` +
-			`visual profile: night ${format01(visualProfile.nightAlbedo)}, ambient ${format01(visualProfile.ambientBoost)}, direct ${format01(visualProfile.directLightScale)}, fill ${format01(visualProfile.shadowFill)}, floor ${format01(visualProfile.visibilityFloor)}, env ${format01(visualProfile.environmentReflection)} / peak ${format01(visualProfile.environmentPeak)}<br>` +
+			`visual profile: night ${format01(visualProfile.nightAlbedo)}, ambient ${format01(visualProfile.ambientBoost)}, direct ${format01(visualProfile.directLightScale)}<br>` +
 			`${gasStats ? `${formatGasGiantStats(gasStats)}<br>` : ''}` +
-			`coast profile: water ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart, OCEAN_COASTLINE_PROFILE.waterHintEnd)}, shelf ${formatRange(OCEAN_COASTLINE_PROFILE.shelfStart, OCEAN_COASTLINE_PROFILE.shelfEnd)} -> ${formatRange(OCEAN_COASTLINE_PROFILE.shelfFadeStart, OCEAN_COASTLINE_PROFILE.shelfFadeEnd)}, island ${formatRange(OCEAN_COASTLINE_PROFILE.islandStart, OCEAN_COASTLINE_PROFILE.islandEnd)}<br>` +
+			`coast profile: water ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart, OCEAN_COASTLINE_PROFILE.waterHintEnd)}, shelf ${formatRange(OCEAN_COASTLINE_PROFILE.shelfStart, OCEAN_COASTLINE_PROFILE.shelfEnd)}<br>` +
 			`terrain profile: ${this.climateDiagnostics.terrainProfile}<br>` +
-			`temp: ${format01(climate.temperature01)} humid: ${format01(climate.humidity)} dry: ${format01(climate.aridity)}<br>` +
-			`wind: ${format01(climate.windStrength)} storm: ${format01(climate.stormActivity)} cloud: ${format01(climate.cloudPersistence)}<br>` +
-			`ash: ${format01(climate.ashLoad)} season: ${format01(climate.seasonality)}<br>` +
-			`sample avg temp/humid/dry: ${format01(this.climateDiagnostics.averages.temperature)} / ${format01(this.climateDiagnostics.averages.humidity)} / ${format01(this.climateDiagnostics.averages.aridity)}<br>` +
-			`coverage ocean/coast/land: ${formatPercent(this.climateDiagnostics.coverage.deepOcean + this.climateDiagnostics.coverage.shallowOcean)} / ${formatPercent(this.climateDiagnostics.coverage.coast)} / ${formatPercent(this.climateDiagnostics.coverage.land)}<br>` +
-			`biomes: ${formatBiomeShares(this.climateDiagnostics.dominantBiomes)}<br>` +
-			`resources: metal ${format01(resources.metal)}, rare ${format01(resources.rareMaterials)}, fuel ${format01(resources.fuel)}, water ${format01(resources.water)}, vol ${format01(resources.volatiles)}, research ${format01(resources.researchValue)}, difficulty ${format01(resources.extractionDifficulty)}<br>` +
-			`warnings: ${this.climateDiagnostics.warnings.length > 0 ? this.climateDiagnostics.warnings.join(', ') : 'none'}<br>` +
-			`distance: ${distance.toFixed(2)}<br>` +
-			`patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>` +
-			`max lod: ${terrain.maxLevel}<br>` +
-			`splits: ${terrain.balance.splits}<br>` +
-			`violations: ${terrain.balance.violations}`;
+			`temp/humid/dry: ${format01(climate.temperature01)} / ${format01(climate.humidity)} / ${format01(climate.aridity)}<br>` +
+			`resources: metal ${format01(resources.metal)}, rare ${format01(resources.rareMaterials)}, fuel ${format01(resources.fuel)}, water ${format01(resources.water)}`;
 	}
 
 	private updateClimateMap(): void {
-		if (!this.climateCanvas || !this.definition) {
-			return;
-		}
-
+		if (!this.climateCanvas || !this.definition) return;
 		drawPlanetClimateDebugMap(
 			this.climateCanvas,
 			this.definition,
 			this.climateDebugMode,
 		);
 	}
+}
+
+function getSurfaceScaleBlend(altitudeMeters: number): number {
+	const t = THREE.MathUtils.clamp(
+		(SURFACE_SCALE_START_METERS - altitudeMeters) /
+		(SURFACE_SCALE_START_METERS - SURFACE_SCALE_END_METERS),
+		0,
+		1,
+	);
+	return t * t * (3 - 2 * t);
 }
 
 function isPlanetClass(value: string | undefined): value is PlanetClass {
@@ -408,53 +541,15 @@ function format01(value: number): string {
 	return value.toFixed(2);
 }
 
-function formatRange(
-	from: number,
-	to: number,
-): string {
+function formatRange(from: number, to: number): string {
 	return `${from.toFixed(2)}-${to.toFixed(2)}`;
-}
-
-function formatAtmosphereRenderValues(values: {
-	density: number;
-	haze: number;
-	color: string;
-	palette: string;
-}): string {
-	return (
-		`density ${format01(values.density)}, haze ${format01(values.haze)}, ` +
-		`color ${values.color}, palette ${values.palette || 'none'}`
-	);
 }
 
 function formatGasGiantStats(stats: NonNullable<ReturnType<Planet['getGasGiantDebugStats']>>): string {
 	return (
 		`gas layer: ${stats.kind}, shells ${stats.cloudShells}, ` +
-		`particles ${stats.cloudParticles.enabled ? 'on' : 'off'} ` +
-		`${stats.cloudParticles.count} @ ${format01(stats.cloudParticles.opacity)}, ` +
-		`far ${formatRange(stats.cloudParticles.farFadeStart, stats.cloudParticles.farFadeEnd)} ` +
-		`-> opacity ${format01(stats.cloudParticles.farOpacity)}, ` +
-		`atmo r ${format01(stats.atmosphere.radius)} opacity ${format01(stats.atmosphere.opacity)}, ` +
-		`bands ${format01(stats.bands.frequency)} stripes ${stats.bands.stripeCount}`
+		`particles ${stats.cloudParticles.enabled ? 'on' : 'off'} ${stats.cloudParticles.count}`
 	);
-}
-
-function formatPercent(value: number): string {
-	return `${Math.round(value * 100)}%`;
-}
-
-function formatBiomeShares(
-	shares: PlanetClimateDiagnostics['dominantBiomes'],
-): string {
-	return shares
-		.map((entry) => `${entry.biome} ${formatPercent(entry.share)}`)
-		.join(', ');
-}
-
-function formatDebugMode(mode: ClimateDebugMode): string {
-	return mode
-		.replace(/([A-Z])/g, ' $1')
-		.replace(/^./, (first) => first.toUpperCase());
 }
 
 function formatBool(value: boolean): string {
@@ -463,26 +558,16 @@ function formatBool(value: boolean): string {
 
 function formatKilometers(value: number): string {
 	if (Math.abs(value) >= 10_000) {
-		return value.toLocaleString('en-US', {
-			maximumFractionDigits: 0,
-		});
+		return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 	}
-
-	if (Math.abs(value) >= 100) {
-		return value.toFixed(0);
-	}
-
+	if (Math.abs(value) >= 100) return value.toFixed(0);
 	return value.toFixed(1);
 }
 
 function formatScaleMultiplier(value: number): string {
-	if (value === 0 || !Number.isFinite(value)) {
-		return 'n/a';
-	}
-
-	if (Math.abs(value) < 0.001) {
+	if (value === 0 || !Number.isFinite(value)) return 'n/a';
+	if (Math.abs(value) < 0.001 || Math.abs(value) >= 10_000) {
 		return `${value.toExponential(2)}x`;
 	}
-
 	return `${value.toFixed(4)}x`;
 }
