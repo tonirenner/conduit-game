@@ -10,8 +10,8 @@ import type { ClimateDebugMode } from '@conduit/planet/climate';
 import { getPlanetScaleDiagnostics, getSystemPlanetRenderRadius } from '../../../spatial/SpatialRenderScale';
 
 const LAB_PLANET_RADIUS = 3;
-const SURFACE_TRANSITION_START_METERS = 1_500_000;
-const SURFACE_TRANSITION_END_METERS = 120_000;
+const SURFACE_TRANSITION_START_METERS = 4_000_000;
+const SURFACE_TRANSITION_END_METERS = 500_000;
 
 const PLANET_CLASSES: PlanetClass[] = ['barren','rocky','terrestrial','ocean','desert','ice','lava','toxic','carbon','metal_rich','gas_giant','ice_giant'];
 type PlanetLayerToggles = { surface:boolean; ocean:boolean; atmosphere:boolean; clouds:boolean; gasParticles:boolean; rings:boolean; moons:boolean; nearSurfaceTerrain:boolean; toxicHaze:boolean; };
@@ -21,7 +21,16 @@ export class PlanetLodTestScene implements FeatureTestScene {
   private context:FeatureTestContext|null=null; private readonly root=new THREE.Group(); private planet:Planet|null=null; private definition:PlanetDefinition|null=null; private profile:PlanetRenderProfile|null=null; private climateDiagnostics:PlanetClimateDiagnostics|null=null; private stats:HTMLElement|null=null; private climateCanvas:HTMLCanvasElement|null=null; private seed=3001; private planetClass:PlanetClass='ocean'; private climateDebugMode:ClimateDebugMode='biome';
   private readonly layerToggles:PlanetLayerToggles={surface:true,ocean:true,atmosphere:true,clouds:true,gasParticles:true,rings:true,moons:true,nearSurfaceTerrain:true,toxicHaze:true};
   init(context:FeatureTestContext):void{this.context=context;this.root.name='PlanetLodTestScene';context.scene.add(this.root);context.camera.position.set(0,3.2,9.5);context.controls.target.set(0,0,0);context.controls.enablePan=false;context.controls.update();this.createUi(context.uiRoot);this.createPlanet();}
-  update(deltaSeconds:number):void{if(!this.context||!this.planet)return;this.planet.update(this.context.camera.position,deltaSeconds);this.planet.setRenderQuality('idle');this.updateStats();}
+  update(deltaSeconds:number):void{
+    if(!this.context||!this.planet||!this.definition)return;
+    const physicalRadiusMeters=getPlanetRadiusMeters(this.definition);
+    const minLodDistance=LAB_PLANET_RADIUS*(1+SURFACE_TRANSITION_START_METERS/physicalRadiusMeters);
+    const lodCamera=this.context.camera.position.clone();
+    if(lodCamera.length()<minLodDistance)lodCamera.setLength(minLodDistance);
+    this.planet.update(lodCamera,deltaSeconds);
+    this.planet.setRenderQuality('idle');
+    this.updateStats();
+  }
   dispose():void{this.planet?.dispose();this.planet=null;this.context?.scene.remove(this.root);disposeObject3D(this.root);this.root.clear();this.context=null;}
   reset():void{this.createPlanet();}
 
@@ -71,7 +80,9 @@ export class PlanetLodTestScene implements FeatureTestScene {
     const cameraDistance=this.context.camera.position.length();
     const altitudeMeters=Math.max(0,(cameraDistance/LAB_PLANET_RADIUS-1)*physicalRadiusMeters);
     const transition=getSurfaceTransitionDebug(altitudeMeters);
-    this.stats.innerHTML=`class: ${this.planetClass}<br>renderer: ${this.context.rendererMode}<br>real radius: ${formatKilometers(physicalRadiusKilometers)} km<br>game radius: ${gameRenderRadius.toFixed(1)}u (${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>visual profile: ${format01(visualProfile.ambientBoost)}<br>coast: ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart,OCEAN_COASTLINE_PROFILE.waterHintEnd)}<br>patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>max lod: ${terrain.maxLevel}<br><br><b>surface transition debug</b><br>altitude: ${formatAltitude(altitudeMeters)}<br>phase: ${transition.phase}<br>blend: ${(transition.blend*100).toFixed(1)}%<br>orbit weight: ${(1-transition.blend).toFixed(2)} / surface weight: ${transition.blend.toFixed(2)}<br>thresholds: ${(SURFACE_TRANSITION_START_METERS/1000).toFixed(0)} km → ${(SURFACE_TRANSITION_END_METERS/1000).toFixed(0)} km`;
+    const minLodDistance=LAB_PLANET_RADIUS*(1+SURFACE_TRANSITION_START_METERS/physicalRadiusMeters);
+    const lodCapped=cameraDistance<minLodDistance;
+    this.stats.innerHTML=`class: ${this.planetClass}<br>renderer: ${this.context.rendererMode}<br>real radius: ${formatKilometers(physicalRadiusKilometers)} km<br>game radius: ${gameRenderRadius.toFixed(1)}u (${formatScaleMultiplier(gameScale.visualScaleMultiplier)})<br>visual profile: ${format01(visualProfile.ambientBoost)}<br>coast: ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart,OCEAN_COASTLINE_PROFILE.waterHintEnd)}<br>patches: ${terrain.visibleMeshes}/${terrain.totalPatches}<br>max lod: ${terrain.maxLevel}<br><br><b>surface transition debug</b><br>altitude: ${formatAltitude(altitudeMeters)}<br>phase: ${transition.phase}<br>blend: ${(transition.blend*100).toFixed(1)}%<br>orbit weight: ${(1-transition.blend).toFixed(2)} / surface weight: ${transition.blend.toFixed(2)}<br>thresholds: ${(SURFACE_TRANSITION_START_METERS/1000).toFixed(0)} km → ${(SURFACE_TRANSITION_END_METERS/1000).toFixed(0)} km<br>orbit LOD cap: ${lodCapped?'ACTIVE':'off'} @ ${(SURFACE_TRANSITION_START_METERS/1000).toFixed(0)} km`;
   }
   private updateClimateMap():void{if(!this.climateCanvas||!this.definition)return;drawPlanetClimateDebugMap(this.climateCanvas,this.definition,this.climateDebugMode);}
 }
