@@ -165,7 +165,7 @@ export class FeatureLab {
 		this.performanceHud.style.color = '#8fe7ff';
 		this.performanceHud.style.fontWeight = 'bold';
 		this.performanceHud.style.pointerEvents = 'none';
-		this.performanceHud.textContent = '-- FPS · -- ms · 1% --';
+		this.performanceHud.textContent = '-- FPS · -- ms · 1% -- · -- calls';
 
 		this.root.append(this.nav, this.panel, this.performanceHud);
 		document.body.appendChild(this.root);
@@ -201,9 +201,10 @@ export class FeatureLab {
 			Math.max(0, Math.floor(sortedFrameTimes.length * 0.99)),
 		);
 		const onePercentLowFps = 1000 / Math.max(0.001, sortedFrameTimes[p99Index]);
+		const drawCalls = this.options.renderer.info.render.calls;
 
 		this.performanceHud.textContent =
-			`${fps.toFixed(0)} FPS · ${averageFrameMs.toFixed(1)} ms · 1% ${onePercentLowFps.toFixed(0)} FPS`;
+			`${fps.toFixed(0)} FPS · ${averageFrameMs.toFixed(1)} ms · 1% ${onePercentLowFps.toFixed(0)} FPS · ${drawCalls} calls`;
 
 		this.performanceWindowMs = 0;
 		this.performanceFrames = 0;
