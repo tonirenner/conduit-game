@@ -12,6 +12,7 @@ import {
 	smoothstep,
 	texture,
 	uniform,
+	vertexStage,
 } from 'three/tsl';
 
 type TerrainRuntime = THREE.Object3D;
@@ -47,6 +48,8 @@ type StitchGroup = {
 	representative: THREE.BufferGeometry;
 };
 
+export type PlanetInstancedColorMode = 'fragment-atlas' | 'vertex-rgb' | 'flat';
+
 export type PlanetInstancedCubeSphereStats = {
 	active: boolean;
 	sourceMeshes: number;
@@ -54,6 +57,7 @@ export type PlanetInstancedCubeSphereStats = {
 	stitchGroups: number;
 	rebuilds: number;
 	atlasSize: string;
+	colorMode: PlanetInstancedColorMode;
 };
 
 /**
@@ -82,6 +86,7 @@ export class PlanetInstancedCubeSphereDebug {
 	private stitchGroups = 0;
 	private rebuilds = 0;
 	private atlasSize = '0x0';
+	private colorMode: PlanetInstancedColorMode = 'fragment-atlas';
 
 	constructor(private readonly planetRadius: number) {}
 
@@ -109,6 +114,13 @@ export class PlanetInstancedCubeSphereDebug {
 		}
 	}
 
+	setColorMode(mode: PlanetInstancedColorMode): void {
+		if (this.colorMode === mode) return;
+		this.restoreSourceVisibility();
+		this.colorMode = mode;
+		this.destroyGpuState();
+	}
+
 	detach(): void {
 		this.restoreSourceVisibility();
 		this.destroyGpuState();
@@ -130,6 +142,7 @@ export class PlanetInstancedCubeSphereDebug {
 			stitchGroups: this.stitchGroups,
 			rebuilds: this.rebuilds,
 			atlasSize: this.atlasSize,
+			colorMode: this.colorMode,
 		};
 	}
 
@@ -366,7 +379,7 @@ export class PlanetInstancedCubeSphereDebug {
 			depthWrite: true,
 			depthTest: true,
 		});
-		material.name = 'PlanetInstancedCubeSphereMaterial';
+		material.name = `PlanetInstancedCubeSphereMaterial:${this.colorMode}`;
 
 		const patchUv = attribute('patchUv', 'vec2');
 		const faceNormal = attribute('iFaceNormal', 'vec3');
@@ -386,11 +399,17 @@ export class PlanetInstancedCubeSphereDebug {
 		const atlasUv = atlasRect.xy.add(patchUv.mul(atlasRect.zw));
 		const baked = texture(atlas, atlasUv);
 		const displacement = baked.x;
-		const baseColor = baked.yzw;
 
 		material.positionNode = sphereNormal.mul(
 			float(this.planetRadius).add(displacement),
 		);
+
+		const baseColor =
+			this.colorMode === 'flat'
+			? color(0xc58b4f)
+			: this.colorMode === 'vertex-rgb'
+			? vertexStage(baked.yzw)
+			: baked.yzw;
 
 		const sunDirection = uniform(
 			new THREE.Vector3(0.72, 0.34, 0.60).normalize(),
