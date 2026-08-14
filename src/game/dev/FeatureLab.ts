@@ -48,6 +48,7 @@ export class FeatureLab {
 	private performanceWindowMs = 0;
 	private performanceFrames = 0;
 	private performanceFrameTimes: number[] = [];
+	private performanceDrawCalls = 0;
 
 	constructor(
 		private readonly options: FeatureLabOptions,
@@ -83,6 +84,12 @@ export class FeatureLab {
 
 	update(deltaSeconds: number): void {
 		this.updatePerformanceHud();
+
+		// FeatureLab.update() runs before the renderer. Capture WebGPU frame
+		// statistics in a microtask so the current render has finished first.
+		queueMicrotask(() => {
+			this.performanceDrawCalls = this.options.renderer.info.render.drawCalls;
+		});
 
 		if (!this.activeScene || this.paused) {
 			return;
@@ -201,10 +208,9 @@ export class FeatureLab {
 			Math.max(0, Math.floor(sortedFrameTimes.length * 0.99)),
 		);
 		const onePercentLowFps = 1000 / Math.max(0.001, sortedFrameTimes[p99Index]);
-		const drawCalls = this.options.renderer.info.render.drawCalls;
 
 		this.performanceHud.textContent =
-			`${fps.toFixed(0)} FPS · ${averageFrameMs.toFixed(1)} ms · 1% ${onePercentLowFps.toFixed(0)} FPS · ${drawCalls} calls`;
+			`${fps.toFixed(0)} FPS · ${averageFrameMs.toFixed(1)} ms · 1% ${onePercentLowFps.toFixed(0)} FPS · ${this.performanceDrawCalls} calls`;
 
 		this.performanceWindowMs = 0;
 		this.performanceFrames = 0;
