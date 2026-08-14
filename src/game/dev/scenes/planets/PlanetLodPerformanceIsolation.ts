@@ -60,8 +60,7 @@ export class PlanetLodPerformanceIsolation {
 	private batchSourceVisibility = new Map<THREE.Mesh, boolean>();
 	private batchSourceCount = 0;
 	private batchRebuilds = 0;
-	private readonly terrainInverseWorld = new THREE.Matrix4();
-	private readonly instanceMatrix = new THREE.Matrix4();
+	private readonly identityMatrix = new THREE.Matrix4();
 
 	constructor(planetRadius = 3) {
 		this.orbitMaterial = createPlanetOrbitSurfaceNodeMaterial(
@@ -292,24 +291,45 @@ export class PlanetLodPerformanceIsolation {
 		batch.perObjectFrustumCulled = false;
 		batch.sortObjects = false;
 
-		terrain.updateWorldMatrix(true, false);
-		this.terrainInverseWorld.copy(terrain.matrixWorld).invert();
-
 		for (const mesh of meshes) {
-			mesh.updateWorldMatrix(true, false);
-			const geometryId = batch.addGeometry(mesh.geometry);
+			const geometry = this.createBatchGeometry(mesh.geometry);
+			const geometryId = batch.addGeometry(geometry);
 			const instanceId = batch.addInstance(geometryId);
-			this.instanceMatrix.multiplyMatrices(
-				this.terrainInverseWorld,
-				mesh.matrixWorld,
-			);
-			batch.setMatrixAt(instanceId, this.instanceMatrix);
+			batch.setMatrixAt(instanceId, this.identityMatrix);
+			geometry.dispose();
 		}
 
 		terrain.add(batch);
 		this.batchMesh = batch;
 		this.batchSignature = signature;
 		this.batchRebuilds++;
+	}
+
+	/**
+	 * TerrainPatch positions are intentionally patch-local: the orbit material
+	 * reconstructs the displaced sphere position and subtracts the per-vertex
+	 * patchOrigin attribute, while the source Mesh transform adds that origin
+	 * back. A BatchedMesh + custom positionNode can not rely on that source Mesh
+	 * transform, so for the debug batch we bake the origin into the vertex
+	 * contract by replacing patchOrigin with zero. The orbit positionNode then
+	 * produces full PlanetTerrain-local coordinates and every batch instance can
+	 * stay at the identity transform.
+	 */
+	private createBatchGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry {
+		const geometry = source.clone();
+		const patchOrigin = geometry.getAttribute('patchOrigin');
+
+		if (patchOrigin) {
+			geometry.setAttribute(
+				'patchOrigin',
+				new THREE.Float32BufferAttribute(
+					new Float32Array(patchOrigin.count * 3),
+					3,
+				),
+			);
+		}
+
+		return geometry;
 	}
 
 	private restoreBatchSourceVisibility(): void {
