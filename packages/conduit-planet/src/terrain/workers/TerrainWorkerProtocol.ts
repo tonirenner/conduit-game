@@ -1,5 +1,10 @@
 import * as THREE from 'three';
-import type { CubeFace, PatchBounds, TerrainGrid } from '../../TerrainSource';
+import type {
+	CubeFace,
+	PatchBounds,
+	TerrainGrid,
+	TerrainPatchGeometryData,
+} from '../../TerrainSource';
 import type { TerrainSeedConfig } from '../noise';
 
 export type SerializedVector3 = readonly [number, number, number];
@@ -25,6 +30,12 @@ export type SerializedTerrainSeedConfig = {
 	oceanBias: number;
 };
 
+export type TerrainWorkerGeometryRequest = {
+	radius: number;
+	terrainHeightScale: number;
+	useGpuVertexDisplacement: boolean;
+};
+
 export type TerrainWorkerPatchRequest = {
 	type: 'build-patch-grid';
 	id: number;
@@ -33,6 +44,17 @@ export type TerrainWorkerPatchRequest = {
 	bounds: PatchBounds;
 	resolution: number;
 	terrainSeedConfig: SerializedTerrainSeedConfig;
+	geometry?: TerrainWorkerGeometryRequest;
+};
+
+export type TerrainWorkerGeometryResult = {
+	positions: ArrayBuffer;
+	morphPositions: ArrayBuffer;
+	sphereNormals: ArrayBuffer;
+	terrainNormals: ArrayBuffer;
+	terrainDisplacements: ArrayBuffer;
+	terrainDataUvs: ArrayBuffer;
+	patchOrigins: ArrayBuffer;
 };
 
 export type TerrainWorkerPatchResult = {
@@ -47,6 +69,7 @@ export type TerrainWorkerPatchResult = {
 	continents: ArrayBuffer;
 	mountainMasks: ArrayBuffer;
 	colors: ArrayBuffer;
+	geometry?: TerrainWorkerGeometryResult;
 };
 
 export type TerrainWorkerErrorResult = {
@@ -117,6 +140,18 @@ export function deserializeTerrainSeedConfig(
 export function terrainGridFromWorkerResult(
 	result: TerrainWorkerPatchResult,
 ): TerrainGrid {
+	const geometry: TerrainPatchGeometryData | undefined = result.geometry
+		? {
+			positions: new Float32Array(result.geometry.positions),
+			morphPositions: new Float32Array(result.geometry.morphPositions),
+			sphereNormals: new Float32Array(result.geometry.sphereNormals),
+			terrainNormals: new Float32Array(result.geometry.terrainNormals),
+			terrainDisplacements: new Float32Array(result.geometry.terrainDisplacements),
+			terrainDataUvs: new Float32Array(result.geometry.terrainDataUvs),
+			patchOrigins: new Float32Array(result.geometry.patchOrigins),
+		}
+		: undefined;
+
 	return {
 		key: result.key,
 		resolution: result.resolution,
@@ -126,6 +161,7 @@ export function terrainGridFromWorkerResult(
 		continents: new Float32Array(result.continents),
 		mountainMasks: new Float32Array(result.mountainMasks),
 		colors: new Float32Array(result.colors),
+		geometry,
 	};
 }
 
