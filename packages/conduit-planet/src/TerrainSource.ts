@@ -14,6 +14,16 @@ export type PatchBounds = {
 	size: number;
 };
 
+export type TerrainPatchGeometryData = {
+	positions: Float32Array;
+	morphPositions: Float32Array;
+	sphereNormals: Float32Array;
+	terrainNormals: Float32Array;
+	terrainDisplacements: Float32Array;
+	terrainDataUvs: Float32Array;
+	patchOrigins: Float32Array;
+};
+
 export type TerrainGrid = {
 	key: string;
 	resolution: number;
@@ -25,6 +35,7 @@ export type TerrainGrid = {
 	mountainMasks: Float32Array;
 
 	colors: Float32Array;
+	geometry?: TerrainPatchGeometryData;
 };
 
 export type TerrainSourceStats = {
