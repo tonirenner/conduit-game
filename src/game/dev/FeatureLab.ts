@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { PostProcessingPipeline } from '@conduit/web3d/postprocessing';
 import type { AppRenderer, RendererMode } from '@conduit/web3d/renderer';
+import { PerspectiveApproachProfile } from '@conduit/web3d/camera';
 import type { SettingsStore } from '../settings/GameSettings';
 import {
 	getFeatureTestRegistration,
@@ -34,6 +35,9 @@ export class FeatureLab {
 	private readonly sceneUiRoot = document.createElement('div');
 	private readonly statusRoot = document.createElement('div');
 	private readonly registrations = getFeatureTestRegistrations();
+	private readonly planetApproachCamera: PerspectiveApproachProfile;
+	private readonly planetApproachCameraEnabled =
+		new URLSearchParams(window.location.search).get('planetCamera') !== 'legacy';
 	private activeScene: FeatureTestScene | null = null;
 	private activeRegistration: FeatureTestRegistration | null = null;
 	private paused = false;
@@ -46,6 +50,19 @@ export class FeatureLab {
 		this.group.name = 'FeatureLab';
 		this.options.scene.add(this.group);
 		this.configureCamera();
+		this.planetApproachCamera = new PerspectiveApproachProfile(
+			this.options.camera,
+			{
+				referenceRadius: 3,
+				farFov: 46,
+				approachFov: 34,
+				surfaceFov: 48,
+				approachStartHeight: 2.1,
+				surfaceStartHeight: 0.35,
+				surfaceEndHeight: 0.06,
+				response: 7,
+			},
+		);
 		this.configureUi();
 
 		const initial =
@@ -64,10 +81,18 @@ export class FeatureLab {
 			return;
 		}
 
+		if (
+			this.planetApproachCameraEnabled &&
+			this.activeRegistration?.id === 'planet-lod'
+		) {
+			this.planetApproachCamera.update(deltaSeconds);
+		}
+
 		this.activeScene.update(deltaSeconds * this.timeScale);
 	}
 
 	dispose(): void {
+		this.planetApproachCamera.restore();
 		this.activeScene?.dispose();
 		this.activeScene = null;
 		this.root.remove();
@@ -243,6 +268,10 @@ export class FeatureLab {
 			return;
 		}
 
+		if (this.activeRegistration?.id === 'planet-lod' && id !== 'planet-lod') {
+			this.planetApproachCamera.restore();
+		}
+
 		this.activeScene?.dispose();
 		this.activeScene = null;
 		this.group.clear();
@@ -255,6 +284,15 @@ export class FeatureLab {
 		const scene = registration.create();
 		this.activeScene = scene;
 		await scene.init(this.createContext());
+
+		if (id === 'planet-lod' && this.planetApproachCameraEnabled) {
+			this.statusEntries.push({
+				status: 'info',
+				label: 'approach camera profile',
+				detail: 'single camera / FOV 46° → 34° → 48°',
+			});
+			this.renderStatus();
+		}
 	}
 
 	private createContext(): FeatureTestContext {
