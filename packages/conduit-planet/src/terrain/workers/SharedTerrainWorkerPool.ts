@@ -1,21 +1,20 @@
-import { TerrainWorkerPool } from './TerrainWorkerPool';
+import { TerrainGeometryWorkerPool } from './TerrainGeometryWorkerPool';
 
-let sharedTerrainWorkerPool: TerrainWorkerPool | null | undefined;
+let sharedTerrainWorkerPool: TerrainGeometryWorkerPool | null | undefined;
 
 /**
  * Reuse one persistent terrain worker pool across planet renderers.
  *
- * Worker requests already carry the full terrain seed config, so a shared
- * pool can safely service different planets without tying worker lifetime to
- * a single CubeSphere instance.
+ * Worker requests carry the full terrain seed config and may additionally
+ * return ready-to-upload patch geometry for dynamic CubeSphere refinement.
  */
-export function getSharedTerrainWorkerPool(): TerrainWorkerPool | null {
+export function getSharedTerrainWorkerPool(): TerrainGeometryWorkerPool | null {
 	if (sharedTerrainWorkerPool !== undefined) {
 		return sharedTerrainWorkerPool;
 	}
 
-	sharedTerrainWorkerPool = TerrainWorkerPool.isSupported()
-		? new TerrainWorkerPool()
+	sharedTerrainWorkerPool = TerrainGeometryWorkerPool.isSupported()
+		? new TerrainGeometryWorkerPool()
 		: null;
 
 	return sharedTerrainWorkerPool;
