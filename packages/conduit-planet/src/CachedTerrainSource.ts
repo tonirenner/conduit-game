@@ -20,6 +20,7 @@ import type {
 } from './TerrainSource';
 import { getSharedTerrainWorkerPool } from './terrain/workers/SharedTerrainWorkerPool';
 import type { TerrainWorkerPoolStats } from './terrain/workers/TerrainWorkerPool';
+import type { TerrainWorkerGeometryRequest } from './terrain/workers/TerrainWorkerProtocol';
 
 export class CachedTerrainSource implements TerrainSource {
 	private readonly terrainHeightCache: TerrainHeightCache;
@@ -61,15 +62,17 @@ export class CachedTerrainSource implements TerrainSource {
 		bounds: PatchBounds,
 		resolution: number,
 		priority = 0,
+		geometry?: TerrainWorkerGeometryRequest,
 	): Promise<TerrainGrid> {
 		const key = this.getPatchKey(face, bounds, resolution);
 		const prefetched = this.prefetchedGrids.get(key);
 
-		if (prefetched) {
+		if (prefetched && (!geometry || prefetched.geometry)) {
 			return Promise.resolve(prefetched);
 		}
 
-		const inFlight = this.inFlightGrids.get(key);
+		const requestKey = geometry ? `${key}|geometry` : key;
+		const inFlight = this.inFlightGrids.get(requestKey);
 		if (inFlight) {
 			return inFlight;
 		}
@@ -86,15 +89,16 @@ export class CachedTerrainSource implements TerrainSource {
 			bounds,
 			resolution,
 			terrainSeedConfig: this.terrainSeedConfig,
+			geometry,
 			priority,
 		}).then((grid) => {
 			this.prefetchedGrids.set(grid.key, grid);
 			return grid;
 		}).finally(() => {
-			this.inFlightGrids.delete(key);
+			this.inFlightGrids.delete(requestKey);
 		});
 
-		this.inFlightGrids.set(key, request);
+		this.inFlightGrids.set(requestKey, request);
 		return request;
 	}
 
