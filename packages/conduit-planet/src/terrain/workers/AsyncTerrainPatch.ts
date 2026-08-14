@@ -8,14 +8,6 @@ import {
 } from '../../TerrainPatch';
 import type { TerrainSource } from '../../TerrainSource';
 
-/**
- * Runtime view of TerrainPatch's constructor state.
- *
- * TerrainPatch predates asynchronous terrain generation and keeps these fields
- * private. Keeping the async bridge in one small class lets us prove the worker
- * handoff without destabilising the mature LOD/stitching implementation. Once
- * the path is proven, these dependencies can be promoted to protected fields.
- */
 type TerrainPatchRuntime = {
 	face: CubeFace;
 	bounds: PatchBounds;
@@ -48,8 +40,6 @@ export class AsyncTerrainPatch extends TerrainPatch {
 
 		const childBounds = this.createChildBounds(state.bounds);
 
-		// Bootstrap levels remain synchronous so a newly created planet has a
-		// complete low-detail shell immediately. Dynamic refinement starts at L2.
 		if (
 			state.level < 2 ||
 			!(state.terrainSource instanceof CachedTerrainSource)
@@ -61,7 +51,7 @@ export class AsyncTerrainPatch extends TerrainPatch {
 		this.requestAsyncSplit(
 			state.terrainSource,
 			childBounds,
-			state.level,
+			state,
 		);
 	}
 
@@ -87,7 +77,7 @@ export class AsyncTerrainPatch extends TerrainPatch {
 	private requestAsyncSplit(
 		terrainSource: CachedTerrainSource,
 		childBounds: PatchBounds[],
-		level: number,
+		state: TerrainPatchRuntime,
 	): void {
 		this.splitPending = true;
 		const requestId = ++this.splitRequestId;
@@ -95,10 +85,15 @@ export class AsyncTerrainPatch extends TerrainPatch {
 		void Promise.all(
 			childBounds.map((bounds, index) =>
 				terrainSource.requestPatchGrid(
-					this.runtimeState().face,
+					state.face,
 					bounds,
-					this.runtimeState().resolution,
-					10_000 + level * 100 - index,
+					state.resolution,
+					10_000 + state.level * 100 - index,
+					{
+						radius: state.radius,
+						terrainHeightScale: state.terrainHeightScale,
+						useGpuVertexDisplacement: state.useGpuVertexDisplacement,
+					},
 				),
 			),
 		).then(() => {
@@ -161,8 +156,6 @@ export class AsyncTerrainPatch extends TerrainPatch {
 			));
 		}
 
-		// Only swap visibility after every child geometry exists. The parent
-		// therefore covers the surface for the entire worker wait and build step.
 		for (const child of children) {
 			state.childrenPatches.push(child);
 			this.add(child);
@@ -175,26 +168,10 @@ export class AsyncTerrainPatch extends TerrainPatch {
 		const half = bounds.size / 2;
 
 		return [
-			{
-				x: bounds.x,
-				y: bounds.y,
-				size: half,
-			},
-			{
-				x: bounds.x + half,
-				y: bounds.y,
-				size: half,
-			},
-			{
-				x: bounds.x,
-				y: bounds.y + half,
-				size: half,
-			},
-			{
-				x: bounds.x + half,
-				y: bounds.y + half,
-				size: half,
-			},
+			{ x: bounds.x, y: bounds.y, size: half },
+			{ x: bounds.x + half, y: bounds.y, size: half },
+			{ x: bounds.x, y: bounds.y + half, size: half },
+			{ x: bounds.x + half, y: bounds.y + half, size: half },
 		];
 	}
 
