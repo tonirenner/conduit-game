@@ -1,5 +1,6 @@
 export * from '../Planet';
 export * from '../Sun';
+export * from '../PlanetOrbitSurfaceNodeMaterial';
 export {
 	LAVA_ATMOSPHERE_VISUAL_PROFILE,
 	createAtmosphereRenderProfileValues,
