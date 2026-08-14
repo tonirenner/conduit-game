@@ -5,7 +5,7 @@ import {
 	PlanetInstancedCubeSphereDebug,
 	type PlanetInstancedColorMode,
 	type PlanetInstancedCubeSphereStats,
-} from './PlanetInstancedCubeSphereDebug';
+} from './PlanetInstancedCubeSphereDebugV2';
 
 export type { PlanetInstancedColorMode };
 
@@ -23,6 +23,7 @@ export type PlanetLodPerformanceIsolationState = {
 	terrainMaterial: PlanetLodTerrainMaterialMode;
 	terrainRenderer: PlanetLodTerrainRendererMode;
 	instancedColorMode: PlanetInstancedColorMode;
+	instancedHeightDisplacement: boolean;
 	atmosphereOff: boolean;
 };
 
@@ -46,6 +47,8 @@ export type PlanetLodTerrainBatchStats = {
  *   InstancedBufferGeometry renderer grouped only by stitch/index variant.
  * - Instanced color mode isolates fragment atlas sampling from vertex-stage
  *   sampling/interpolation and a flat baseline.
+ * - Instanced height displacement can be disabled independently to isolate
+ *   geometry-atlas/vertex displacement cost.
  * - Atmosphere Off uses Planet's existing debug layer visibility API.
  */
 export class PlanetLodPerformanceIsolation {
@@ -55,6 +58,7 @@ export class PlanetLodPerformanceIsolation {
 		terrainMaterial: 'production',
 		terrainRenderer: 'patches',
 		instancedColorMode: 'fragment-atlas',
+		instancedHeightDisplacement: true,
 		atmosphereOff: false,
 	};
 	private frozenTerrain: TerrainRuntime | null = null;
@@ -80,6 +84,9 @@ export class PlanetLodPerformanceIsolation {
 		) as THREE.Material;
 		this.instancedRenderer = new PlanetInstancedCubeSphereDebug(planetRadius);
 		this.instancedRenderer.setColorMode(this.state.instancedColorMode);
+		this.instancedRenderer.setHeightDisplacementEnabled(
+			this.state.instancedHeightDisplacement,
+		);
 	}
 
 	attach(planet: Planet): void {
@@ -173,6 +180,12 @@ export class PlanetLodPerformanceIsolation {
 		if (this.state.instancedColorMode === mode) return;
 		this.state.instancedColorMode = mode;
 		this.instancedRenderer.setColorMode(mode);
+	}
+
+	setInstancedHeightDisplacement(enabled: boolean): void {
+		if (this.state.instancedHeightDisplacement === enabled) return;
+		this.state.instancedHeightDisplacement = enabled;
+		this.instancedRenderer.setHeightDisplacementEnabled(enabled);
 	}
 
 	setAtmosphereOff(enabled: boolean): void {
