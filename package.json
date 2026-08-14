@@ -10,7 +10,7 @@
     "dev": "bun --hot ./game.ts",
     "dev:server": "bun --hot ./server/src/index.ts",
     "server": "bun ./server/src/index.ts",
-    "build": "bun build ./index.html --outdir ./dist",
+    "build": "bun ./scripts/build.ts",
     "preview": "bun ./dist/index.html"
   },
   "dependencies": {
