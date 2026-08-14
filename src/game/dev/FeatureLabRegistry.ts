@@ -5,6 +5,7 @@ import { TurretTrackingTestScene } from './scenes/combat/TurretTrackingTestScene
 import { WeaponFireTestScene } from './scenes/combat/WeaponFireTestScene';
 import { ShipCombatTestScene } from './scenes/combat/ShipCombatTestScene';
 import { PlanetLodTestScene } from './scenes/planets/PlanetLodTestScene';
+import { TerrainWorkerTestScene } from './scenes/planets/TerrainWorkerTestScene';
 import { PostFxTestScene } from './scenes/rendering/PostFxTestScene';
 import { StudioLightingTestScene } from './scenes/rendering/StudioLightingTestScene';
 
@@ -72,6 +73,14 @@ registerFeatureTest({
 	category: 'Planets',
 	description: 'Inspect Planet renderer LOD and terrain stats in isolation.',
 	create: () => new PlanetLodTestScene(),
+});
+
+registerFeatureTest({
+	id: 'planet-terrain-workers',
+	name: 'Terrain Workers',
+	category: 'Planets',
+	description: 'Smoke test persistent WebWorker terrain generation and transferable patch grids.',
+	create: () => new TerrainWorkerTestScene(),
 });
 
 registerFeatureTest({
