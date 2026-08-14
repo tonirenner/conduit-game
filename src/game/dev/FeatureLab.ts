@@ -32,6 +32,7 @@ export class FeatureLab {
 	private readonly root = document.createElement('div');
 	private readonly nav = document.createElement('div');
 	private readonly panel = document.createElement('div');
+	private readonly performanceHud = document.createElement('div');
 	private readonly sceneUiRoot = document.createElement('div');
 	private readonly statusRoot = document.createElement('div');
 	private readonly registrations = getFeatureTestRegistrations();
@@ -43,6 +44,10 @@ export class FeatureLab {
 	private paused = false;
 	private timeScale = 1;
 	private statusEntries: FeatureLabStatusEntry[] = [];
+	private performanceSampleSeconds = 0;
+	private performanceSampleFrames = 0;
+	private displayedFps = 0;
+	private displayedFrameMs = 0;
 
 	constructor(
 		private readonly options: FeatureLabOptions,
@@ -77,6 +82,8 @@ export class FeatureLab {
 	}
 
 	update(deltaSeconds: number): void {
+		this.updatePerformanceHud(deltaSeconds);
+
 		if (!this.activeScene || this.paused) {
 			return;
 		}
@@ -146,10 +153,56 @@ export class FeatureLab {
 		this.panel.style.backdropFilter = 'blur(10px)';
 		this.panel.style.pointerEvents = 'auto';
 
-		this.root.append(this.nav, this.panel);
+		this.performanceHud.style.position = 'absolute';
+		this.performanceHud.style.left = '50%';
+		this.performanceHud.style.bottom = '14px';
+		this.performanceHud.style.transform = 'translateX(-50%)';
+		this.performanceHud.style.padding = '6px 9px';
+		this.performanceHud.style.border = '1px solid rgba(143,231,255,.28)';
+		this.performanceHud.style.borderRadius = '6px';
+		this.performanceHud.style.background = 'rgba(3,11,18,.78)';
+		this.performanceHud.style.backdropFilter = 'blur(8px)';
+		this.performanceHud.style.color = '#8fe7ff';
+		this.performanceHud.style.fontWeight = 'bold';
+		this.performanceHud.style.pointerEvents = 'none';
+		this.performanceHud.textContent = '-- FPS · -- ms';
+
+		this.root.append(this.nav, this.panel, this.performanceHud);
 		document.body.appendChild(this.root);
 		this.renderNav();
 		this.renderPanel();
+	}
+
+	private updatePerformanceHud(deltaSeconds: number): void {
+		const sampleSeconds = THREE.MathUtils.clamp(deltaSeconds, 0, 0.25);
+
+		if (sampleSeconds <= 0) {
+			return;
+		}
+
+		this.performanceSampleSeconds += sampleSeconds;
+		this.performanceSampleFrames++;
+
+		if (this.performanceSampleSeconds < 0.25) {
+			return;
+		}
+
+		const fps = this.performanceSampleFrames / this.performanceSampleSeconds;
+		const frameMs = 1000 / Math.max(0.001, fps);
+		const smoothing = this.displayedFps > 0 ? 0.42 : 1;
+
+		this.displayedFps = THREE.MathUtils.lerp(this.displayedFps, fps, smoothing);
+		this.displayedFrameMs = THREE.MathUtils.lerp(
+			this.displayedFrameMs,
+			frameMs,
+			smoothing,
+		);
+
+		this.performanceHud.textContent =
+			`${this.displayedFps.toFixed(0)} FPS · ${this.displayedFrameMs.toFixed(1)} ms`;
+
+		this.performanceSampleSeconds = 0;
+		this.performanceSampleFrames = 0;
 	}
 
 	private renderNav(): void {
