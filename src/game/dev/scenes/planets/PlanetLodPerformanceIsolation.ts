@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Planet } from '@conduit/planet/rendering';
+import { createPlanetOrbitSurfaceNodeMaterial } from '@conduit/planet/rendering';
 
 type TerrainRuntime = THREE.Object3D & {
 	updateLOD?: (cameraPosition: THREE.Vector3) => void;
@@ -7,9 +8,11 @@ type TerrainRuntime = THREE.Object3D & {
 
 type MeshMaterial = THREE.Material | THREE.Material[];
 
+export type PlanetLodTerrainMaterialMode = 'production' | 'orbit' | 'simple';
+
 export type PlanetLodPerformanceIsolationState = {
 	freezeLod: boolean;
-	simpleMaterial: boolean;
+	terrainMaterial: PlanetLodTerrainMaterialMode;
 	atmosphereOff: boolean;
 };
 
@@ -19,15 +22,15 @@ export type PlanetLodPerformanceIsolationState = {
  * This intentionally avoids changing production Planet/CubeSphere APIs:
  * - Freeze LOD shadows only PlanetTerrain.updateLOD while all other Planet
  *   updates continue normally.
- * - Simple Material replaces only CubeSphere terrain mesh materials and
- *   restores the original shared surface material afterwards.
+ * - Terrain material can switch between production, the lightweight orbit
+ *   shader and a MeshBasicMaterial baseline.
  * - Atmosphere Off uses Planet's existing debug layer visibility API.
  */
 export class PlanetLodPerformanceIsolation {
 	private planet: Planet | null = null;
 	private state: PlanetLodPerformanceIsolationState = {
 		freezeLod: false,
-		simpleMaterial: false,
+		terrainMaterial: 'production',
 		atmosphereOff: false,
 	};
 	private frozenTerrain: TerrainRuntime | null = null;
@@ -38,13 +41,20 @@ export class PlanetLodPerformanceIsolation {
 		depthTest: true,
 		depthWrite: true,
 	});
+	private readonly orbitMaterial: THREE.Material;
+
+	constructor(planetRadius = 3) {
+		this.orbitMaterial = createPlanetOrbitSurfaceNodeMaterial(
+			planetRadius,
+		) as THREE.Material;
+	}
 
 	attach(planet: Planet): void {
 		this.detach();
 		this.planet = planet;
 		this.applyAtmosphereState();
 		this.applyLodFreeze();
-		this.applySimpleMaterial();
+		this.applyTerrainMaterial();
 	}
 
 	detach(): void {
@@ -57,10 +67,9 @@ export class PlanetLodPerformanceIsolation {
 
 	update(): void {
 		// New async LOD children can appear after Planet.update(). Re-apply the
-		// cheap material before the frame is rendered so they never fall back to
-		// the production surface shader during the isolation test.
-		if (this.state.simpleMaterial) {
-			this.applySimpleMaterial();
+		// selected debug material before the frame is rendered.
+		if (this.state.terrainMaterial !== 'production') {
+			this.applyTerrainMaterial();
 		}
 
 		if (this.state.freezeLod) {
@@ -74,10 +83,11 @@ export class PlanetLodPerformanceIsolation {
 		else this.restoreLodUpdate();
 	}
 
-	setSimpleMaterial(enabled: boolean): void {
-		this.state.simpleMaterial = enabled;
-		if (enabled) this.applySimpleMaterial();
-		else this.restoreMaterials();
+	setTerrainMaterial(mode: PlanetLodTerrainMaterialMode): void {
+		if (this.state.terrainMaterial === mode) return;
+		this.restoreMaterials();
+		this.state.terrainMaterial = mode;
+		this.applyTerrainMaterial();
 	}
 
 	setAtmosphereOff(enabled: boolean): void {
@@ -92,6 +102,7 @@ export class PlanetLodPerformanceIsolation {
 	dispose(): void {
 		this.detach();
 		this.simpleMaterial.dispose();
+		this.orbitMaterial.dispose();
 	}
 
 	private getTerrain(): TerrainRuntime | null {
@@ -120,17 +131,21 @@ export class PlanetLodPerformanceIsolation {
 		this.originalUpdateLod = null;
 	}
 
-	private applySimpleMaterial(): void {
-		if (!this.state.simpleMaterial) return;
+	private applyTerrainMaterial(): void {
+		if (this.state.terrainMaterial === 'production') return;
 		const terrain = this.getTerrain();
 		if (!terrain) return;
+
+		const material = this.state.terrainMaterial === 'orbit'
+			? this.orbitMaterial
+			: this.simpleMaterial;
 
 		terrain.traverse((object) => {
 			if (!(object instanceof THREE.Mesh)) return;
 			if (!this.originalMaterials.has(object)) {
 				this.originalMaterials.set(object, object.material);
 			}
-			object.material = this.simpleMaterial;
+			object.material = material;
 		});
 	}
 
@@ -143,6 +158,8 @@ export class PlanetLodPerformanceIsolation {
 			const original = this.originalMaterials.get(object);
 			if (original) object.material = original;
 		});
+
+		this.originalMaterials = new WeakMap<THREE.Mesh, MeshMaterial>();
 	}
 
 	private applyAtmosphereState(): void {
