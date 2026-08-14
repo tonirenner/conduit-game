@@ -1,7 +1,9 @@
 import { TerrainHeightCache } from '../../TerrainHeightCache';
+import { buildTerrainPatchGeometryData } from './TerrainPatchGeometryBuilder';
 import {
 	deserializeCubeFace,
 	deserializeTerrainSeedConfig,
+	type TerrainWorkerGeometryResult,
 	type TerrainWorkerPatchRequest,
 	type TerrainWorkerPatchResult,
 	type TerrainWorkerResponse,
@@ -33,19 +35,40 @@ workerScope.onmessage = (event): void => {
 			caches.set(configKey, cache);
 		}
 
+		const face = deserializeCubeFace(request.face);
 		const grid = cache.getPatchGrid(
-			deserializeCubeFace(request.face),
+			face,
 			request.bounds,
 			request.resolution,
 		);
 
-		// Keep the worker-side cache intact. The copies below are transferred,
-		// so their ArrayBuffers leave the worker without touching cached data.
 		const heights = grid.heights.slice();
 		const landMasks = grid.landMasks.slice();
 		const continents = grid.continents.slice();
 		const mountainMasks = grid.mountainMasks.slice();
 		const colors = grid.colors.slice();
+
+		let geometry: TerrainWorkerGeometryResult | undefined;
+		if (request.geometry) {
+			const geometryData = buildTerrainPatchGeometryData(
+				face,
+				request.bounds,
+				request.resolution,
+				grid,
+				(normal) => cache!.sampleNormal(normal),
+				request.geometry,
+			);
+
+			geometry = {
+				positions: geometryData.positions.buffer as ArrayBuffer,
+				morphPositions: geometryData.morphPositions.buffer as ArrayBuffer,
+				sphereNormals: geometryData.sphereNormals.buffer as ArrayBuffer,
+				terrainNormals: geometryData.terrainNormals.buffer as ArrayBuffer,
+				terrainDisplacements: geometryData.terrainDisplacements.buffer as ArrayBuffer,
+				terrainDataUvs: geometryData.terrainDataUvs.buffer as ArrayBuffer,
+				patchOrigins: geometryData.patchOrigins.buffer as ArrayBuffer,
+			};
+		}
 
 		const response: TerrainWorkerPatchResult = {
 			type: 'patch-grid',
@@ -59,15 +82,29 @@ workerScope.onmessage = (event): void => {
 			continents: continents.buffer as ArrayBuffer,
 			mountainMasks: mountainMasks.buffer as ArrayBuffer,
 			colors: colors.buffer as ArrayBuffer,
+			geometry,
 		};
 
-		workerScope.postMessage(response, [
+		const transfer: Transferable[] = [
 			response.heights,
 			response.landMasks,
 			response.continents,
 			response.mountainMasks,
 			response.colors,
-		]);
+		];
+		if (geometry) {
+			transfer.push(
+				geometry.positions,
+				geometry.morphPositions,
+				geometry.sphereNormals,
+				geometry.terrainNormals,
+				geometry.terrainDisplacements,
+				geometry.terrainDataUvs,
+				geometry.patchOrigins,
+			);
+		}
+
+		workerScope.postMessage(response, transfer);
 	} catch (error) {
 		workerScope.postMessage({
 			type: 'error',
