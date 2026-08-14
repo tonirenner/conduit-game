@@ -201,7 +201,7 @@ export class FeatureLab {
 			Math.max(0, Math.floor(sortedFrameTimes.length * 0.99)),
 		);
 		const onePercentLowFps = 1000 / Math.max(0.001, sortedFrameTimes[p99Index]);
-		const drawCalls = this.options.renderer.info.render.calls;
+		const drawCalls = this.options.renderer.info.render.drawCalls;
 
 		this.performanceHud.textContent =
 			`${fps.toFixed(0)} FPS · ${averageFrameMs.toFixed(1)} ms · 1% ${onePercentLowFps.toFixed(0)} FPS · ${drawCalls} calls`;
