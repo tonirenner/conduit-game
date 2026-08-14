@@ -7,6 +7,7 @@ import {
 	type PatchBounds,
 } from '../../TerrainPatch';
 import type { TerrainSource } from '../../TerrainSource';
+import './TerrainPatchGeometryBridge';
 
 type TerrainPatchRuntime = {
 	face: CubeFace;
