@@ -1,4 +1,6 @@
 export * from './noise';
+export * from './workers/TerrainWorkerPool';
+export * from './workers/TerrainWorkerProtocol';
 export * from '../CachedTerrainSource';
 export * from '../CubeSphere';
 export * from '../TerrainHeightCache';
