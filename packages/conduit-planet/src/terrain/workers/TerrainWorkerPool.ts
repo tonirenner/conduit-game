@@ -263,7 +263,7 @@ export class TerrainWorkerPool {
 		if (!this.disposed) {
 			slot.worker.terminate();
 			slot.worker = this.workerFactory();
-		this.bindWorker(slot);
+			this.bindWorker(slot);
 		}
 
 		this.pump();
@@ -305,11 +305,9 @@ function getDefaultWorkerCount(): number {
 }
 
 function createTerrainWorker(): Worker {
-	return new Worker(
-		new URL('./TerrainPatchGridWorker.ts', import.meta.url),
-		{
-			type: 'module',
-			name: 'conduit-terrain-grid',
-		},
-	);
+	const workerUrl = new URL('terrain-patch-grid-worker.js', document.baseURI);
+	return new Worker(workerUrl, {
+		type: 'module',
+		name: 'conduit-terrain-grid',
+	});
 }
