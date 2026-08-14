@@ -44,10 +44,10 @@ export class FeatureLab {
 	private paused = false;
 	private timeScale = 1;
 	private statusEntries: FeatureLabStatusEntry[] = [];
-	private performanceSampleSeconds = 0;
-	private performanceSampleFrames = 0;
-	private displayedFps = 0;
-	private displayedFrameMs = 0;
+	private performanceLastTimestamp = performance.now();
+	private performanceWindowMs = 0;
+	private performanceFrames = 0;
+	private performanceFrameTimes: number[] = [];
 
 	constructor(
 		private readonly options: FeatureLabOptions,
@@ -82,7 +82,7 @@ export class FeatureLab {
 	}
 
 	update(deltaSeconds: number): void {
-		this.updatePerformanceHud(deltaSeconds);
+		this.updatePerformanceHud();
 
 		if (!this.activeScene || this.paused) {
 			return;
@@ -165,7 +165,7 @@ export class FeatureLab {
 		this.performanceHud.style.color = '#8fe7ff';
 		this.performanceHud.style.fontWeight = 'bold';
 		this.performanceHud.style.pointerEvents = 'none';
-		this.performanceHud.textContent = '-- FPS · -- ms';
+		this.performanceHud.textContent = '-- FPS · -- ms · 1% --';
 
 		this.root.append(this.nav, this.panel, this.performanceHud);
 		document.body.appendChild(this.root);
@@ -173,36 +173,41 @@ export class FeatureLab {
 		this.renderPanel();
 	}
 
-	private updatePerformanceHud(deltaSeconds: number): void {
-		const sampleSeconds = THREE.MathUtils.clamp(deltaSeconds, 0, 0.25);
+	private updatePerformanceHud(): void {
+		const now = performance.now();
+		const frameMs = now - this.performanceLastTimestamp;
+		this.performanceLastTimestamp = now;
 
-		if (sampleSeconds <= 0) {
+		if (!Number.isFinite(frameMs) || frameMs <= 0 || frameMs > 2000) {
+			this.performanceWindowMs = 0;
+			this.performanceFrames = 0;
+			this.performanceFrameTimes.length = 0;
 			return;
 		}
 
-		this.performanceSampleSeconds += sampleSeconds;
-		this.performanceSampleFrames++;
+		this.performanceWindowMs += frameMs;
+		this.performanceFrames++;
+		this.performanceFrameTimes.push(frameMs);
 
-		if (this.performanceSampleSeconds < 0.25) {
+		if (this.performanceWindowMs < 350) {
 			return;
 		}
 
-		const fps = this.performanceSampleFrames / this.performanceSampleSeconds;
-		const frameMs = 1000 / Math.max(0.001, fps);
-		const smoothing = this.displayedFps > 0 ? 0.42 : 1;
-
-		this.displayedFps = THREE.MathUtils.lerp(this.displayedFps, fps, smoothing);
-		this.displayedFrameMs = THREE.MathUtils.lerp(
-			this.displayedFrameMs,
-			frameMs,
-			smoothing,
+		const fps = this.performanceFrames * 1000 / this.performanceWindowMs;
+		const averageFrameMs = this.performanceWindowMs / this.performanceFrames;
+		const sortedFrameTimes = this.performanceFrameTimes.slice().sort((a, b) => a - b);
+		const p99Index = Math.min(
+			sortedFrameTimes.length - 1,
+			Math.max(0, Math.floor(sortedFrameTimes.length * 0.99)),
 		);
+		const onePercentLowFps = 1000 / Math.max(0.001, sortedFrameTimes[p99Index]);
 
 		this.performanceHud.textContent =
-			`${this.displayedFps.toFixed(0)} FPS · ${this.displayedFrameMs.toFixed(1)} ms`;
+			`${fps.toFixed(0)} FPS · ${averageFrameMs.toFixed(1)} ms · 1% ${onePercentLowFps.toFixed(0)} FPS`;
 
-		this.performanceSampleSeconds = 0;
-		this.performanceSampleFrames = 0;
+		this.performanceWindowMs = 0;
+		this.performanceFrames = 0;
+		this.performanceFrameTimes.length = 0;
 	}
 
 	private renderNav(): void {
