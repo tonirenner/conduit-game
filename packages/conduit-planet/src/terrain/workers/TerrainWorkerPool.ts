@@ -188,23 +188,24 @@ export class TerrainWorkerPool {
 	}
 
 	private createSlot(): WorkerSlot {
-		const worker = this.workerFactory();
 		const slot: WorkerSlot = {
-			worker,
+			worker: this.workerFactory(),
 			busyTaskId: null,
 		};
+		this.bindWorker(slot);
+		return slot;
+	}
 
-		worker.onmessage = (event: MessageEvent<TerrainWorkerResponse>) => {
+	private bindWorker(slot: WorkerSlot): void {
+		slot.worker.onmessage = (event: MessageEvent<TerrainWorkerResponse>) => {
 			this.handleWorkerMessage(slot, event.data);
 		};
-		worker.onerror = (event: ErrorEvent) => {
+		slot.worker.onerror = (event: ErrorEvent) => {
 			this.handleWorkerFailure(
 				slot,
 				new Error(event.message || 'Terrain worker failed.'),
 			);
 		};
-
-		return slot;
 	}
 
 	private handleWorkerMessage(
@@ -261,9 +262,8 @@ export class TerrainWorkerPool {
 
 		if (!this.disposed) {
 			slot.worker.terminate();
-			const replacement = this.createSlot();
-			slot.worker = replacement.worker;
-			slot.busyTaskId = null;
+			slot.worker = this.workerFactory();
+		this.bindWorker(slot);
 		}
 
 		this.pump();
