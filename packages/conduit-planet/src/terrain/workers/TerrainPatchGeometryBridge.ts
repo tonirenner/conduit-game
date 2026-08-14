@@ -6,10 +6,16 @@ import { appendRegularGridIndices } from '../TerrainGeometryUtils';
 type TerrainPatchGeometryRuntime = {
 	terrainGrid: TerrainGrid;
 	resolution: number;
+	patchOrigin?: THREE.Vector3;
 };
 
 type TerrainPatchPrototypeRuntime = {
 	createGeometry: (this: TerrainPatch) => THREE.BufferGeometry;
+	getCenterLocal: (this: TerrainPatch) => THREE.Vector3;
+	getPatchBoundingRadiusLocal: (
+		this: TerrainPatch,
+		centerLocal: THREE.Vector3,
+	) => number;
 	__workerGeometryBridgeInstalled?: boolean;
 };
 
@@ -17,6 +23,30 @@ const prototype = TerrainPatch.prototype as unknown as TerrainPatchPrototypeRunt
 
 if (!prototype.__workerGeometryBridgeInstalled) {
 	const createLegacyGeometry = prototype.createGeometry;
+	const getLegacyCenterLocal = prototype.getCenterLocal;
+	const getLegacyPatchBoundingRadiusLocal = prototype.getPatchBoundingRadiusLocal;
+	const boundingRadiusCache = new WeakMap<TerrainPatch, number>();
+
+	prototype.getCenterLocal = function getCachedCenterLocal(
+		this: TerrainPatch,
+	): THREE.Vector3 {
+		const state = this as unknown as TerrainPatchGeometryRuntime;
+		return state.patchOrigin ?? getLegacyCenterLocal.call(this);
+	};
+
+	prototype.getPatchBoundingRadiusLocal = function getCachedPatchBoundingRadiusLocal(
+		this: TerrainPatch,
+		centerLocal: THREE.Vector3,
+	): number {
+		const cached = boundingRadiusCache.get(this);
+		if (cached !== undefined) {
+			return cached;
+		}
+
+		const radius = getLegacyPatchBoundingRadiusLocal.call(this, centerLocal);
+		boundingRadiusCache.set(this, radius);
+		return radius;
+	};
 
 	prototype.createGeometry = function createWorkerAwareGeometry(
 		this: TerrainPatch,
