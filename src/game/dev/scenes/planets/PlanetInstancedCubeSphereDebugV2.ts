@@ -1,5 +1,5 @@
-export { PlanetInstancedCubeSphereDebug } from './PlanetInstancedCubeSphereDebugV4';
+export { PlanetInstancedCubeSphereDebug } from './PlanetInstancedCubeSphereDebugV5';
 export type {
 	PlanetInstancedColorMode,
 	PlanetInstancedCubeSphereStats,
-} from './PlanetInstancedCubeSphereDebugV4';
+} from './PlanetInstancedCubeSphereDebugV5';
