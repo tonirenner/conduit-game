@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import type { Planet } from '@conduit/planet/rendering';
 import { createPlanetOrbitSurfaceNodeMaterial } from '@conduit/planet/rendering';
+import {
+	PlanetInstancedCubeSphereDebug,
+	type PlanetInstancedCubeSphereStats,
+} from './PlanetInstancedCubeSphereDebug';
 
 type TerrainRuntime = THREE.Object3D & {
 	updateLOD?: (cameraPosition: THREE.Vector3) => void;
@@ -9,7 +13,7 @@ type TerrainRuntime = THREE.Object3D & {
 type MeshMaterial = THREE.Material | THREE.Material[];
 
 export type PlanetLodTerrainMaterialMode = 'production' | 'orbit' | 'simple';
-export type PlanetLodTerrainRendererMode = 'patches' | 'batched';
+export type PlanetLodTerrainRendererMode = 'patches' | 'batched' | 'instanced';
 
 export type PlanetLodPerformanceIsolationState = {
 	freezeLod: boolean;
@@ -33,9 +37,9 @@ export type PlanetLodTerrainBatchStats = {
  *   updates continue normally.
  * - Terrain material can switch between production, the lightweight orbit
  *   shader and a MeshBasicMaterial baseline.
- * - Batched mode mirrors the currently visible terrain patch meshes into a
- *   THREE.BatchedMesh so we can measure draw-call overhead without replacing
- *   the production quadtree / worker architecture.
+ * - Batched mode remains as the first failed A/B reference.
+ * - Instanced mode mirrors visible worker/quadtree leaves into a shared-grid
+ *   InstancedBufferGeometry renderer grouped only by stitch/index variant.
  * - Atmosphere Off uses Planet's existing debug layer visibility API.
  */
 export class PlanetLodPerformanceIsolation {
@@ -55,6 +59,7 @@ export class PlanetLodPerformanceIsolation {
 		depthWrite: true,
 	});
 	private readonly orbitMaterial: THREE.Material;
+	private readonly instancedRenderer: PlanetInstancedCubeSphereDebug;
 	private batchMesh: THREE.BatchedMesh | null = null;
 	private batchSignature = '';
 	private batchSourceVisibility = new Map<THREE.Mesh, boolean>();
@@ -66,6 +71,7 @@ export class PlanetLodPerformanceIsolation {
 		this.orbitMaterial = createPlanetOrbitSurfaceNodeMaterial(
 			planetRadius,
 		) as THREE.Material;
+		this.instancedRenderer = new PlanetInstancedCubeSphereDebug(planetRadius);
 	}
 
 	attach(planet: Planet): void {
@@ -79,6 +85,7 @@ export class PlanetLodPerformanceIsolation {
 	detach(): void {
 		this.restoreBatchSourceVisibility();
 		this.destroyBatchMesh();
+		this.instancedRenderer.detach();
 		this.restoreLodUpdate();
 		this.restoreMaterials();
 		this.planet?.setDebugLayerVisibility({ atmosphere: true });
@@ -87,12 +94,13 @@ export class PlanetLodPerformanceIsolation {
 	}
 
 	/**
-	 * Batched mode hides source meshes after Planet.update() so they do not
-	 * render alongside the batch. Restore them before the next Planet.update()
-	 * so the existing LOD / horizon-culling code still owns visibility state.
+	 * Alternate renderers hide production patch meshes after Planet.update().
+	 * Restore them before the next update so the existing LOD/horizon-culling
+	 * code remains the sole authority for leaf visibility.
 	 */
 	beforePlanetUpdate(): void {
 		this.restoreBatchSourceVisibility();
+		this.instancedRenderer.beforePlanetUpdate();
 	}
 
 	update(): void {
@@ -105,6 +113,20 @@ export class PlanetLodPerformanceIsolation {
 		if (this.state.freezeLod) {
 			this.applyLodFreeze();
 		}
+
+		if (this.state.terrainRenderer === 'instanced') {
+			this.restoreBatchSourceVisibility();
+			this.destroyBatchMesh();
+			const terrain = this.getTerrain();
+			if (terrain && this.state.terrainMaterial !== 'production') {
+				this.instancedRenderer.update(terrain);
+			} else {
+				this.instancedRenderer.detach();
+			}
+			return;
+		}
+
+		this.instancedRenderer.detach();
 
 		if (this.state.terrainRenderer === 'batched') {
 			this.applyTerrainBatch();
@@ -124,6 +146,7 @@ export class PlanetLodPerformanceIsolation {
 		if (this.state.terrainMaterial === mode) return;
 		this.restoreBatchSourceVisibility();
 		this.destroyBatchMesh();
+		this.instancedRenderer.detach();
 		this.restoreMaterials();
 		this.state.terrainMaterial = mode;
 		this.applyTerrainMaterial();
@@ -133,6 +156,7 @@ export class PlanetLodPerformanceIsolation {
 		if (this.state.terrainRenderer === mode) return;
 		this.restoreBatchSourceVisibility();
 		this.destroyBatchMesh();
+		this.instancedRenderer.detach();
 		this.state.terrainRenderer = mode;
 		if (mode === 'batched') this.applyTerrainBatch();
 	}
@@ -155,8 +179,13 @@ export class PlanetLodPerformanceIsolation {
 		};
 	}
 
+	getInstancedStats(): PlanetInstancedCubeSphereStats {
+		return this.instancedRenderer.getStats();
+	}
+
 	dispose(): void {
 		this.detach();
+		this.instancedRenderer.dispose();
 		this.simpleMaterial.dispose();
 		this.orbitMaterial.dispose();
 	}
@@ -224,8 +253,6 @@ export class PlanetLodPerformanceIsolation {
 		const terrain = this.getTerrain();
 		const material = this.getDebugTerrainMaterial();
 
-		// The production material still owns patch-local morph/uniform behavior.
-		// Keep this first A/B test intentionally limited to the debug materials.
 		if (!terrain || !material || this.state.terrainMaterial === 'production') {
 			this.restoreBatchSourceVisibility();
 			this.destroyBatchMesh();
@@ -305,16 +332,6 @@ export class PlanetLodPerformanceIsolation {
 		this.batchRebuilds++;
 	}
 
-	/**
-	 * TerrainPatch positions are intentionally patch-local: the orbit material
-	 * reconstructs the displaced sphere position and subtracts the per-vertex
-	 * patchOrigin attribute, while the source Mesh transform adds that origin
-	 * back. A BatchedMesh + custom positionNode can not rely on that source Mesh
-	 * transform, so for the debug batch we bake the origin into the vertex
-	 * contract by replacing patchOrigin with zero. The orbit positionNode then
-	 * produces full PlanetTerrain-local coordinates and every batch instance can
-	 * stay at the identity transform.
-	 */
 	private createBatchGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry {
 		const geometry = source.clone();
 		const patchOrigin = geometry.getAttribute('patchOrigin');
