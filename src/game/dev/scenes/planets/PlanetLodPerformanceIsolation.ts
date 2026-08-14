@@ -3,8 +3,11 @@ import type { Planet } from '@conduit/planet/rendering';
 import { createPlanetOrbitSurfaceNodeMaterial } from '@conduit/planet/rendering';
 import {
 	PlanetInstancedCubeSphereDebug,
+	type PlanetInstancedColorMode,
 	type PlanetInstancedCubeSphereStats,
 } from './PlanetInstancedCubeSphereDebug';
+
+export type { PlanetInstancedColorMode };
 
 type TerrainRuntime = THREE.Object3D & {
 	updateLOD?: (cameraPosition: THREE.Vector3) => void;
@@ -19,6 +22,7 @@ export type PlanetLodPerformanceIsolationState = {
 	freezeLod: boolean;
 	terrainMaterial: PlanetLodTerrainMaterialMode;
 	terrainRenderer: PlanetLodTerrainRendererMode;
+	instancedColorMode: PlanetInstancedColorMode;
 	atmosphereOff: boolean;
 };
 
@@ -40,6 +44,8 @@ export type PlanetLodTerrainBatchStats = {
  * - Batched mode remains as the first failed A/B reference.
  * - Instanced mode mirrors visible worker/quadtree leaves into a shared-grid
  *   InstancedBufferGeometry renderer grouped only by stitch/index variant.
+ * - Instanced color mode isolates fragment atlas sampling from vertex-stage
+ *   sampling/interpolation and a flat baseline.
  * - Atmosphere Off uses Planet's existing debug layer visibility API.
  */
 export class PlanetLodPerformanceIsolation {
@@ -48,6 +54,7 @@ export class PlanetLodPerformanceIsolation {
 		freezeLod: false,
 		terrainMaterial: 'production',
 		terrainRenderer: 'patches',
+		instancedColorMode: 'fragment-atlas',
 		atmosphereOff: false,
 	};
 	private frozenTerrain: TerrainRuntime | null = null;
@@ -72,6 +79,7 @@ export class PlanetLodPerformanceIsolation {
 			planetRadius,
 		) as THREE.Material;
 		this.instancedRenderer = new PlanetInstancedCubeSphereDebug(planetRadius);
+		this.instancedRenderer.setColorMode(this.state.instancedColorMode);
 	}
 
 	attach(planet: Planet): void {
@@ -159,6 +167,12 @@ export class PlanetLodPerformanceIsolation {
 		this.instancedRenderer.detach();
 		this.state.terrainRenderer = mode;
 		if (mode === 'batched') this.applyTerrainBatch();
+	}
+
+	setInstancedColorMode(mode: PlanetInstancedColorMode): void {
+		if (this.state.instancedColorMode === mode) return;
+		this.state.instancedColorMode = mode;
+		this.instancedRenderer.setColorMode(mode);
 	}
 
 	setAtmosphereOff(enabled: boolean): void {
