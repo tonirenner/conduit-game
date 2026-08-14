@@ -7,6 +7,7 @@ import {
 	type TerrainPatchEdgeAddress,
 	type TerrainPatchLeaf,
 } from './TerrainPatch';
+import { AsyncTerrainPatch } from './terrain/workers/AsyncTerrainPatch';
 
 import {
 	HorizonCulling,
@@ -123,7 +124,7 @@ export class CubeSphere extends THREE.Group {
 		});
 
 		for (const face of createDefaultCubeFaces()) {
-			const patch = new TerrainPatch(
+			const patch = new AsyncTerrainPatch(
 				face,
 				{
 					x: -1,
