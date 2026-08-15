@@ -209,7 +209,7 @@ export class SurfaceClipmapTerrain {
 			? new THREE.Vector3(0, 1, 0)
 			: new THREE.Vector3(1, 0, 0);
 		this.tangentX.crossVectors(reference, this.anchorDirection).normalize();
-		this.tangentZ.crossVectors(this.anchorDirection, this.tangentX).normalize();
+		this.tangentZ.crossVectors(this.tangentX, this.anchorDirection).normalize();
 
 		const anchorSample = this.sampler.sample(this.anchorDirection, false);
 		this.anchorPhysical.copy(anchorSample.direction).multiplyScalar(anchorSample.surfaceRadiusMeters);
