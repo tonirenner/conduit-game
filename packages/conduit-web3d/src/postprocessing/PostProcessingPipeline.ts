@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 
 import type { RendererMode, Web3DRenderer } from '../renderer';
+import {
+	createPlanetAtmospherePostProcess,
+	type PlanetAtmospherePostProcessRuntime,
+} from './PlanetAtmospherePostProcess';
 
 export type PostProcessingQuality =
 	| 'low'
@@ -33,6 +37,7 @@ type RenderPipelineLike = {
 
 type PipelineRuntime = {
 	renderPipeline: RenderPipelineLike;
+	atmosphere: PlanetAtmospherePostProcessRuntime;
 };
 
 export class PostProcessingPipeline {
@@ -117,15 +122,13 @@ export class PostProcessingPipeline {
 
 		if (this.runtime) {
 			try {
+				// Atmosphere uniforms are sourced from live planet instances. Update
+				// them immediately before the RenderPipeline consumes the scene/depth
+				// textures so moving planets and camera handoffs stay in the same frame.
+				this.runtime.atmosphere.update();
 				this.runtime.renderPipeline.render();
 				return;
 			} catch (error) {
-				/*
-				 * TSL compiles the node graph lazily on the first real render.
-				 * If a version-specific node combination still fails there,
-				 * disable the pipeline once and return to normal rendering
-				 * instead of throwing the same error every frame.
-				 */
 				this.initializationFailed = true;
 				this.runtime.renderPipeline.dispose?.();
 				this.runtime = null;
@@ -144,9 +147,6 @@ export class PostProcessingPipeline {
 			}
 		}
 
-		/*
-		 * Keep rendering normally while the dynamic WebGPU modules initialize.
-		 */
 		this.renderer.render(
 			this.scene,
 			this.camera,
@@ -330,30 +330,11 @@ export class PostProcessingPipeline {
 			return;
 		}
 
-		/*
-		 * r184-compatible MRT layout.
-		 *
-		 * IMPORTANT:
-		 * GTAONode and SSRNode accept the normal texture directly.
-		 * Do NOT pack/unpack normals through the deprecated
-		 * directionToColor()/colorToDirection() helpers.
-		 */
 		const scenePass = pass(
 			this.scene,
 			this.camera,
 		);
 
-		/*
-		 * Stable r184 MRT shared by GTAO and SSR.
-		 *
-		 * Both GTAONode and SSRNode expect `normalNode` to be a TextureNode.
-		 * SSRNode explicitly uses both:
-		 *
-		 *   this.normalNode.rgb
-		 *   this.normalNode.sample( uv )
-		 *
-		 * So pass the raw MRT normal texture directly to both effects.
-		 */
 		scenePass.setMRT(
 			mrt({
 				output,
@@ -385,10 +366,6 @@ export class PostProcessingPipeline {
 			sceneColor;
 
 		if (this.enableGTAO) {
-			/*
-			 * Official r184 GTAO signature:
-			 * ao(depthNode, normalNode, camera)
-			 */
 			const aoPass: any =
 				ao(
 					sceneDepth,
@@ -404,34 +381,17 @@ export class PostProcessingPipeline {
 				'samples',
 				profile.aoSamples,
 			);
-
 			setUniformOrProperty(
 				aoPass,
 				'radius',
 				profile.aoRadius,
 			);
-
 			setUniformOrProperty(
 				aoPass,
 				'thickness',
 				profile.aoThickness,
 			);
 
-			/*
-			 * Three.js r183+ exposes the GTAO result directly on the node.
-			 * The migration guide explicitly states that AO is available
-			 * in the R channel and should be blended on application level.
-			 *
-			 * IMPORTANT:
-			 * Do not call aoPass.getTextureNode() here. GTAONode is already
-			 * the composable TSL effect node and that extra indirection can
-			 * resolve to null during lazy graph construction in r184.
-			 */
-			/*
-			 * GTAONode renders AO into its own internal render target.
-			 * r184's own GTAONode documentation retrieves that result through
-			 * getTextureNode() and uses the R channel.
-			 */
 			const aoOutput =
 				aoPass.getTextureNode();
 			const foregroundMask =
@@ -461,14 +421,6 @@ export class PostProcessingPipeline {
 		}
 
 		if (this.enableSSR) {
-			/*
-			 * Three r185 SSR signature:
-			 * ssr(colorNode, depthNode, normalNode, options)
-			 *
-			 * SSRNode currently calls float() on both material inputs during
-			 * shader setup, so provide concrete nodes instead of relying on
-			 * its documented null defaults.
-			 */
 			const ssrPass: any =
 				ssr(
 					sceneColor,
@@ -489,19 +441,16 @@ export class PostProcessingPipeline {
 				'quality',
 				profile.ssrQuality,
 			);
-
 			setUniformOrProperty(
 				ssrPass,
 				'maxDistance',
 				profile.ssrMaxDistance,
 			);
-
 			setUniformOrProperty(
 				ssrPass,
 				'opacity',
 				profile.ssrOpacity,
 			);
-
 			setUniformOrProperty(
 				ssrPass,
 				'thickness',
@@ -519,15 +468,25 @@ export class PostProcessingPipeline {
 				);
 		}
 
+		/*
+		 * Atmosphere must run after opaque scene effects so it can use the final
+		 * terrain/ship colour together with the original scene depth. It runs
+		 * before bloom so bright Mie/Rayleigh scattering can bloom naturally.
+		 *
+		 * The compositor itself discovers all `conduitAtmosphere` sources in the
+		 * scene and selects the nearest relevant instances. No singleton planet is
+		 * assumed here.
+		 */
+		const atmosphere =
+			createPlanetAtmospherePostProcess(
+				this.scene,
+				this.camera,
+				workingColor,
+				sceneDepth,
+			);
+		workingColor = atmosphere.outputNode;
+
 		if (this.enableBloom) {
-			/*
-			 * Bloom uniforms are UniformNodes in r184.
-			 */
-			/*
-			 * r184 bloom() accepts strength, radius and threshold directly.
-			 * Supplying them at construction time avoids mutating internal
-			 * node properties after creation.
-			 */
 			const bloomPass: any =
 				bloom(
 					workingColor,
@@ -560,6 +519,7 @@ export class PostProcessingPipeline {
 
 		this.runtime = {
 			renderPipeline,
+			atmosphere,
 		};
 
 		console.info(
@@ -569,6 +529,7 @@ export class PostProcessingPipeline {
 				gtao: this.enableGTAO,
 				ssr: this.enableSSR,
 				bloom: this.enableBloom,
+				atmospheres: atmosphere.getActiveCount(),
 				exposure: this.toneMappingExposure,
 			},
 		);
@@ -750,16 +711,12 @@ function setUniformOrProperty(
 	if (
 		current &&
 		typeof current === 'object' &&
+		typeof current !== 'number' &&
 		'value' in current
 	) {
 		current.value = value;
 		return;
 	}
 
-	/*
-	 * Some Three.js versions expose compile-time quality settings as
-	 * primitive values. Preserve compatibility without replacing a
-	 * UniformNode when one already exists.
-	 */
 	host[key] = value;
 }
