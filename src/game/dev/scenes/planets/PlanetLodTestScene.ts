@@ -36,7 +36,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	readonly id = 'planet-lod';
 	readonly name = 'Planet LOD';
 	readonly category = 'Planets' as const;
-	readonly description = 'Validate Orbit, Regional and Surface view handoffs.';
+	readonly description = 'Validate optimized Orbit, Regional and Surface view handoffs.';
 
 	private context: FeatureTestContext | null = null;
 	private readonly root = new THREE.Group();
@@ -169,6 +169,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const terrain = this.runtime.planet.getTerrainStats();
 		const radiusKm = getPlanetRadiusMeters(this.definition) / 1000;
 		const isSurfacePlanet = this.profile.rendererKind === 'solid_surface';
+		const optimizedOrbit = state.orbitRenderer === 'instanced-fixed';
 
 		this.stats.innerHTML = [
 			`class: ${this.definition.class}`,
@@ -182,12 +183,19 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`orbit: ${formatWeight(state.orbitWeight)}`,
 			`regional: ${formatWeight(state.regionalWeight)} / ${state.regionalActive ? 'ACTIVE' : 'off'}`,
 			`surface: ${formatWeight(state.surfaceWeight)} / ${state.surfaceActive ? 'ACTIVE' : 'off'}`,
-			`orbit LOD: ${state.orbitLodFrozen ? 'FROZEN AT HANDOFF' : 'live'}`,
 			'',
-			'<b>orbit terrain</b>',
-			`patches: ${terrain.visibleMeshes}/${terrain.totalPatches}`,
-			`max lod: ${terrain.maxLevel}`,
-			`profile: ${terrain.profile}`,
+			'<b>orbit view</b>',
+			`renderer: ${state.orbitRenderer.toUpperCase()}`,
+			optimizedOrbit
+				? `draws: ${state.orbitDraws} / instances: ${state.orbitInstances}`
+				: `legacy patches: ${terrain.visibleMeshes}/${terrain.totalPatches}`,
+			optimizedOrbit
+				? `fixed patch level: ${state.orbitPatchLevel} / grid: ${state.orbitGridSegments}x${state.orbitGridSegments}`
+				: `max lod: ${terrain.maxLevel} / profile: ${terrain.profile}`,
+			optimizedOrbit
+				? `terrain LUT: ${state.orbitVolumeResolution}³ RGBA16F / runtime noise: OFF`
+				: 'terrain LUT: n/a',
+			`legacy CubeSphere: ${optimizedOrbit ? 'FROZEN + HIDDEN' : state.orbitLodFrozen ? 'FROZEN AT HANDOFF' : 'live'}`,
 			'',
 			'<b>bands</b>',
 			`orbit→regional: ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalStartMeters)} → ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalEndMeters)}`,
