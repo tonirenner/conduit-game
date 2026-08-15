@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 
-const RING_COUNT = 7;
+// Nine rings keep the local SurfaceView alive past the geometric horizon even
+// on large solid planets during the Regional -> Surface handoff. With the
+// 16 km base half extent this covers +/-4096 km instead of +/-1024 km.
+const RING_COUNT = 9;
 const GRID_CELLS = 24;
 const BASE_HALF_EXTENT_METERS = 16_000;
 const RECENTER_DISTANCE_METERS = 8_000;
