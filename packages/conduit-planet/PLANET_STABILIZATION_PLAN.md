@@ -103,6 +103,29 @@ Is the responsibility still wanted?
             └─ NO  → explicitly retire
 ```
 
+### 2.5 WebGPU first, WebGL follows
+
+The active development and stabilization target is **WebGPU first**.
+
+Rules:
+
+- New planet architecture, rendering features, material migration and stabilization are implemented and validated on the WebGPU path first.
+- WebGL compatibility is preserved where practical during migration, but WebGL parity must **not block** progress of the modern WebGPU architecture.
+- Legacy WebGL implementations remain valuable as behavioral/reference material until equivalent useful behavior has been migrated.
+- Do not design new abstractions around limitations of the old WebGL renderer if that would compromise the WebGPU target architecture.
+- Once the WebGPU planet stack is stable, WebGL is reviewed and brought forward deliberately as a follow-up compatibility/fallback pass.
+- A missing WebGL implementation is not by itself a reason to keep obsolete WebGPU-era legacy architecture alive.
+
+Priority:
+
+```text
+1. WebGPU correctness
+2. WebGPU architecture/stability
+3. WebGPU visual parity / definition coverage
+4. WebGPU performance
+5. WebGL follow-up / parity where still required
+```
+
 ---
 
 ## 3. Current known-good baseline
@@ -299,7 +322,7 @@ classic horizon/frustum patch logic
 
 The modern WebGPU surface planet no longer uses this as the visible renderer, but `Planet.ts`, WebGL fallback behavior and public exports still make it runtime/API reachable.
 
-**Status:** legacy but not yet safely removable.
+**Status:** legacy but not yet safely removable. WebGL compatibility is a later follow-up and must not block consolidation of the WebGPU target architecture.
 
 ### 5.5 Old surface materials
 
@@ -324,7 +347,7 @@ The modern SurfaceView now has its own `SurfaceTerrainMaterial`, but the old mat
 - raymarch concepts,
 - profile usage.
 
-**Status:** migrate/reference first, then deprecate.
+**Status:** migrate/reference first, then deprecate. WebGPU migration takes precedence; WebGL material parity follows after the modern path is stable.
 
 ### 5.6 Old atmosphere experiment
 
@@ -740,6 +763,8 @@ Weather sample = local current state
 
 ## 12. Cleanup execution order
 
+All phases below are executed **WebGPU-first**. WebGL adaptation/parity is a later follow-up unless a change would unnecessarily destroy an existing fallback contract.
+
 ### Phase 0 – Baseline freeze
 
 - [x] establish known-good visual/runtime baseline,
@@ -755,10 +780,11 @@ Weather sample = local current state
 
 ### Phase 2 – Complete old → new material migration matrix
 
-- [ ] compare old WebGL surface material,
+- [ ] compare old WebGL surface material as behavioral/reference source,
 - [ ] compare old WebGPU node surface material,
 - [ ] compare old orbit material,
-- [ ] transfer missing useful semantics into new material system.
+- [ ] transfer missing useful semantics into the new WebGPU material system first,
+- [ ] record WebGL parity work separately for the later compatibility pass.
 
 ### Phase 3 – Integrate terrain definition values
 
@@ -791,7 +817,8 @@ Weather sample = local current state
 
 - [ ] separate shared planet layers from classic surface renderer,
 - [ ] let modern `PlanetViewRuntime` avoid constructing hidden legacy surface geometry/material where possible,
-- [ ] preserve gas giant and WebGL behavior.
+- [ ] preserve enough separation that WebGL can be brought forward later without constraining the WebGPU design,
+- [ ] keep gas giant behavior intact.
 
 ### Phase 8 – Retire `NearSurfaceTerrainLayer`
 
@@ -816,18 +843,19 @@ Weather sample = local current state
 
 Only after material migration matrix is complete and `Planet.ts` no longer constructs them for the modern WebGPU path.
 
-- [ ] deprecate public exports,
+- [ ] deprecate public exports where appropriate,
 - [ ] search external package/game usage,
-- [ ] preserve WebGL fallback if still required,
+- [ ] preserve old WebGL implementation as fallback/reference only as long as needed,
+- [ ] do **not** require WebGL feature parity before completing the WebGPU migration,
 - [ ] remove in small commits.
 
 ### Phase 12 – Isolate/retire CubeSphere legacy
 
-- [ ] determine WebGL requirement,
-- [ ] determine public API requirement,
+- [ ] determine remaining non-WebGPU/public API requirements,
+- [ ] determine which pieces are needed only for later WebGL fallback work,
 - [ ] verify diagnostics/tests/users,
-- [ ] optionally move to a clear legacy/fallback area first,
-- [ ] remove only after modern path fully owns required responsibilities.
+- [ ] optionally move WebGL/legacy pieces to a clear fallback area first,
+- [ ] remove WebGPU-obsolete responsibilities once the modern path fully owns them.
 
 ### Phase 13 – Public API cleanup
 
@@ -894,6 +922,17 @@ adaptive subdivision / GPU-compute refinement if worthwhile
 
 The existing extra near-detail clipmap ring is an LOD refinement experiment, **not** true tessellation.
 
+### Phase 17 – WebGL follow-up
+
+After the WebGPU target stack is stable:
+
+- [ ] decide whether WebGL remains a supported fallback and at what quality tier,
+- [ ] map the finalized WebGPU definition/profile semantics onto WebGL,
+- [ ] restore/implement practical visual parity where required,
+- [ ] avoid reintroducing duplicate domain logic,
+- [ ] keep WebGL renderer-specific compromises isolated from canonical terrain/domain systems,
+- [ ] add WebGL-specific regression coverage only for the support level we actually intend to maintain.
+
 ---
 
 ## 13. Early deletion candidates – NOT yet approved
@@ -938,6 +977,7 @@ These require deeper migration first.
 - [ ] climate/biome/weather seeds need a complete usage audit.
 - [ ] `SurfaceRenderProfile` contains useful derived influences that modern SurfaceView does not yet consistently consume.
 - [ ] old regional hydraulic erosion belongs conceptually to terrain generation, not necessarily to a renderer subclass.
+- [ ] WebGL parity must be separated from WebGPU stabilization work so it does not force legacy architecture into the modern path.
 
 ---
 
@@ -953,6 +993,7 @@ These require deeper migration first.
 - [x] Identified older OpenWorlds atmosphere shell as superseded candidate.
 - [x] Identified definition/profile values that currently appear under-consumed by the modern renderer.
 - [x] Established rule that unused definitions must be integrated or explicitly retired, never silently deleted.
+- [x] Established **WebGPU-first** migration/stabilization policy; WebGL follows after the modern stack is stable.
 - [x] Added this document as the persistent migration/progress reference.
 
 ### Current next action
@@ -973,4 +1014,5 @@ When continuing work on `conduit-planet`:
 4. keep current known-good visual baseline stable during cleanup,
 5. do not remove definition values just because they are not currently consumed,
 6. use old implementations as migration references before deletion,
-7. prefer one narrowly scoped cleanup/migration change at a time.
+7. prefer one narrowly scoped cleanup/migration change at a time,
+8. work **WebGPU first**; treat WebGL parity as a deliberate later compatibility pass rather than a blocker for the target architecture.
