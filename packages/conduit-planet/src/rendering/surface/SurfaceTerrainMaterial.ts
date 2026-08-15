@@ -14,6 +14,8 @@ import {
 } from 'three/tsl';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 
+const EARTH_RADIUS_METERS = 6_371_000;
+
 export type SurfaceTerrainMaterialInput = {
 	direction: THREE.Vector3;
 	detailOffset: THREE.Vector3;
@@ -74,8 +76,8 @@ export function evaluateSurfaceTerrainMaterial(
 	if (definition.class === 'lava') {
 		// Broad basalt ownership only. Cracks and heat are fragment detail.
 		targetColor
-			.set(0x030201)
-			.lerp(new THREE.Color(0x120905), elevation * 0.48 + rockMask * 0.16);
+			.set(0x030303)
+			.lerp(new THREE.Color(0x15100e), elevation * 0.48 + rockMask * 0.18);
 		return {
 			color: targetColor,
 			roughness: 0.95,
@@ -112,12 +114,13 @@ export function evaluateSurfaceTerrainMaterial(
 const proceduralMaterialDetail = wgslFn(`
 fn surface_material_detail(
 	directionInput: vec3<f32>,
-	detailOffset: vec3<f32>
+	detailOffset: vec3<f32>,
+	frequencies: vec3<f32>
 ) -> vec4<f32> {
 	let n = normalize(directionInput);
-	let large = detail_fbm(n * 38.0 + detailOffset * 0.73);
-	let medium = detail_fbm(n * 115.0 + detailOffset * 1.17);
-	let fine = detail_fbm(n * 360.0 + detailOffset * 1.91);
+	let large = detail_fbm(n * frequencies.x + detailOffset * 0.73);
+	let medium = detail_fbm(n * frequencies.y + detailOffset * 1.17);
+	let fine = detail_fbm(n * frequencies.z + detailOffset * 1.91);
 	let ridgeMedium = 1.0 - abs(medium * 2.0 - 1.0);
 	let ridgeFine = 1.0 - abs(fine * 2.0 - 1.0);
 	return vec4<f32>(fine * 2.0 - 1.0, ridgeMedium, ridgeFine, large);
@@ -192,9 +195,20 @@ export function createSurfaceTerrainNodeMaterial(
 	const baseRoughness = attribute('terrainRoughness', 'float');
 	const baseMetalness = attribute('terrainMetalness', 'float');
 	const seedOffset = uniform(detailOffset.clone());
+
+	// PlanetDefinition stores radius in Earth-radius units. Frequencies are
+	// converted from desired physical detail scales so lava cracks stay roughly
+	// the same size on a 4,000 km body and on an Earth-sized body.
+	const radiusMeters = definition.physical.radius * EARTH_RADIUS_METERS;
+	const materialFrequencies = uniform(new THREE.Vector3(
+		radiusMeters / 8_000,
+		radiusMeters / 2_800,
+		radiusMeters / 900,
+	));
 	const detail = proceduralMaterialDetail({
 		directionInput: direction,
 		detailOffset: seedOffset,
+		frequencies: materialFrequencies,
 	});
 
 	const fineSigned = detail.x;
@@ -206,49 +220,56 @@ export function createSurfaceTerrainNodeMaterial(
 	const slope = masks.w;
 
 	const microCavity = max(float(0), fineSigned.negate())
-		.mul(0.075)
-		.add(erosion.mul(0.055))
-		.add(river.mul(0.045));
-	const microVariation = float(1).add(fineSigned.mul(0.035)).sub(microCavity);
+		.mul(0.050)
+		.add(erosion.mul(0.040))
+		.add(river.mul(0.035));
+	const microVariation = float(1).add(fineSigned.mul(0.022)).sub(microCavity);
 
 	let surfaceColor: any = vertexColor().toVec3().mul(microVariation);
 	let surfaceRoughness: any = baseRoughness
-		.add(fineSigned.mul(0.035))
-		.add(microCavity.mul(0.10))
-		.sub(slope.mul(0.05));
+		.add(fineSigned.mul(0.022))
+		.add(microCavity.mul(0.08))
+		.sub(slope.mul(0.04));
 	let surfaceMetalness: any = baseMetalness;
 	let surfaceEmissive: any = color(0x000000);
 
 	if (definition.class === 'lava') {
-		// Keep most of the planet as cooled basalt. Fine ridges expose narrow hot
-		// seams; medium ridges only produce rare active hotspots where terrain
-		// structure supports them.
-		const crackStrength = smoothstep(0.91, 0.985, ridgeFine).mul(
-			float(0.16)
-				.add(erosion.mul(0.16))
-				.add(mountain.mul(0.10)),
+		// Fine ridge = fracture network. Split it into a dark cavity/halo and a
+		// much thinner emissive core so basalt owns most of the visible surface.
+		const crackHalo = smoothstep(0.925, 0.975, ridgeFine).mul(
+			float(0.28)
+				.add(erosion.mul(0.26))
+				.add(mountain.mul(0.14)),
 		);
-		const hotspotStrength = smoothstep(0.955, 0.995, ridgeMedium).mul(
-			mountain.mul(0.20)
-				.add(erosion.mul(0.14))
-				.add(float(0.025)),
+		const crackCore = smoothstep(0.972, 0.995, ridgeFine).mul(
+			float(0.18)
+				.add(erosion.mul(0.24))
+				.add(mountain.mul(0.12)),
 		);
-		const heat = crackStrength.mul(0.48).add(hotspotStrength.mul(0.70));
-		const hotCore = smoothstep(0.12, 0.46, heat);
+		const hotspot = smoothstep(0.968, 0.995, ridgeMedium).mul(
+			mountain.mul(0.24)
+				.add(erosion.mul(0.20))
+				.add(float(0.035)),
+		);
+		const heat = crackCore.mul(0.82).add(hotspot.mul(0.72));
+		const hotCore = smoothstep(0.10, 0.46, heat);
 
-		// Heat tints only the immediate seam; emissive is intentionally restrained
-		// so bloom does not turn whole valleys into white lava fields.
+		// Fracture edges are darker than the surrounding basalt. This gives the
+		// emissive core a cavity to sit in instead of painting red bands on top.
+		surfaceColor = surfaceColor.mul(float(1).sub(crackHalo.mul(0.24)));
 		surfaceColor = mix(
 			surfaceColor,
-			color(0x351006),
-			heat.mul(0.08),
+			color(0x39110a),
+			heat.mul(0.10),
 		);
 		surfaceEmissive = mix(
-			color(0xd92605),
-			color(0xff8a24),
+			color(0xa91f08),
+			color(0xff8a2a),
 			hotCore,
-		).mul(heat.mul(0.95));
-		surfaceRoughness = mix(surfaceRoughness, float(0.72), heat.mul(0.34));
+		).mul(heat.mul(0.92));
+		surfaceRoughness = surfaceRoughness
+			.add(crackHalo.mul(0.035));
+		surfaceRoughness = mix(surfaceRoughness, float(0.68), heat.mul(0.28));
 		surfaceMetalness = float(0.015);
 	}
 
@@ -280,7 +301,7 @@ function getClassMaterial(planetClass: PlanetClass): ClassMaterial {
 	switch (planetClass) {
 		case 'desert': return material(0x9c5e32, 0xe4b763, 0xc78b43, 0x714025, 0.94, 0.0, 0.20);
 		case 'ice': return material(0x89b5c8, 0xe8f6fb, 0xc7e3ea, 0x678096, 0.38, 0.0, 0.12);
-		case 'lava': return material(0x030201, 0x120905, 0xb83c12, 0x080503, 0.95, 0.015, 0.0);
+		case 'lava': return material(0x030303, 0x15100e, 0xb23b17, 0x090706, 0.95, 0.015, 0.0);
 		case 'toxic': return material(0x526f68, 0xa6b6aa, 0x71803d, 0x3f422d, 0.82, 0.0, 0.18);
 		case 'carbon': return material(0x242424, 0x55514b, 0x3c3a36, 0x171717, 0.76, 0.06, 0.10);
 		case 'metal_rich': return material(0x4a4038, 0x8c7864, 0x69594c, 0x403831, 0.62, 0.24, 0.12);
