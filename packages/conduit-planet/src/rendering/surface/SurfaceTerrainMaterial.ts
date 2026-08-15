@@ -372,7 +372,7 @@ function getClassMaterial(planetClass: PlanetClass): ClassMaterial {
 		case 'metal_rich': return material(0x4a4038, 0x8c7864, 0x69594c, 0x403831, 0.62, 0.24, 0.12);
 		case 'barren': return material(0x41392f, 0x9c8767, 0xb7a88a, 0x50483f, 0.86, 0.0, 0.12);
 		case 'rocky': return material(0x3f403c, 0x9c957f, 0xc4b899, 0x433c36, 0.80, 0.0, 0.10);
-		case 'terrestrial': return material(0x315d35, 0x716a4e, 0x496844, 0x696844, 0.83, 0.0, 0.28);
+		case 'terrestrial': return material(0x315d35, 0x716a4e, 0x496844, 0x69675b, 0.83, 0.0, 0.28);
 		case 'ocean': return material(0x1f6a46, 0x8ca05a, 0x4d6f52, 0x5a5548, 0.78, 0.0, 0.22);
 		default: return material(0x625548, 0xa48e73, 0x786858, 0x51483f, 0.84, 0.0, 0.10);
 	}
