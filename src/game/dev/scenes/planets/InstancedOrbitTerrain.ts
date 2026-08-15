@@ -53,6 +53,7 @@ type OrbitPalette = {
  * - terrain displacement + masks sampled from one pre-baked RGBA16F 3D LUT
  * - no per-frame terrain noise
  * - no per-frame patch allocation/split/merge/stitch work
+ * - opaque WebGPU instancing, matching the proven V7 renderer path
  */
 export class InstancedOrbitTerrain {
 	readonly group = new THREE.Group();
@@ -81,9 +82,12 @@ export class InstancedOrbitTerrain {
 
 	update(opacity: number): void {
 		const alpha = THREE.MathUtils.clamp(opacity, 0, 1);
+
+		// Keep the instanced OrbitView in the opaque pass. The old proven V7
+		// renderer used this path, and Three r185 has a WebGPU regression around
+		// transparent instancing. RegionalView fades in over this surface; Orbit
+		// only disappears once its handoff weight reaches zero.
 		this.group.visible = alpha > 0.001;
-		this.material.opacity = alpha;
-		this.material.depthWrite = alpha > 0.985;
 	}
 
 	getStats(): InstancedOrbitTerrainStats {
@@ -152,15 +156,18 @@ export class InstancedOrbitTerrain {
 		geometry.setAttribute('iFaceRight', new THREE.InstancedBufferAttribute(faceRight, 3));
 		geometry.setAttribute('iFaceUp', new THREE.InstancedBufferAttribute(faceUp, 3));
 		geometry.setAttribute('iBounds', new THREE.InstancedBufferAttribute(bounds, 3));
-		geometry.setIndex(new THREE.Uint32BufferAttribute(createGridIndices(segments), 1));
+
+		// The production TerrainPatch grid and the proven instanced V7 renderer use
+		// a 16-bit index for this 25x25 grid. Pass a real BufferAttribute so WebGPU
+		// receives a valid backing array while retaining the working index format.
+		geometry.setIndex(new THREE.Uint16BufferAttribute(createGridIndices(segments), 1));
 		geometry.instanceCount = instanceCount;
 		return geometry;
 	}
 
 	private createMaterial(): MeshBasicNodeMaterial {
 		const material = new MeshBasicNodeMaterial({
-			transparent: true,
-			opacity: 1,
+			transparent: false,
 			depthTest: true,
 			depthWrite: true,
 		});
@@ -227,8 +234,8 @@ export class InstancedOrbitTerrain {
 	}
 }
 
-function createGridIndices(segments: number): Uint32Array {
-	const indices = new Uint32Array(segments * segments * 6);
+function createGridIndices(segments: number): Uint16Array {
+	const indices = new Uint16Array(segments * segments * 6);
 	const stride = segments + 1;
 	let write = 0;
 	for (let y = 0; y < segments; y++) {
