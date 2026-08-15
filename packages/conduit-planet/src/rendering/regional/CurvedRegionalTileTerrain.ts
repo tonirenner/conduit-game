@@ -3,9 +3,10 @@ import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 
 const TILE_COUNT = 5;
-const FAR_TILE_SEGMENTS = 20;
-const MID_TILE_SEGMENTS = 32;
-const NEAR_TILE_SEGMENTS = 48;
+const FAR_TILE_SEGMENTS = 16;
+const MID_TILE_SEGMENTS = 24;
+const NEAR_TILE_SEGMENTS = 40;
+const CENTER_TILE_SEGMENTS = 64;
 const EXTENT_REBUILD_THRESHOLD = 0.12;
 const MIN_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(0.35);
 const MAX_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(2.0);
@@ -15,9 +16,9 @@ const MAX_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(2.0);
  *
  * The visible region is split into fixed curved tiles around the camera nadir.
  * Every vertex is projected back onto the planet sphere and then displaced by
- * the canonical PlanetTerrainSampler elevation. The tile geometries are merged
- * into one BufferGeometry, so Regional stays a single draw call while avoiding
- * one giant displacement texture stretched over the entire visible region.
+ * the canonical PlanetTerrainSampler elevation. LOD is assigned per tile so
+ * the centre of the visible region gets real geometry detail while outer tiles
+ * remain cheap. All tiles are merged into one BufferGeometry / draw call.
  *
  * Material detail is intentionally minimal here. AO/normal/roughness/hydraulic
  * erosion stay out until the geometry and view continuity are proven stable.
@@ -38,7 +39,7 @@ export class CurvedRegionalTileTerrain {
 	});
 	private mesh: THREE.Mesh | null = null;
 	private currentExtent = 1;
-	private tileSegments = FAR_TILE_SEGMENTS;
+	private lodProfileKey = '';
 
 	constructor(
 		private readonly definition: PlanetDefinition,
@@ -48,7 +49,7 @@ export class CurvedRegionalTileTerrain {
 		this.group.name = 'CurvedRegionalTileTerrain';
 		this.sampler = new PlanetTerrainSampler(definition);
 		this.currentExtent = this.getPatchExtent(cameraRenderPosition);
-		this.tileSegments = this.getTileSegments(cameraRenderPosition);
+		this.lodProfileKey = this.getLodProfileKey(cameraRenderPosition);
 		this.rebuild(cameraRenderPosition);
 		this.setOpacity(0);
 	}
@@ -56,9 +57,9 @@ export class CurvedRegionalTileTerrain {
 	update(cameraRenderPosition: THREE.Vector3, opacity: number): void {
 		const direction = cameraRenderPosition.clone().normalize();
 		const extent = this.getPatchExtent(cameraRenderPosition);
-		const nextSegments = this.getTileSegments(cameraRenderPosition);
+		const nextLodProfileKey = this.getLodProfileKey(cameraRenderPosition);
 		const extentChanged = Math.abs(extent / Math.max(1e-6, this.currentExtent) - 1) > EXTENT_REBUILD_THRESHOLD;
-		const resolutionChanged = nextSegments !== this.tileSegments;
+		const lodChanged = nextLodProfileKey !== this.lodProfileKey;
 
 		const anchorStep = THREE.MathUtils.clamp(
 			Math.atan(this.currentExtent) / TILE_COUNT * 0.35,
@@ -67,9 +68,9 @@ export class CurvedRegionalTileTerrain {
 		);
 		const anchorChanged = direction.dot(this.anchor) < Math.cos(anchorStep);
 
-		if (anchorChanged || extentChanged || resolutionChanged) {
+		if (anchorChanged || extentChanged || lodChanged) {
 			this.currentExtent = extent;
-			this.tileSegments = nextSegments;
+			this.lodProfileKey = nextLodProfileKey;
 			this.rebuild(cameraRenderPosition);
 		}
 
@@ -111,11 +112,37 @@ export class CurvedRegionalTileTerrain {
 		return Math.tan(coverageAngle);
 	}
 
-	private getTileSegments(cameraRenderPosition: THREE.Vector3): number {
+	private getLodProfileKey(cameraRenderPosition: THREE.Vector3): string {
 		const altitudeMeters = this.getAltitudeMeters(cameraRenderPosition);
-		if (altitudeMeters > 3_000_000) return FAR_TILE_SEGMENTS;
-		if (altitudeMeters > 500_000) return MID_TILE_SEGMENTS;
-		return NEAR_TILE_SEGMENTS;
+		if (altitudeMeters > 3_000_000) return 'far';
+		if (altitudeMeters > 700_000) return 'mid';
+		if (altitudeMeters > 180_000) return 'near';
+		return 'ground';
+	}
+
+	private getTileSegments(tileX: number, tileY: number): number {
+		const distanceFromCenter = Math.max(
+			Math.abs(tileX - Math.floor(TILE_COUNT / 2)),
+			Math.abs(tileY - Math.floor(TILE_COUNT / 2)),
+		);
+
+		switch (this.lodProfileKey) {
+			case 'far':
+				return distanceFromCenter === 0 ? MID_TILE_SEGMENTS : FAR_TILE_SEGMENTS;
+			case 'mid':
+				if (distanceFromCenter === 0) return NEAR_TILE_SEGMENTS;
+				if (distanceFromCenter === 1) return MID_TILE_SEGMENTS;
+				return FAR_TILE_SEGMENTS;
+			case 'near':
+				if (distanceFromCenter === 0) return CENTER_TILE_SEGMENTS;
+				if (distanceFromCenter === 1) return NEAR_TILE_SEGMENTS;
+				return MID_TILE_SEGMENTS;
+			case 'ground':
+			default:
+				if (distanceFromCenter === 0) return CENTER_TILE_SEGMENTS;
+				if (distanceFromCenter === 1) return CENTER_TILE_SEGMENTS;
+				return NEAR_TILE_SEGMENTS;
+		}
 	}
 
 	private rebuild(cameraRenderPosition: THREE.Vector3): void {
@@ -129,8 +156,6 @@ export class CurvedRegionalTileTerrain {
 		} else {
 			this.mesh = new THREE.Mesh(geometry, this.material);
 			this.mesh.name = 'CurvedRegionalTileTerrainMesh';
-			// Keep culling out of the geometry validation phase. The mesh is already
-			// only alive inside the Regional view bands and is one draw call.
 			this.mesh.frustumCulled = false;
 			this.mesh.castShadow = false;
 			this.mesh.receiveShadow = true;
@@ -150,12 +175,14 @@ export class CurvedRegionalTileTerrain {
 
 		for (let tileY = 0; tileY < TILE_COUNT; tileY++) {
 			for (let tileX = 0; tileX < TILE_COUNT; tileX++) {
+				const tileSegments = this.getTileSegments(tileX, tileY);
 				const baseVertex = positions.length / 3;
-				for (let y = 0; y <= this.tileSegments; y++) {
-					const fy = y / this.tileSegments;
+
+				for (let y = 0; y <= tileSegments; y++) {
+					const fy = y / tileSegments;
 					const v = -this.currentExtent + (tileY + fy) * tileSpan;
-					for (let x = 0; x <= this.tileSegments; x++) {
-						const fx = x / this.tileSegments;
+					for (let x = 0; x <= tileSegments; x++) {
+						const fx = x / tileSegments;
 						const u = -this.currentExtent + (tileX + fx) * tileSpan;
 						sampleDirection(direction, basis, u, v);
 						const sample = this.sampler.sample(direction, false);
@@ -166,19 +193,15 @@ export class CurvedRegionalTileTerrain {
 							direction.y * radius,
 							direction.z * radius,
 						);
-
-						// Radial normals are stable across duplicated tile borders. Fine terrain
-						// normals come later once geometry continuity is established.
 						normals.push(direction.x, direction.y, direction.z);
-
 						resolveTerrainColor(this.definition.class, sample, color);
 						colors.push(color.r, color.g, color.b);
 					}
 				}
 
-				const stride = this.tileSegments + 1;
-				for (let y = 0; y < this.tileSegments; y++) {
-					for (let x = 0; x < this.tileSegments; x++) {
+				const stride = tileSegments + 1;
+				for (let y = 0; y < tileSegments; y++) {
+					for (let x = 0; x < tileSegments; x++) {
 						const a = baseVertex + y * stride + x;
 						const b = a + 1;
 						const c = a + stride;
@@ -199,6 +222,7 @@ export class CurvedRegionalTileTerrain {
 				? new THREE.Uint16BufferAttribute(indices, 1)
 				: new THREE.Uint32BufferAttribute(indices, 1),
 		);
+		geometry.computeVertexNormals();
 		geometry.computeBoundingSphere();
 		return geometry;
 	}
