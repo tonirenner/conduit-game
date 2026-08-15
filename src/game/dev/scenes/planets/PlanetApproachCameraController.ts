@@ -42,10 +42,11 @@ export type PlanetApproachCameraState = {
  * orbit -> horizon -> ground motion without coupling the camera to any terrain
  * renderer or view handoff.
  *
- * Holding the left mouse button adds a persistent yaw/pitch look offset to the
- * automatic approach framing. Only the target direction changes: the camera
- * position remains untouched, so altitude/LOD/view-handoff calculations keep
- * using the exact same position as before.
+ * Orbit and approach input remain fully owned by OrbitControls. Only once the
+ * controller is in surface mode can holding the left mouse button add a local
+ * yaw/pitch viewing offset. That offset is applied to the camera quaternion
+ * after OrbitControls has updated, so it never changes the controls target or
+ * camera position used by planetary LOD/handoff logic.
  */
 export class PlanetApproachCameraController {
 	private readonly defaultTarget: THREE.Vector3;
@@ -66,9 +67,7 @@ export class PlanetApproachCameraController {
 	private readonly tangentCandidate = new THREE.Vector3();
 	private readonly approachDirection = new THREE.Vector3();
 	private readonly center = new THREE.Vector3();
-	private readonly lookDirection = new THREE.Vector3();
 	private readonly lookRight = new THREE.Vector3();
-	private readonly lookTarget = new THREE.Vector3();
 	private readonly lookYawQuaternion = new THREE.Quaternion();
 	private readonly lookPitchQuaternion = new THREE.Quaternion();
 
@@ -81,7 +80,13 @@ export class PlanetApproachCameraController {
 	private state: PlanetApproachCameraState;
 
 	private readonly onPointerDown = (event: PointerEvent): void => {
-		if (event.button !== 0 || this.lookPointerId !== null) return;
+		if (
+			event.button !== 0 ||
+			this.lookPointerId !== null ||
+			this.state.mode !== 'surface'
+		) {
+			return;
+		}
 
 		event.preventDefault();
 		event.stopPropagation();
@@ -109,7 +114,6 @@ export class PlanetApproachCameraController {
 			LOOK_MAX_PITCH,
 		);
 
-		// Keep yaw numerically bounded during long inspection sessions.
 		if (Math.abs(this.lookYaw) > Math.PI * 2) {
 			this.lookYaw = THREE.MathUtils.euclideanModulo(
 				this.lookYaw + Math.PI,
@@ -120,12 +124,7 @@ export class PlanetApproachCameraController {
 
 	private readonly onPointerUp = (event: PointerEvent): void => {
 		if (event.pointerId !== this.lookPointerId) return;
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.controls.domElement.releasePointerCapture?.(event.pointerId);
-		this.lookPointerId = null;
-		this.controls.enableRotate = this.defaultEnableRotate;
+		this.finishLookGesture(event.pointerId, true);
 	};
 
 	constructor(
@@ -144,9 +143,8 @@ export class PlanetApproachCameraController {
 		this.defaultEnableRotate = controls.enableRotate;
 		this.renderUnitsPerMeter = renderRadius / Math.max(1, radiusMeters);
 
-		// Capture-phase listeners consume only left-button look gestures before
-		// OrbitControls can interpret them as orbit rotation. Wheel/dolly and all
-		// other control input remain owned by OrbitControls.
+		// Capture listeners only consume left-button drags while surface mode is
+		// active. Orbit/approach gestures pass straight through to OrbitControls.
 		this.controls.domElement.addEventListener('pointerdown', this.onPointerDown, true);
 		this.controls.domElement.addEventListener('pointermove', this.onPointerMove, true);
 		this.controls.domElement.addEventListener('pointerup', this.onPointerUp, true);
@@ -189,24 +187,40 @@ export class PlanetApproachCameraController {
 			UP_BLEND_START_METERS,
 			UP_BLEND_END_METERS,
 		);
+		const mode: PlanetApproachCameraState['mode'] = targetBlend <= 0.001
+			? 'orbit'
+			: altitudeMeters <= SURFACE_FOV_END_METERS
+				? 'surface'
+				: 'approach';
+
+		// Surface look must never leak back into orbit/approach. Restore the exact
+		// OrbitControls behaviour as soon as we leave surface mode.
+		if (mode !== 'surface') {
+			if (this.lookPointerId !== null) {
+				this.finishLookGesture(this.lookPointerId, false);
+			}
+			this.lookYaw = 0;
+			this.lookPitch = 0;
+		}
 
 		this.updateTarget(altitudeMeters, targetBlend, delta);
 		this.updateUp(upBlend, delta);
 		this.updateFovAndControlSpeeds(altitudeMeters, delta);
 		this.updateNearPlane(altitudeMeters, delta);
 
-		// Apply the externally changed target/up immediately. This keeps input and
-		// the view handoff in the same frame even if the feature-lab host updates
-		// OrbitControls elsewhere in its frame loop as well.
+		// OrbitControls always owns the canonical position/target relationship.
 		this.controls.update(delta);
+
+		// Surface inspection is a pure view rotation layered on top. It does not
+		// mutate controls.target and therefore cannot de-centre orbit framing or
+		// change altitude/LOD calculations.
+		if (mode === 'surface') {
+			this.applySurfaceLookOffset();
+		}
 
 		this.state = {
 			altitudeMeters,
-			mode: targetBlend <= 0.001
-				? 'orbit'
-				: altitudeMeters <= SURFACE_FOV_END_METERS
-					? 'surface'
-					: 'approach',
+			mode,
 			targetBlend,
 			upBlend,
 			fov: this.camera.fov,
@@ -224,8 +238,7 @@ export class PlanetApproachCameraController {
 		this.controls.domElement.removeEventListener('pointerup', this.onPointerUp, true);
 		this.controls.domElement.removeEventListener('pointercancel', this.onPointerUp, true);
 		if (this.lookPointerId !== null) {
-			this.controls.domElement.releasePointerCapture?.(this.lookPointerId);
-			this.lookPointerId = null;
+			this.finishLookGesture(this.lookPointerId, false);
 		}
 
 		this.controls.target.copy(this.defaultTarget);
@@ -270,44 +283,40 @@ export class PlanetApproachCameraController {
 				.multiplyScalar(this.renderRadius * targetBlend);
 		}
 
-		const target = this.applyLookOffset(this.desiredTarget);
 		this.controls.target.lerp(
-			target,
+			this.desiredTarget,
 			dampingFactor(TARGET_DAMPING, dt),
 		);
 	}
 
-	private applyLookOffset(baseTarget: THREE.Vector3): THREE.Vector3 {
-		if (Math.abs(this.lookYaw) < 1e-8 && Math.abs(this.lookPitch) < 1e-8) {
-			return baseTarget;
-		}
-
-		this.lookDirection.copy(baseTarget).sub(this.camera.position);
-		let lookDistance = this.lookDirection.length();
-		if (lookDistance < 1e-8) {
-			this.camera.getWorldDirection(this.lookDirection);
-			lookDistance = Math.max(this.renderRadius, 1);
-		} else {
-			this.lookDirection.multiplyScalar(1 / lookDistance);
-		}
+	private applySurfaceLookOffset(): void {
+		if (Math.abs(this.lookYaw) < 1e-8 && Math.abs(this.lookPitch) < 1e-8) return;
 
 		this.radialUp.copy(this.camera.up);
 		if (this.radialUp.lengthSq() < 1e-12) this.radialUp.set(0, 1, 0);
 		else this.radialUp.normalize();
 
 		this.lookYawQuaternion.setFromAxisAngle(this.radialUp, this.lookYaw);
-		this.lookDirection.applyQuaternion(this.lookYawQuaternion).normalize();
+		this.camera.quaternion.premultiply(this.lookYawQuaternion).normalize();
 
-		this.lookRight.crossVectors(this.lookDirection, this.radialUp);
-		if (this.lookRight.lengthSq() > 1e-10) {
-			this.lookRight.normalize();
-			this.lookPitchQuaternion.setFromAxisAngle(this.lookRight, this.lookPitch);
-			this.lookDirection.applyQuaternion(this.lookPitchQuaternion).normalize();
+		this.lookRight
+			.set(1, 0, 0)
+			.applyQuaternion(this.camera.quaternion)
+			.normalize();
+		this.lookPitchQuaternion.setFromAxisAngle(this.lookRight, this.lookPitch);
+		this.camera.quaternion.premultiply(this.lookPitchQuaternion).normalize();
+	}
+
+	private finishLookGesture(pointerId: number, preventEvent: boolean): void {
+		if (this.lookPointerId !== pointerId) return;
+		if (preventEvent) {
+			// The pointer event itself has already been consumed by the capture
+			// listener. Releasing capture here prevents OrbitControls seeing a tail
+			// event for a gesture it never started.
 		}
-
-		return this.lookTarget
-			.copy(this.camera.position)
-			.addScaledVector(this.lookDirection, lookDistance);
+		this.controls.domElement.releasePointerCapture?.(pointerId);
+		this.lookPointerId = null;
+		this.controls.enableRotate = this.defaultEnableRotate;
 	}
 
 	private updateUp(upBlend: number, dt: number): void {
