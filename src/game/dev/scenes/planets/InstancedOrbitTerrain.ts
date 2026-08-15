@@ -47,13 +47,12 @@ type OrbitPalette = {
  * This deliberately does NOT run a camera-driven quadtree. OrbitView has one
  * job: draw the complete planet cheaply until RegionalView takes over.
  *
- * - one shared non-indexed 24x24 triangle grid
+ * - one shared 24x24 grid
  * - fixed level-2 CubeSphere topology (96 instances)
  * - one InstancedBufferGeometry / one draw call
  * - terrain displacement + masks sampled from one pre-baked RGBA16F 3D LUT
  * - no per-frame terrain noise
  * - no per-frame patch allocation/split/merge/stitch work
- * - no WebGPU index-buffer lifecycle on the optimized planet path
  */
 export class InstancedOrbitTerrain {
 	readonly group = new THREE.Group();
@@ -107,28 +106,16 @@ export class InstancedOrbitTerrain {
 
 	private createGeometry(): THREE.InstancedBufferGeometry {
 		const segments = ORBIT_GRID_SEGMENTS;
-		const vertexCount = segments * segments * 6;
+		const rowSize = segments + 1;
+		const vertexCount = rowSize * rowSize;
 		const positions = new Float32Array(vertexCount * 3);
 		const patchUv = new Float32Array(vertexCount * 2);
-		let vertex = 0;
-		const writeUv = (u: number, v: number) => {
-			patchUv[vertex * 2] = u;
-			patchUv[vertex * 2 + 1] = v;
-			vertex++;
-		};
 
-		for (let y = 0; y < segments; y++) {
-			const v0 = y / segments;
-			const v1 = (y + 1) / segments;
-			for (let x = 0; x < segments; x++) {
-				const u0 = x / segments;
-				const u1 = (x + 1) / segments;
-				writeUv(u0, v0);
-				writeUv(u0, v1);
-				writeUv(u1, v0);
-				writeUv(u1, v0);
-				writeUv(u0, v1);
-				writeUv(u1, v1);
+		for (let y = 0; y <= segments; y++) {
+			for (let x = 0; x <= segments; x++) {
+				const index = x + y * rowSize;
+				patchUv[index * 2] = x / segments;
+				patchUv[index * 2 + 1] = y / segments;
 			}
 		}
 
@@ -165,6 +152,7 @@ export class InstancedOrbitTerrain {
 		geometry.setAttribute('iFaceRight', new THREE.InstancedBufferAttribute(faceRight, 3));
 		geometry.setAttribute('iFaceUp', new THREE.InstancedBufferAttribute(faceUp, 3));
 		geometry.setAttribute('iBounds', new THREE.InstancedBufferAttribute(bounds, 3));
+		geometry.setIndex(createGridIndices(segments));
 		geometry.instanceCount = instanceCount;
 		return geometry;
 	}
@@ -237,6 +225,27 @@ export class InstancedOrbitTerrain {
 		material.colorNode = mix(nightColor, dayColor, day).mul(1.18);
 		return material;
 	}
+}
+
+function createGridIndices(segments: number): Uint32Array {
+	const indices = new Uint32Array(segments * segments * 6);
+	const stride = segments + 1;
+	let write = 0;
+	for (let y = 0; y < segments; y++) {
+		for (let x = 0; x < segments; x++) {
+			const a = y * stride + x;
+			const b = a + 1;
+			const c = a + stride;
+			const d = c + 1;
+			indices[write++] = a;
+			indices[write++] = c;
+			indices[write++] = b;
+			indices[write++] = b;
+			indices[write++] = c;
+			indices[write++] = d;
+		}
+	}
+	return indices;
 }
 
 function getPalette(planetClass: PlanetClass): OrbitPalette {
