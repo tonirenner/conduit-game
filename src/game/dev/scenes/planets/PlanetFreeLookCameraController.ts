@@ -17,13 +17,20 @@ const EXIT_BLEND_SECONDS = 0.45;
  * from the planet can never make zoom accidentally fly sideways through the
  * terrain. When pure orbit returns, orientation is blended back toward the
  * planet centre before OrbitControls is re-enabled.
+ *
+ * Feature Lab calls OrbitControls.update() globally before scene.update(). That
+ * call can still rewrite a camera quaternion even when controls.enabled=false,
+ * so the manual quaternion is persisted independently and restored every frame
+ * after the global controls update.
  */
 export class PlanetFreeLookCameraController {
 	private readonly defaultControlsEnabled: boolean;
+	private readonly defaultEnableDamping: boolean;
 	private readonly renderUnitsPerMeter: number;
 	private readonly radialUp = new THREE.Vector3();
 	private readonly right = new THREE.Vector3();
 	private readonly radialDirection = new THREE.Vector3();
+	private readonly manualQuaternion = new THREE.Quaternion();
 	private readonly yawQuaternion = new THREE.Quaternion();
 	private readonly pitchQuaternion = new THREE.Quaternion();
 	private readonly exitStartQuaternion = new THREE.Quaternion();
@@ -79,6 +86,7 @@ export class PlanetFreeLookCameraController {
 		private readonly radiusMeters: number,
 	) {
 		this.defaultControlsEnabled = controls.enabled;
+		this.defaultEnableDamping = controls.enableDamping;
 		this.renderUnitsPerMeter = renderRadius / Math.max(1, radiusMeters);
 
 		const element = this.controls.domElement;
@@ -99,7 +107,13 @@ export class PlanetFreeLookCameraController {
 	}
 
 	update(dt: number): void {
-		if (!this.exiting) return;
+		if (!this.active) return;
+
+		if (!this.exiting) {
+			// Restore ownership after FeatureLab's global OrbitControls.update().
+			this.camera.quaternion.copy(this.manualQuaternion).normalize();
+			return;
+		}
 
 		this.exitElapsed += Math.max(0, dt);
 		const t = THREE.MathUtils.clamp(this.exitElapsed / EXIT_BLEND_SECONDS, 0, 1);
@@ -131,6 +145,7 @@ export class PlanetFreeLookCameraController {
 		this.pitch = 0;
 		this.approachController.setManualViewActive(false);
 		this.controls.enabled = this.defaultControlsEnabled;
+		this.controls.enableDamping = this.defaultEnableDamping;
 	}
 
 	private beginOwnership(): void {
@@ -139,15 +154,17 @@ export class PlanetFreeLookCameraController {
 		this.exitElapsed = 0;
 		this.pitch = 0;
 		this.active = true;
+		this.manualQuaternion.copy(this.camera.quaternion);
 		this.approachController.setManualViewActive(true);
 		this.controls.enabled = false;
+		this.controls.enableDamping = false;
 	}
 
 	private beginOrbitHandoff(): void {
 		this.releasePointer();
 		this.exiting = true;
 		this.exitElapsed = 0;
-		this.exitStartQuaternion.copy(this.camera.quaternion);
+		this.exitStartQuaternion.copy(this.manualQuaternion);
 	}
 
 	private finishOrbitHandoff(): void {
@@ -155,11 +172,9 @@ export class PlanetFreeLookCameraController {
 		this.active = false;
 		this.pitch = 0;
 
-		// Pure orbit always owns the centre target. The quaternion was already
-		// blended to this exact orientation, so re-enabling OrbitControls cannot
-		// create a visible snap.
 		this.controls.target.copy(this.center);
 		this.approachController.setManualViewActive(false);
+		this.controls.enableDamping = this.defaultEnableDamping;
 		this.controls.enabled = this.defaultControlsEnabled;
 		this.controls.update();
 	}
@@ -171,7 +186,7 @@ export class PlanetFreeLookCameraController {
 
 		const yaw = -deltaX * LOOK_SENSITIVITY;
 		this.yawQuaternion.setFromAxisAngle(this.radialUp, yaw);
-		this.camera.quaternion.premultiply(this.yawQuaternion).normalize();
+		this.manualQuaternion.premultiply(this.yawQuaternion).normalize();
 
 		const requestedPitch = this.pitch - deltaY * LOOK_SENSITIVITY;
 		const clampedPitch = THREE.MathUtils.clamp(requestedPitch, -MAX_PITCH, MAX_PITCH);
@@ -181,11 +196,13 @@ export class PlanetFreeLookCameraController {
 		if (Math.abs(pitchDelta) > 1e-10) {
 			this.right
 				.set(1, 0, 0)
-				.applyQuaternion(this.camera.quaternion)
+				.applyQuaternion(this.manualQuaternion)
 				.normalize();
 			this.pitchQuaternion.setFromAxisAngle(this.right, pitchDelta);
-			this.camera.quaternion.premultiply(this.pitchQuaternion).normalize();
+			this.manualQuaternion.premultiply(this.pitchQuaternion).normalize();
 		}
+
+		this.camera.quaternion.copy(this.manualQuaternion);
 	}
 
 	private applyRadialZoom(deltaY: number): void {
