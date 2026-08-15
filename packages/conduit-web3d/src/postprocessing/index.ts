@@ -1,1 +1,1 @@
-export * from './PostProcessingPipeline';
+export * from './PostProcessingPipelineV2';
