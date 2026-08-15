@@ -15,6 +15,10 @@ const SURFACE_FOV = 48;
 const TARGET_DAMPING = 5.5;
 const UP_DAMPING = 4.5;
 const FOV_DAMPING = 5.0;
+const NEAR_PLANE_DAMPING = 6.0;
+const NEAR_PLANE_MIN_METERS = 2;
+const NEAR_PLANE_MAX_METERS = 50_000;
+const NEAR_PLANE_ALTITUDE_FACTOR = 0.08;
 
 export type PlanetApproachCameraState = {
 	altitudeMeters: number;
@@ -40,6 +44,7 @@ export class PlanetApproachCameraController {
 	private readonly defaultTarget: THREE.Vector3;
 	private readonly defaultCameraUp: THREE.Vector3;
 	private readonly defaultFov: number;
+	private readonly defaultNear: number;
 	private readonly defaultZoomSpeed: number;
 	private readonly defaultRotateSpeed: number;
 	private readonly defaultMinDistance: number;
@@ -65,6 +70,7 @@ export class PlanetApproachCameraController {
 		this.defaultTarget = controls.target.clone();
 		this.defaultCameraUp = camera.up.clone().normalize();
 		this.defaultFov = camera.fov;
+		this.defaultNear = camera.near;
 		this.defaultZoomSpeed = controls.zoomSpeed;
 		this.defaultRotateSpeed = controls.rotateSpeed;
 		this.defaultMinDistance = controls.minDistance;
@@ -111,6 +117,7 @@ export class PlanetApproachCameraController {
 		this.updateTarget(altitudeMeters, targetBlend, delta);
 		this.updateUp(upBlend, delta);
 		this.updateFovAndControlSpeeds(altitudeMeters, delta);
+		this.updateNearPlane(altitudeMeters, delta);
 
 		// Apply the externally changed target/up immediately. This keeps input and
 		// the view handoff in the same frame even if the feature-lab host updates
@@ -142,6 +149,7 @@ export class PlanetApproachCameraController {
 		this.controls.minDistance = this.defaultMinDistance;
 		this.camera.up.copy(this.defaultCameraUp);
 		this.camera.fov = this.defaultFov;
+		this.camera.near = this.defaultNear;
 		this.camera.updateProjectionMatrix();
 		this.controls.update();
 		this.anchorDirection = null;
@@ -223,6 +231,35 @@ export class PlanetApproachCameraController {
 		// planetary scale. Only calm it down as the surface target takes over.
 		this.controls.zoomSpeed = THREE.MathUtils.lerp(1.0, 0.28, surfaceBlend);
 		this.controls.rotateSpeed = THREE.MathUtils.lerp(0.55, 0.16, surfaceBlend);
+	}
+
+	private updateNearPlane(altitudeMeters: number, dt: number): void {
+		const nearBlend = descendingSmoothstep(
+			altitudeMeters,
+			SURFACE_FOV_START_METERS,
+			SURFACE_FOV_END_METERS,
+		);
+		const targetNearMeters = THREE.MathUtils.clamp(
+			altitudeMeters * NEAR_PLANE_ALTITUDE_FACTOR,
+			NEAR_PLANE_MIN_METERS,
+			NEAR_PLANE_MAX_METERS,
+		);
+		const surfaceNear = targetNearMeters * this.renderUnitsPerMeter;
+		const desiredNear = THREE.MathUtils.lerp(
+			this.defaultNear,
+			Math.min(this.defaultNear, surfaceNear),
+			nearBlend,
+		);
+		const nextNear = THREE.MathUtils.lerp(
+			this.camera.near,
+			desiredNear,
+			dampingFactor(NEAR_PLANE_DAMPING, dt),
+		);
+
+		if (Math.abs(nextNear - this.camera.near) > 1e-8) {
+			this.camera.near = Math.max(1e-7, nextNear);
+			this.camera.updateProjectionMatrix();
+		}
 	}
 
 	private captureSurfaceAnchor(): void {
