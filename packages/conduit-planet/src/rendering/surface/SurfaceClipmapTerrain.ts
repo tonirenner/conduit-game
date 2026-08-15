@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
+import { createStitchedRingIndices } from '../../terrain/TerrainGeometryUtils';
 import { noise3d } from '../../terrain/noise';
 
 // SurfaceView stays local. Ten rings with a 4 km base half extent still cover
-// +/-2048 km. Keeping the uniform 24-cell topology preserves exact neighboring
-// ring boundaries while adding one cheaper near-field LOD step (~333 m cells
-// instead of ~667 m) without multiplying every outer ring's vertex count.
+// +/-2048 km. Each ring is an indexed shared-vertex grid. Fine outer edges are
+// collapsed 2:1 onto the next coarser ring so the clipmap stays watertight while
+// retaining the ~333 m near-field cell size.
 const RING_COUNT = 10;
 const GRID_CELLS = 24;
 const BASE_HALF_EXTENT_METERS = 4_000;
@@ -27,14 +28,15 @@ export type SurfaceClipmapStats = {
 	gridCells: number;
 	outerHalfExtentMeters: number;
 	recenterDistanceMeters: number;
-	indexed: false;
+	indexed: true;
 };
 
 type Ring = {
 	mesh: THREE.Mesh;
 	geometry: THREE.BufferGeometry;
 	material: THREE.MeshStandardMaterial;
-	template: Float32Array;
+	grid: Float32Array;
+	usedVertices: Uint8Array;
 	positions: Float32Array;
 	normals: Float32Array;
 	colors: Float32Array;
@@ -53,24 +55,21 @@ type CachedSample = {
 };
 
 /**
- * SurfaceView clipmap scaffold.
+ * SurfaceView clipmap terrain.
  *
- * The geometry topology is fixed and non-indexed so WebGPU never needs to
- * create/destroy index buffers while views hand over. Vertices are expressed
- * in a local tangent frame where one local unit is one physical meter. The
- * group itself converts that local meter frame into the compact planet render
- * scale.
+ * Rings use indexed shared-vertex grids instead of disconnected triangles.
+ * The outer edge of every fine ring is stitched 2:1 to the next coarser ring,
+ * eliminating LOD T-junctions while keeping a fixed, cheap topology for WebGPU.
+ * Vertices are expressed in a local tangent frame where one local unit is one
+ * physical meter; the group converts that frame into compact render scale.
  *
  * Terrain is sampled only when the local frame recenters. Surface is re-anchored
  * when its handoff becomes visible and keeps following the camera nadir whenever
- * the configured recenter distance is exceeded. This keeps the local clipmap
- * spatially aligned with Regional throughout the crossfade.
+ * the configured recenter distance is exceeded.
  *
- * Geometry always comes from the canonical PlanetTerrainSampler. The denser
- * near-field clipmap does not invent a second terrain layer; it simply samples
- * the existing mountain/erosion/detail height field closely enough to preserve
- * its shape near the camera. Deterministic high-frequency noise remains shading
- * only, so landing/collision height stays identical to the canonical terrain.
+ * Geometry always comes from the canonical PlanetTerrainSampler. Deterministic
+ * high-frequency noise remains shading-only, so landing/collision height and the
+ * Orbit -> Regional -> Surface terrain definition stay unified.
  */
 export class SurfaceClipmapTerrain {
 	readonly group = new THREE.Group();
@@ -138,7 +137,7 @@ export class SurfaceClipmapTerrain {
 			gridCells: GRID_CELLS,
 			outerHalfExtentMeters: BASE_HALF_EXTENT_METERS * (1 << (RING_COUNT - 1)),
 			recenterDistanceMeters: this.currentRecenterDistanceMeters,
-			indexed: false,
+			indexed: true,
 		};
 	}
 
@@ -153,9 +152,17 @@ export class SurfaceClipmapTerrain {
 
 	private createRing(level: number): Ring {
 		const halfExtent = BASE_HALF_EXTENT_METERS * (1 << level);
-		const innerHalfExtent = level === 0 ? 0 : halfExtent * 0.5;
-		const template = createRingTemplate(halfExtent, innerHalfExtent, GRID_CELLS);
-		const vertexCount = template.length / 2;
+		const grid = createRingVertexGrid(halfExtent, GRID_CELLS);
+		const vertexCount = (GRID_CELLS + 1) * (GRID_CELLS + 1);
+		const innerResolution = level === 0 ? 0 : GRID_CELLS / 2;
+		const indices = createStitchedRingIndices(
+			GRID_CELLS,
+			innerResolution,
+			level < RING_COUNT - 1,
+		);
+		const usedVertices = new Uint8Array(vertexCount);
+		for (const index of indices) usedVertices[index] = 1;
+
 		const positions = new Float32Array(vertexCount * 3);
 		const normals = new Float32Array(vertexCount * 3);
 		const colors = new Float32Array(vertexCount * 3);
@@ -169,6 +176,7 @@ export class SurfaceClipmapTerrain {
 		geometry.setAttribute('position', positionAttribute);
 		geometry.setAttribute('normal', normalAttribute);
 		geometry.setAttribute('color', colorAttribute);
+		geometry.setIndex(indices);
 
 		const material = new THREE.MeshStandardMaterial({
 			vertexColors: true,
@@ -186,7 +194,16 @@ export class SurfaceClipmapTerrain {
 		mesh.frustumCulled = false;
 		mesh.renderOrder = 10 + level;
 
-		return { mesh, geometry, material, template, positions, normals, colors };
+		return {
+			mesh,
+			geometry,
+			material,
+			grid,
+			usedVertices,
+			positions,
+			normals,
+			colors,
+		};
 	}
 
 	private needsRecenter(direction: THREE.Vector3, distanceMeters: number): boolean {
@@ -224,10 +241,11 @@ export class SurfaceClipmapTerrain {
 	}
 
 	private fillRing(ring: Ring, cache: Map<string, CachedSample>): void {
-		const template = ring.template;
-		for (let vertex = 0; vertex < template.length / 2; vertex++) {
-			const localX = template[vertex * 2];
-			const localZ = template[vertex * 2 + 1];
+		for (let vertex = 0; vertex < ring.grid.length / 2; vertex++) {
+			if (ring.usedVertices[vertex] === 0) continue;
+
+			const localX = ring.grid[vertex * 2];
+			const localZ = ring.grid[vertex * 2 + 1];
 			const key = `${localX}:${localZ}`;
 			let sample = cache.get(key);
 			if (!sample) {
@@ -366,40 +384,18 @@ export class SurfaceClipmapTerrain {
 	}
 }
 
-function createRingTemplate(
-	halfExtent: number,
-	innerHalfExtent: number,
-	cells: number,
-): Float32Array {
-	const vertices: number[] = [];
+function createRingVertexGrid(halfExtent: number, cells: number): Float32Array {
+	const vertices = new Float32Array((cells + 1) * (cells + 1) * 2);
 	const cellSize = (halfExtent * 2) / cells;
-	for (let z = 0; z < cells; z++) {
-		const z0 = -halfExtent + z * cellSize;
-		const z1 = z0 + cellSize;
-		const centerZ = (z0 + z1) * 0.5;
-		for (let x = 0; x < cells; x++) {
-			const x0 = -halfExtent + x * cellSize;
-			const x1 = x0 + cellSize;
-			const centerX = (x0 + x1) * 0.5;
-			if (
-				innerHalfExtent > 0 &&
-				Math.abs(centerX) < innerHalfExtent &&
-				Math.abs(centerZ) < innerHalfExtent
-			) {
-				continue;
-			}
-
-			vertices.push(
-				x0, z0,
-				x0, z1,
-				x1, z0,
-				x1, z0,
-				x0, z1,
-				x1, z1,
-			);
+	let offset = 0;
+	for (let z = 0; z <= cells; z++) {
+		const localZ = -halfExtent + z * cellSize;
+		for (let x = 0; x <= cells; x++) {
+			vertices[offset++] = -halfExtent + x * cellSize;
+			vertices[offset++] = localZ;
 		}
 	}
-	return new Float32Array(vertices);
+	return vertices;
 }
 
 function getSurfaceColor(
