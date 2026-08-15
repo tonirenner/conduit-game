@@ -12,6 +12,7 @@ const MIN_RECENTER_DISTANCE_METERS = 24_000;
 const MAX_RECENTER_DISTANCE_METERS = 250_000;
 const RECENTER_ALTITUDE_FACTOR = 0.18;
 const RECENTER_MIN_OPACITY = 0.9;
+const DEPTH_OWNERSHIP_OPACITY = 0.985;
 
 export type SurfaceClipmapStats = {
 	active: boolean;
@@ -54,9 +55,9 @@ type CachedSample = {
  * group itself converts that local meter frame into the compact planet render
  * scale.
  *
- * Terrain is sampled only when the local frame recenters. During the approach
- * the initial surface anchor stays stable while Regional still carries the
- * view. Once Surface dominates, recenter distance scales with altitude so
+ * Terrain is sampled only when the local frame recenters. Surface is re-anchored
+ * once when its handoff becomes visible so it starts from the same camera nadir
+ * as Regional. Once Surface dominates, recenter distance scales with altitude so
  * camera rotation/panning cannot trigger a full CPU terrain refill every few
  * kilometres.
  */
@@ -72,6 +73,7 @@ export class SurfaceClipmapTerrain {
 	private readonly anchorPhysical = new THREE.Vector3();
 	private hasAnchor = false;
 	private currentRecenterDistanceMeters = MAX_RECENTER_DISTANCE_METERS;
+	private previousOpacity = 0;
 
 	constructor(
 		private readonly definition: PlanetDefinition,
@@ -95,22 +97,32 @@ export class SurfaceClipmapTerrain {
 		const alpha = THREE.MathUtils.clamp(opacity, 0, 1);
 		const altitudeMeters = this.getAltitudeMeters(cameraRenderPosition);
 		this.currentRecenterDistanceMeters = this.getRecenterDistanceMeters(altitudeMeters);
+		const direction = cameraRenderPosition.clone().normalize();
+		const enteringHandoff = alpha > 0.001 && this.previousOpacity <= 0.001;
 
-		// Keep the handoff anchor stable while Regional is still materially visible.
-		// Rebuilding all clipmap rings during that phase caused frame spikes and let
-		// the Surface patch wander away from the Regional patch during camera orbit.
-		if (alpha >= RECENTER_MIN_OPACITY) {
-			const direction = cameraRenderPosition.clone().normalize();
-			if (this.needsRecenter(direction, this.currentRecenterDistanceMeters)) {
-				this.recenter(direction);
-			}
+		// Surface can be preloaded well before it becomes visible. Re-anchor exactly
+		// when the crossfade starts so Regional and Surface share the current nadir.
+		// After that, keep the handoff stable until Surface materially dominates.
+		if (enteringHandoff) {
+			this.recenter(direction);
+		} else if (
+			alpha >= RECENTER_MIN_OPACITY &&
+			this.needsRecenter(direction, this.currentRecenterDistanceMeters)
+		) {
+			this.recenter(direction);
 		}
 
 		this.group.visible = alpha > 0.001;
+		const ownsDepth = alpha > DEPTH_OWNERSHIP_OPACITY;
 		for (const ring of this.rings) {
 			ring.material.opacity = alpha;
-			ring.material.depthWrite = alpha > 0.985;
+			// Regional still owns the depth buffer throughout the crossfade. Testing
+			// the almost-coincident Surface mesh against it exposes polygon-shaped
+			// holes. Surface takes normal depth ownership only after the handoff.
+			ring.material.depthTest = ownsDepth;
+			ring.material.depthWrite = ownsDepth;
 		}
+		this.previousOpacity = alpha;
 	}
 
 	getStats(): SurfaceClipmapStats {
