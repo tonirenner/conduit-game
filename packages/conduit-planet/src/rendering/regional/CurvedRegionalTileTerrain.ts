@@ -16,9 +16,11 @@ const MAX_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(2.0);
  *
  * The visible region is split into fixed curved tiles around the camera nadir.
  * Every vertex is projected back onto the planet sphere and then displaced by
- * the canonical PlanetTerrainSampler elevation. LOD is assigned per tile so
- * the centre of the visible region gets real geometry detail while outer tiles
- * remain cheap. All tiles are merged into one BufferGeometry / draw call.
+ * the canonical PlanetTerrainSampler elevation. LOD is selected per altitude
+ * band, but all tiles in one build use the same edge resolution. Keeping
+ * neighbouring tile borders identical avoids T-junctions and visible cracks
+ * while retaining real geometry LOD as the camera approaches the surface.
+ * All tiles are merged into one BufferGeometry / draw call.
  *
  * Material detail is intentionally minimal here. AO/normal/roughness/hydraulic
  * erosion stay out until the geometry and view continuity are proven stable.
@@ -120,28 +122,22 @@ export class CurvedRegionalTileTerrain {
 		return 'ground';
 	}
 
-	private getTileSegments(tileX: number, tileY: number): number {
-		const distanceFromCenter = Math.max(
-			Math.abs(tileX - Math.floor(TILE_COUNT / 2)),
-			Math.abs(tileY - Math.floor(TILE_COUNT / 2)),
-		);
-
+	private getTileSegments(): number {
+		// A tile edge may only meet another edge with the exact same vertex
+		// distribution. Mixing spatial resolutions inside one patch produced
+		// T-junctions because the projected spherical/elevation edges are curved,
+		// so high-resolution border vertices did not lie on the coarse chords.
+		// Keep LOD altitude-driven until explicit edge stitching is introduced.
 		switch (this.lodProfileKey) {
 			case 'far':
-				return distanceFromCenter === 0 ? MID_TILE_SEGMENTS : FAR_TILE_SEGMENTS;
-			case 'mid':
-				if (distanceFromCenter === 0) return NEAR_TILE_SEGMENTS;
-				if (distanceFromCenter === 1) return MID_TILE_SEGMENTS;
 				return FAR_TILE_SEGMENTS;
-			case 'near':
-				if (distanceFromCenter === 0) return CENTER_TILE_SEGMENTS;
-				if (distanceFromCenter === 1) return NEAR_TILE_SEGMENTS;
+			case 'mid':
 				return MID_TILE_SEGMENTS;
+			case 'near':
+				return NEAR_TILE_SEGMENTS;
 			case 'ground':
 			default:
-				if (distanceFromCenter === 0) return CENTER_TILE_SEGMENTS;
-				if (distanceFromCenter === 1) return CENTER_TILE_SEGMENTS;
-				return NEAR_TILE_SEGMENTS;
+				return CENTER_TILE_SEGMENTS;
 		}
 	}
 
@@ -172,10 +168,10 @@ export class CurvedRegionalTileTerrain {
 		const color = new THREE.Color();
 		const tileSpan = (this.currentExtent * 2) / TILE_COUNT;
 		const renderMetersScale = this.renderRadius / this.sampler.radiusMeters;
+		const tileSegments = this.getTileSegments();
 
 		for (let tileY = 0; tileY < TILE_COUNT; tileY++) {
 			for (let tileX = 0; tileX < TILE_COUNT; tileX++) {
-				const tileSegments = this.getTileSegments(tileX, tileY);
 				const baseVertex = positions.length / 3;
 
 				for (let y = 0; y <= tileSegments; y++) {
