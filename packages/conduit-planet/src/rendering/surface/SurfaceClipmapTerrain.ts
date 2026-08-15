@@ -4,10 +4,11 @@ import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 import { noise3d } from '../../terrain/noise';
 
 // SurfaceView stays local. Nine rings with the 8 km base half extent still
-// cover +/-2048 km, but the denser 48-cell grid gives the near field four times
-// the previous linear geometry resolution (~333 m instead of ~1.33 km).
+// cover +/-2048 km. A uniform 24-cell grid keeps neighboring ring boundaries
+// aligned while retaining twice the original near-field linear resolution
+// (~667 m instead of ~1.33 km) without the 48-cell sampling cost.
 const RING_COUNT = 9;
-const GRID_CELLS = 48;
+const GRID_CELLS = 24;
 const BASE_HALF_EXTENT_METERS = 8_000;
 const MIN_RECENTER_DISTANCE_METERS = 24_000;
 const MAX_RECENTER_DISTANCE_METERS = 250_000;
