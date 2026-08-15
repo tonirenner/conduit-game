@@ -11,6 +11,7 @@
     "./terrain": "./src/terrain/index.ts",
     "./near-view": "./src/near-view/index.ts",
     "./rendering": "./src/rendering/index.ts",
+    "./view": "./src/view/index.ts",
     "./diagnostics": "./src/diagnostics/index.ts"
   },
   "dependencies": {

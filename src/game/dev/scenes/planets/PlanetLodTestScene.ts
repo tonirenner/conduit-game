@@ -13,8 +13,7 @@ import {
 	drawPlanetClimateDebugMap,
 } from '@conduit/planet/diagnostics';
 import type { ClimateDebugMode } from '@conduit/planet/climate';
-import { PlanetViewRuntime } from './PlanetViewRuntime';
-import { PLANET_VIEW_BANDS } from './PlanetViewTransition';
+import { PLANET_VIEW_BANDS, PlanetViewRuntime } from '@conduit/planet/view';
 import { PlanetApproachCameraController } from './PlanetApproachCameraController';
 
 const LAB_PLANET_RADIUS = 3;

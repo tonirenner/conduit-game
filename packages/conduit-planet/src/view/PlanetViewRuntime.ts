@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { Planet } from '@conduit/planet/rendering';
-import type { PlanetDefinition } from '@conduit/planet/model';
-import type { PlanetRenderProfile } from '@conduit/planet/rendering';
-import { getPlanetRadiusMeters } from '@conduit/planet/near-view';
-import { InstancedOrbitTerrain } from './InstancedOrbitTerrain';
-import { RegionalSurfaceHandoffTerrain } from './RegionalSurfaceHandoffTerrain';
-import { SurfaceClipmapTerrain } from './SurfaceClipmapTerrain';
+import { Planet } from '../Planet';
+import type { PlanetDefinition } from '../model';
+import type { PlanetRenderProfile } from '../rendering/PlanetRenderProfile';
+import { getPlanetRadiusMeters } from '../near-view/PlanetPhysicalScale';
+import { InstancedOrbitTerrain } from '../rendering/orbit/InstancedOrbitTerrain';
+import { RegionalSurfaceHandoffTerrain } from '../rendering/regional/RegionalSurfaceHandoffTerrain';
+import { SurfaceClipmapTerrain } from '../rendering/surface/SurfaceClipmapTerrain';
 import {
 	PLANET_VIEW_BANDS,
 	getPlanetViewWeights,

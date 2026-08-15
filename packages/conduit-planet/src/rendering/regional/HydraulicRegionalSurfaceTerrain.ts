@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetDefinition } from '@conduit/planet/model';
 import { GpuRegionalSurfaceTerrain } from './GpuRegionalSurfaceTerrain';
-import { applyRegionalHydraulicErosion } from './RegionalHydraulicErosion';
+import { applyRegionalHydraulicErosion } from '../../terrain/erosion/RegionalHydraulicErosion';
 
 /**
  * Adds one deterministic hydraulic-erosion pass to every newly baked regional
