@@ -194,7 +194,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 				? `fixed patch level: ${state.orbitPatchLevel} / grid: ${state.orbitGridSegments}x${state.orbitGridSegments}`
 				: `max lod: ${terrain.maxLevel} / profile: ${terrain.profile}`,
 			optimizedOrbit
-				? `terrain LUT: ${state.orbitVolumeResolution}³ RGBA16F / runtime noise: OFF / indexed: NO`
+				? `terrain LUT: ${state.orbitVolumeResolution}³ RGBA16F / runtime noise: OFF / indexed: YES`
 				: 'terrain LUT: n/a',
 			`legacy CubeSphere: ${optimizedOrbit ? 'FROZEN + HIDDEN' : state.orbitLodFrozen ? 'FROZEN AT HANDOFF' : 'live'}`,
 			'',
