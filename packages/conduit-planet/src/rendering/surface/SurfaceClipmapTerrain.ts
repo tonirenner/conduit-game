@@ -3,10 +3,10 @@ import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 import { noise3d } from '../../terrain/noise';
 
-// SurfaceView stays local. Seven rings with the 16 km base half extent cover
-// +/-1024 km; Regional remains responsible for planetary curvature until the
-// low-altitude handoff in PlanetViewTransition.
-const RING_COUNT = 7;
+// SurfaceView stays local. Eight rings with the 16 km base half extent cover
+// +/-2048 km so the local surface still reaches beyond the visible horizon
+// throughout the Regional -> Surface handoff.
+const RING_COUNT = 8;
 const GRID_CELLS = 24;
 const BASE_HALF_EXTENT_METERS = 16_000;
 const MIN_RECENTER_DISTANCE_METERS = 24_000;
