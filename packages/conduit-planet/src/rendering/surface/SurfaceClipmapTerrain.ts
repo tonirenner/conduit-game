@@ -8,14 +8,14 @@ import {
 	evaluateSurfaceTerrainMaterial,
 } from './SurfaceTerrainMaterial';
 
-// SurfaceView stays local. Ten rings with a 4 km base half extent still cover
+// SurfaceView stays local. Eleven rings with a 2 km base half extent still cover
 // +/-2048 km. Each ring is an indexed shared-vertex grid. Fine outer edges are
 // collapsed 2:1 onto the next coarser ring so the clipmap stays watertight while
-// retaining the ~333 m near-field cell size.
-const RING_COUNT = 10;
+// retaining ~166 m near-field cells only around the active surface anchor.
+const RING_COUNT = 11;
 const GRID_CELLS = 24;
-const BASE_HALF_EXTENT_METERS = 4_000;
-const MIN_RECENTER_DISTANCE_METERS = 6_000;
+const BASE_HALF_EXTENT_METERS = 2_000;
+const MIN_RECENTER_DISTANCE_METERS = 2_000;
 const MAX_RECENTER_DISTANCE_METERS = 250_000;
 const RECENTER_ALTITUDE_FACTOR = 0.18;
 const DEPTH_OWNERSHIP_OPACITY = 0.985;
