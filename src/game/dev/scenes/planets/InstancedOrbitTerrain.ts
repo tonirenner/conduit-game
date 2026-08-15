@@ -152,7 +152,7 @@ export class InstancedOrbitTerrain {
 		geometry.setAttribute('iFaceRight', new THREE.InstancedBufferAttribute(faceRight, 3));
 		geometry.setAttribute('iFaceUp', new THREE.InstancedBufferAttribute(faceUp, 3));
 		geometry.setAttribute('iBounds', new THREE.InstancedBufferAttribute(bounds, 3));
-		geometry.setIndex(createGridIndices(segments));
+		geometry.setIndex(new THREE.Uint32BufferAttribute(createGridIndices(segments), 1));
 		geometry.instanceCount = instanceCount;
 		return geometry;
 	}
