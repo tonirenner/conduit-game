@@ -30,6 +30,8 @@ type V7Runtime = {
  */
 export class PlanetInstancedCubeSphereDebug extends PlanetInstancedCubeSphereDebugV10 {
 	private stitchGroupLimit: number | null = null;
+	private controlLabel: HTMLLabelElement | null = null;
+	private controlGroupCount = -1;
 
 	setStitchGroupLimit(limit: number | null): void {
 		const next = limit == null || !Number.isFinite(limit)
@@ -38,11 +40,18 @@ export class PlanetInstancedCubeSphereDebug extends PlanetInstancedCubeSphereDeb
 		if (this.stitchGroupLimit === next) return;
 		this.stitchGroupLimit = next;
 		this.applyStitchGroupVisibility();
+		this.syncControlValue();
 	}
 
 	override update(terrain: THREE.Object3D): void {
 		super.update(terrain);
 		this.applyStitchGroupVisibility();
+		this.ensureIsolationControl();
+	}
+
+	override detach(): void {
+		this.removeIsolationControl();
+		super.detach();
 	}
 
 	override getStats(): PlanetInstancedCubeSphereStats {
@@ -72,5 +81,68 @@ export class PlanetInstancedCubeSphereDebug extends PlanetInstancedCubeSphereDeb
 		for (let i = 0; i < root.children.length; i++) {
 			root.children[i].visible = i < limit;
 		}
+	}
+
+	private ensureIsolationControl(): void {
+		const runtime = this as unknown as V7Runtime;
+		const totalGroups = runtime.activeState?.root.children.length ?? 0;
+		if (totalGroups <= 0) return;
+
+		if (this.controlLabel && !this.controlLabel.isConnected) {
+			this.controlLabel = null;
+			this.controlGroupCount = -1;
+		}
+
+		if (!this.controlLabel) {
+			const colorSelect = document.querySelector<HTMLSelectElement>('[data-instanced-color]');
+			const anchor = colorSelect?.closest('label');
+			if (!anchor?.parentElement) return;
+
+			const label = document.createElement('label');
+			label.dataset.instancedStitchLimitV11 = 'true';
+			label.style.display = 'block';
+			label.style.margin = '4px 0';
+			label.append('Stitch groups ');
+
+			const select = document.createElement('select');
+			select.dataset.instancedStitchLimitSelectV11 = 'true';
+			select.addEventListener('change', () => {
+				this.setStitchGroupLimit(
+					select.value === 'all' ? null : Number(select.value),
+				);
+			});
+			label.append(select);
+			anchor.insertAdjacentElement('afterend', label);
+			this.controlLabel = label;
+		}
+
+		if (this.controlGroupCount !== totalGroups) {
+			const select = this.controlLabel.querySelector<HTMLSelectElement>(
+				'[data-instanced-stitch-limit-select-v11]',
+			);
+			if (!select) return;
+			select.innerHTML = '<option value="all">All</option>' + Array.from(
+				{ length: totalGroups },
+				(_, index) => `<option value="${index + 1}">${index + 1}</option>`,
+			).join('');
+			this.controlGroupCount = totalGroups;
+			this.syncControlValue();
+		}
+	}
+
+	private syncControlValue(): void {
+		const select = this.controlLabel?.querySelector<HTMLSelectElement>(
+			'[data-instanced-stitch-limit-select-v11]',
+		);
+		if (!select) return;
+		select.value = this.stitchGroupLimit == null
+			? 'all'
+			: String(Math.min(this.stitchGroupLimit, Math.max(1, this.controlGroupCount)));
+	}
+
+	private removeIsolationControl(): void {
+		this.controlLabel?.remove();
+		this.controlLabel = null;
+		this.controlGroupCount = -1;
 	}
 }
