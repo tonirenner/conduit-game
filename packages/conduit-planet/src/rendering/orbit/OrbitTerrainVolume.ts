@@ -6,7 +6,7 @@ import {
 import { resolveTerrainProfileKind } from '@conduit/planet/rendering';
 import type { PlanetDefinition } from '@conduit/planet/model';
 
-export const ORBIT_TERRAIN_VOLUME_RESOLUTION = 32;
+export const ORBIT_TERRAIN_VOLUME_RESOLUTION = 64;
 
 /**
  * OrbitView terrain LUT.
@@ -15,6 +15,11 @@ export const ORBIT_TERRAIN_VOLUME_RESOLUTION = 32;
  * created. The render path then uses a single trilinear texture3D lookup for
  * terrain height/masks instead of evaluating FBM/ridged noise per vertex or
  * fragment every frame.
+ *
+ * A 64^3 volume keeps the OrbitView displacement close to the canonical
+ * PlanetTerrainSampler used by RegionalView. This reduces visible terrain
+ * reshaping during the Orbit -> Regional handoff while keeping the runtime
+ * render path to one texture lookup.
  *
  * Layout (RGBA16F):
  *   R = raw terrain height
