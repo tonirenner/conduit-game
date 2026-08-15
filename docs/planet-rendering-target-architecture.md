@@ -1,272 +1,140 @@
 # Planet Rendering Target Architecture
 
-This document translates the StarEngine/Genesis-style references into a realistic target architecture for this WebGPU/Three.js project.
+The current rendering architecture is defined by `docs/planet-view-architecture.md`.
+
+The previous plan to refine one CubeSphere continuously from orbit down to the physical surface is retired. Planet rendering is now explicitly scale-specific.
 
 ## Goal
 
-Planets should become deterministic, class-driven, landable game objects whose simulation data, orbital rendering, near-view terrain, resources and later points of interest are derived from the same source data.
-
-The target is not to copy Star Citizen directly. The target is to build a practical version that fits our current stack:
+Planets are deterministic, class-driven game objects whose simulation data, orbital rendering, regional terrain, local surface, resources and later POIs come from the same source data.
 
 ```text
 PlanetDefinition
   -> Climate / Biome / Resource Data
-  -> Game State
-  -> Orbit Renderer / Near-View Runtime
-  -> Feature Lab Diagnostics
+  -> PlanetTerrainSampler
+  -> OrbitView / RegionalView / SurfaceView
+  -> Game State / Diagnostics
 ```
+
+The persistent source of truth is the planet definition and deterministic sampling data, never a mesh.
 
 ## Core Principles
 
-- Planet classes define identity first; seeds only create variation.
-- Climate data should drive both rendering and gameplay.
-- WebGL and WebGPU paths should use the same generated inputs wherever possible.
-- Rendering stays camera-local and scale-aware.
-- High detail should be introduced through LOD and layered effects, not one monolithic shader.
-- Feature Lab scenes are the validation surface for every rendering feature.
+- Planet classes define identity first; seeds create deterministic variation.
+- Climate, biome, resources and terrain are shared game/render inputs.
+- Different distance scales use different render representations.
+- A view switch may change geometry, coordinate frame, caches and shader detail, but must not change terrain identity.
+- Feature Lab validates the actual view runtime instead of maintaining alternate renderer architectures.
 
-## Data Model Target
+## View Stack
 
-```ts
-type PlanetDefinition = {
-	id: string;
-	seed: number;
-	classId: PlanetClassId;
-	radiusMeters: number;
-	climate: ClimateProfile;
-	biomes: BiomeProfile;
-	resources: PlanetResourceProfile;
-};
-```
+### OrbitView
 
-The important part is ownership: the planet definition is game/simulation data. Meshes, materials and render layers are derived from it and should not become the persistent source of truth.
+Use the production `Planet` renderer and global CubeSphere for:
 
-## Climate And Biomes
+- full-planet silhouette
+- orbit/system gameplay
+- atmosphere, clouds, rings and moons
+- low-frequency terrain identity
 
-Current problem areas:
+Orbit terrain has a bounded useful LOD. Once RegionalView owns the visible ground, CubeSphere LOD stops refining.
 
-- Ocean land transitions can look frayed.
-- Some classes still share too much visual behavior.
-- Lava atmosphere profile is not strong enough in the Game view.
-- Gas/Ice Giants still behave too much like surface planets.
+### RegionalView
 
-Target:
+Use `RegionalSurfaceHandoffTerrain` for the approach scale:
 
-- `ClimateProfile` produces stable temperature, humidity and elevation bands.
-- `BiomeProfile` maps climate bands to material zones.
-- Ocean masks use stronger thresholding and coast smoothing.
-- Lava, Ice, Desert, Ocean, Rock, Gas Giant and Ice Giant get distinct atmosphere/color/cloud rules.
+- curved camera-local planet patch
+- shared `PlanetTerrainSampler`
+- regional height/color/normal/AO
+- deterministic hydraulic meso erosion where appropriate
+- edge morph into the orbital sphere during overlap
 
-## Render Layers
+RegionalView exists to bridge scales. It is not the final ground renderer.
 
-Each planet should be rendered as a stack of layers:
+### SurfaceView
 
-```text
-Planet
-  surface
-  ocean/water if applicable
-  atmosphere
-  clouds or gas bands
-  rim/scattering
-  debug overlays in Feature Lab only
-```
+Use a local tangent/reference frame for ground gameplay:
 
-Rocky planets:
+- meter-space simulation/rendering
+- floating origin
+- units, buildings and resource sites
+- fixed reusable GPU terrain grids
+- ultimately clipmap rings rather than a planet-wide quadtree
 
-- surface material
-- optional water/ocean mask
-- optional clouds
-- atmosphere/rim
+`LocalSurfaceTerrain` is the first stable handoff scaffold. The target implementation is a GPU clipmap that can replace it behind the same view boundary.
 
-Gas and Ice Giants:
+## Continuous Handoff
 
-- no terrain-like hard land/ocean interpretation
-- layered cloud bands
-- soft depth and color variation
-- class-specific atmosphere/rim
-- far-distance particles/cloud layers must be subtle
-
-## WebGL / WebGPU Alignment
-
-The two renderer paths should share:
-
-- same `PlanetDefinition`
-- same climate sampling
-- same biome masks
-- same color ramps
-- same atmosphere profile constants
-- same LOD profile decisions where possible
-
-Only the final implementation details should differ:
-
-- WebGL: classic Three.js materials/shaders
-- WebGPU: TSL/NodeMaterial equivalents
-
-When a visual difference appears, the Feature Lab Planet LOD scene should show the selected renderer path, planet class, seed, climate values and active LOD profile.
-
-## LOD Direction
-
-Current renderer can stay sphere/layer based while visuals stabilize.
-
-Longer-term target:
+The current initial transition bands are:
 
 ```text
-far
-  simple sphere
-  simplified atmosphere
-  low-frequency color/cloud data
-
-medium
-  higher material detail
-  cloud/atmosphere layers
-  stronger biome definition
-
-near/orbit
-  full material detail
-  sharper masks
-  local displacement/normal detail
-  optional patch/chunk subdivision later
+Orbit -> Regional: 9,000 km -> 7,500 km
+Regional -> Surface: 1,000 km -> 250 km
 ```
 
-Adaptive cube-sphere patch LOD now exists for the orbital renderer. It is not by itself sufficient for landing: planet-radius geometry uses compressed render units and cannot provide stable meter-scale collision or flight.
+Incoming views preload before the visible blend starts. Lifecycle uses hysteresis so camera jitter does not repeatedly create and destroy renderers.
 
-Further orbital LOD work should wait until:
+The controller never changes camera target/orientation during a handoff. Incoming and outgoing views overlap and use smooth weights.
 
-- planet class visuals are stable
-- scale diagnostics are trusted
-- WebGL/WebGPU inputs are aligned
-- Feature Lab can compare LOD levels reliably
-
-## Landable Near-View Architecture
-
-The target experience is a continuous-looking flight from orbit through the atmosphere to a physical surface. One render scale cannot safely cover strategic system distances and meter-scale landing, so the experience uses explicit coordinate frames:
+## Shared Surface Contract
 
 ```text
-system frame (compressed orbital readability)
-  -> planet-centered approach frame
-  -> camera-relative surface frame (1 unit = 1 meter)
-```
-
-Simulation positions remain planet-fixed and meter-based. Switching frames changes only their render representation. A floating origin follows the observer in near view so generated Float32 terrain remains precise around planets with radii of millions of meters.
-
-The current generated `PlanetDefinition.physical.radius` is still expressed in Earth-radius units for compatibility with the existing generator. Near-view code converts it once through `getPlanetRadiusMeters()` and never mixes that normalized value with meter-space positions.
-
-The shared surface contract is:
-
-```text
-PlanetSurfaceCoordinate
+PlanetDefinition
+  -> render.terrainSeed
   -> PlanetTerrainSampler
-  -> elevation / normal / land-water / climate / biome
-  -> terrain chunks + ship contact + later POIs/resources
+  -> elevation / land-water / climate / biome / normal
 ```
 
-Near terrain uses stable chunk addresses, cached height-dependent LOD rings and shared deterministic edge samples. Coarser boundary chunks remain behind finer coverage during clipmap movement, avoiding exposed skirt walls or temporary holes. Rendering and landing queries must use the same planet definition, terrain seed and physical elevation profile. Water, excessive slope and excessive contact velocity prevent a valid landing.
+All views must sample the same macro terrain. Regional and Surface may add representation-specific detail, but they must preserve the same large terrain features.
 
-The first vertical slice deliberately covers ship approach, surface flight, landing and takeoff. Character traversal, buildings, vegetation and persistent surface POIs come later.
+CPU `PlanetTerrainSampler` remains authoritative for gameplay queries and deterministic reconstruction. GPU detail is visual acceleration, not a second simulation world.
 
-## Object Container Direction
+## Atmosphere
 
-Object-container style streaming is a long-term architecture target, not immediate rendering work.
+Atmosphere is conceptually independent from terrain view ownership.
 
-Initial container candidates:
+OrbitView may keep atmosphere/cloud layers alive after the solid CubeSphere surface has handed off. Later near-atmosphere work should add altitude-aware Rayleigh/Mie scattering without forcing the orbital terrain representation to remain active.
 
-- star system container
-- planet orbit container
-- asteroid/debris field container
-- station container
-- resource node container
-- later surface POI container
+## Planet Classes
 
-For now, containers can be deterministic in-memory structures. Persistence and async streaming can come later.
+Solid-surface classes use all three views.
 
-## Feature Lab Requirements
+Gas and ice giants remain OrbitView-only unless a dedicated atmospheric/deep-cloud view is introduced later. They do not instantiate RegionalView or SurfaceView terrain.
 
-Planet LOD scene should continue to grow into the main validation tool:
+## WebGL / WebGPU
 
-- list all planet classes
-- editable seed
-- current render scale
-- camera distance
-- radius in meters/render units
-- climate sample output
-- active LOD profile
-- WebGL/WebGPU path indicator
-- toggles for atmosphere/clouds/ocean/gas layers
-- debug mask views for height, humidity, temperature and biome
+Both backends share:
 
-Current diagnostic direction:
+- `PlanetDefinition`
+- terrain seed and sampling
+- climate/biome data
+- class visual profiles
+- transition policy
 
-- Planet LOD owns the first practical Planet Tech workbench.
-- Climate/biome debug sampling must use the same planet seed and terrain profile as the production `Planet` instance.
-- The debug map is not a second renderer. It is a data view for climate, height, land mask and biome inputs.
-- Dominant biome percentages, ocean/coast/land coverage and warnings should make class problems visible before shader tuning starts.
+Backend-specific shader/material implementations may differ. View ownership and terrain identity do not.
 
-## Near-Term Work
+## Performance Lessons Locked Into The Design
 
-1. Validate the `Planet Approach & Landing` lab scene across landable classes and seeds.
-2. Connect SystemView planet focus to the approach frame without a visible scene cut.
-3. Retire the legacy single-patch `NearSurfaceTerrainLayer` after the deep `CubeSphere` LOD path is validated in production scenes.
-4. Surface active LOD and render-quality diagnostics in both planet lab scenes.
-5. Document which values are planet-class defaults and which are render-quality overrides.
-6. Continue visual parity passes for Ocean coastlines, Lava atmosphere and Gas/Ice Giant depth.
+The Planet LOD experiments established that:
 
-## Current Implementation Direction
+- many draw calls are undesirable, but reducing the CubeSphere to a handful of instanced draws did not by itself solve near-surface frame time;
+- disabling atmosphere, displacement and complex terrain shading did not remove the close-range collapse;
+- limiting rendered patch instances did not scale frame time enough to justify pushing the global CubeSphere farther;
+- continuing to refine and manage the planet-wide terrain hierarchy at close range is the wrong architecture.
 
-Planet class look tuning should live in one shared profile layer:
+Therefore the optimization boundary is the view handoff itself.
 
-```text
-PlanetClassVisualProfile
-  -> WebGL uniforms
-  -> WebGPU/TSL uniforms
-```
+## Cleanup
 
-Class-specific color identity, dry-surface visibility, shadow fill, direct-light scale, and environment contribution should be changed in that profile first. The WebGL and WebGPU shader paths may still implement the math differently, but they should consume the same profile values instead of duplicating independent hardcoded look constants.
+The historical `PlanetInstancedCubeSphereDebugV*`, BatchedMesh experiments, performance-isolation harness and macro-height debug volume are not part of the target renderer and should not return as alternate production paths.
 
-The current dry-class tuning order is:
+Useful diagnostics should measure the three production views and their handoff state directly.
 
-1. Adjust `PlanetClassVisualProfile` first.
-2. Compare WebGPU and WebGL in Planet LOD with the same class/seed.
-3. Only touch shader math if a shared profile value cannot express the difference.
+## Next Work
 
-Carbon currently has strong visibility/fill compensation because its WebGPU path was still reading as nearly black. Rocky is already close enough for a first pass. Metal-Rich now gets the strongest matte night/fill lift of the dry classes, while keeping reduced environment peak/reflection to avoid a chrome look.
-
-## Current Planet Tech Checkpoint
-
-The first Planet Tech implementation step is diagnostics-focused:
-
-- `PlanetDefinition` already contains class, composition, physical, orbit, atmosphere, surface, climate, rings, moons and render seeds.
-- `PlanetDefinition.resources` now provides an explicit derived `PlanetResourceProfile` for metal, rare materials, fuel, water, volatiles, research value and extraction difficulty.
-- `PlanetRenderProfile` already derives renderer kind, feature toggles and palette choices from `PlanetDefinition`.
-- `PlanetClassVisualProfile` is the shared class-look tuning layer for WebGL and WebGPU.
-- `PlanetClimateDiagnostics` now samples the current `PlanetDefinition` with its production terrain seed/profile and reports:
-  - terrain profile
-  - average temperature, humidity and aridity
-  - ocean/coast/land coverage
-  - dominant biome shares
-  - simple warnings for class/data mismatches
-- `PlanetLodTestScene` now shows a climate debug map for the selected planet class/seed.
-- `PlanetLodTestScene` now has runtime lab toggles for surface, ocean data, atmosphere, clouds, gas particles, rings, moons, near-surface terrain and toxic haze.
-- Surface, atmosphere, clouds, gas layer, rings, moons and debug terrain can be isolated as render layers. Ocean is still part of the surface shader/profile data, so its lab toggle recreates the temporary diagnostic planet with ocean data disabled.
-- `OceanCoastlineProfile` now holds the shared water, shelf and island thresholds consumed by both WebGL GLSL and WebGPU TSL surface materials.
-- `AtmosphereVisualProfile` now holds shared effective atmosphere values and lava rim/tint strength consumed by both WebGL and WebGPU atmosphere layers.
-- `GasGiantVisualProfile` now centralizes gas/ice giant shell depth, atmosphere shell, band texture, cloud particles and far-distance particle fade.
-- Local persistent worlds are normalized on load so older planet definitions without `resources` receive the derived resource profile.
-- `PlanetSurfaceCoordinate` now stores stable planet-relative direction and altitude independently of render scale.
-- `PlanetTerrainSampler` maps the production terrain seed to physical elevation, terrain normals, land/water, climate and biome samples.
-- `PlanetReferenceFrame` provides camera-relative meter rendering with controlled floating-origin shifts.
-- `CubeSphere` now remains the visible terrain from orbit to surface. Its LOD operates in planet-local coordinates, reaches ground-scale patch levels, rebases mesh vertices around patch origins and stitches 2:1 boundaries without visible skirts.
-- `PlanetNearViewTerrain` remains available as a diagnostic/streaming prototype, but the Approach scene no longer renders it as a competing surface.
-- `PlanetLandingController` validates a multi-point ship footprint against water, slope and contact-speed limits.
-- `PlanetLandingSiteSelector` chooses deterministic, landable mid-latitude starts so the surface preset represents the selected planet class instead of defaulting to a polar ice cap.
-- Below 100 km the production planet uses physical meter scale and shared metric elevation; higher altitudes blend back to compact orbit scale without switching planet geometry. Patch morphing introduces newly refined vertices progressively during descent.
-- The Feature Lab now includes a `Planet Approach & Landing` scene for orbit/atmosphere/surface starts, flight, landing and takeoff diagnostics. Orbit and atmosphere use the same production `Planet` renderer as the rest of the game; the meter-scale chunks take over only near the surface.
-
-This keeps the next visual passes grounded in data. If Ocean, Lava, Gas Giant or Ice Giant reads wrong, the first question should be whether the class definition/profile data is wrong, before renderer-specific shader math is changed.
-
-## Long-Term Work
-
-1. Worker/GPU-assisted chunk generation and culling for dense surface terrain.
-2. Object-container streaming across orbital and surface frames.
-3. Planet-scale volumetric cloud approximations.
-4. Character traversal after ship landing.
-5. Surface POIs and resource distribution derived from the same planet data.
+1. Validate Orbit -> Regional handoff across solid planet classes and seeds.
+2. Validate Regional -> Surface handoff and camera continuity.
+3. Replace `LocalSurfaceTerrain` internals with fixed GPU clipmap rings while keeping its external view contract.
+4. Add local meter-space reference/floating-origin integration for gameplay objects.
+5. Add the richer altitude-aware atmosphere transition independently of terrain LOD.
+6. Move the proven Regional/Surface implementations from Feature Lab ownership into the `conduit-planet` package once their contracts stop changing.
