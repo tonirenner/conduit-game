@@ -114,10 +114,15 @@ export class CurvedRegionalTileTerrain {
 		const horizonAngle = Math.acos(
 			THREE.MathUtils.clamp(radiusMeters / (radiusMeters + altitudeMeters), 0, 1),
 		);
+		// Regional is a finite cap around the camera nadir. Matching only the
+		// mathematical horizon is too tight for an oblique camera: terrain relief,
+		// projection and anchor hysteresis can expose the patch boundary as a dark
+		// band before Surface has taken over. Keep a generous guard band around the
+		// visible cap so Regional always remains the continuous curved backdrop.
 		const coverageAngle = THREE.MathUtils.clamp(
-			horizonAngle * 1.08 + THREE.MathUtils.degToRad(2),
-			THREE.MathUtils.degToRad(4),
-			THREE.MathUtils.degToRad(48),
+			horizonAngle * 1.6 + THREE.MathUtils.degToRad(6),
+			THREE.MathUtils.degToRad(8),
+			THREE.MathUtils.degToRad(55),
 		);
 		return Math.tan(coverageAngle);
 	}
