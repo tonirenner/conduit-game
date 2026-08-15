@@ -4,7 +4,7 @@ import type { PlanetDefinition } from '../model';
 import type { PlanetRenderProfile } from '../rendering/PlanetRenderProfile';
 import { getPlanetRadiusMeters } from '../near-view/PlanetPhysicalScale';
 import { InstancedOrbitTerrain } from '../rendering/orbit/InstancedOrbitTerrain';
-import { RegionalSurfaceHandoffTerrain } from '../rendering/regional/RegionalSurfaceHandoffTerrain';
+import { CurvedRegionalTileTerrain } from '../rendering/regional/CurvedRegionalTileTerrain';
 import { SurfaceClipmapTerrain } from '../rendering/surface/SurfaceClipmapTerrain';
 import {
 	PLANET_VIEW_BANDS,
@@ -51,7 +51,9 @@ export type PlanetViewRuntimeState = {
  *   is frozen + hidden immediately on WebGPU surface planets
  *
  * RegionalView:
- * - curved regional terrain patch with hydraulic erosion/material maps
+ * - curved tiled terrain projected onto the same planet sphere
+ * - canonical terrain heights baked directly into geometry
+ * - fixed tile layout merged into one draw call
  *
  * SurfaceView:
  * - fixed reusable local-tangent clipmap rings
@@ -66,7 +68,7 @@ export class PlanetViewRuntime {
 	private readonly surfaceViewsEnabled: boolean;
 	private readonly useInstancedOrbit: boolean;
 	private orbitSurface: InstancedOrbitTerrain | null = null;
-	private regional: RegionalSurfaceHandoffTerrain | null = null;
+	private regional: CurvedRegionalTileTerrain | null = null;
 	private surface: SurfaceClipmapTerrain | null = null;
 	private frozenTerrain: TerrainRuntime | null = null;
 	private originalTerrainUpdate: TerrainRuntime['updateLOD'] | null = null;
@@ -222,7 +224,7 @@ export class PlanetViewRuntime {
 
 		const wantsRegional = shouldHaveRegionalView(altitudeMeters, Boolean(this.regional));
 		if (wantsRegional && !this.regional) {
-			this.regional = new RegionalSurfaceHandoffTerrain(
+			this.regional = new CurvedRegionalTileTerrain(
 				this.definition,
 				this.renderRadius,
 				cameraRenderPosition,
