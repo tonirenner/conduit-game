@@ -8,10 +8,10 @@ import {
 	float,
 	max,
 	mix,
+	mx_noise_float,
 	normalize,
 	pow,
 	smoothstep,
-	snoise,
 	texture,
 	uniform,
 	vec3,
@@ -575,7 +575,7 @@ export class PlanetInstancedCubeSphereDebug {
 		);
 
 		const noise01 = (position: ReturnType<typeof vec3>) =>
-			snoise(position).mul(0.5).add(0.5);
+			mx_noise_float(position).mul(0.5).add(0.5);
 		const continentPosition = direction
 			.mul(config.continentScale * 1.25)
 			.add(continentOffset);
@@ -598,8 +598,8 @@ export class PlanetInstancedCubeSphereDebug {
 		const ridgePosition = direction
 			.mul(config.mountainScale * 3.8)
 			.add(ridgeOffset);
-		const ridgeLarge = float(1).sub(abs(snoise(ridgePosition)));
-		const ridgeMedium = float(1).sub(abs(snoise(ridgePosition.mul(2.17))));
+		const ridgeLarge = float(1).sub(abs(mx_noise_float(ridgePosition)));
+		const ridgeMedium = float(1).sub(abs(mx_noise_float(ridgePosition.mul(2.17))));
 		const ridgeShape = pow(
 			max(ridgeLarge.mul(0.68).add(ridgeMedium.mul(0.32)).sub(0.22), 0),
 			2.0,
