@@ -14,6 +14,8 @@ import {
 	type PlanetViewPhase,
 } from './PlanetViewTransition';
 
+const SURFACE_DEPTH_OWNERSHIP_WEIGHT = 0.985;
+
 type TerrainRuntime = THREE.Object3D & {
 	updateLOD?: (cameraPosition: THREE.Vector3) => void;
 };
@@ -161,10 +163,18 @@ export class PlanetViewRuntime {
 		}
 
 		if (this.regional) {
-			if (weights.regional > 0.001 || weights.surface < 0.999) {
-				this.regional.update(cameraRenderPosition, weights.regional);
-			} else {
+			// Surface is a local patch, while Regional still provides the complete
+			// curved planet behind it. Fading Regional globally during the handoff
+			// exposes space outside the Surface footprint as a dark horizon band.
+			// Keep Regional fully opaque until Surface takes depth ownership, then
+			// release it in one step. Orbit -> Regional keeps using the normal weight.
+			if (weights.surface >= SURFACE_DEPTH_OWNERSHIP_WEIGHT) {
 				this.regional.group.visible = false;
+			} else {
+				const regionalOpacity = weights.surface > 0.001
+					? 1
+					: weights.regional;
+				this.regional.update(cameraRenderPosition, regionalOpacity);
 			}
 		}
 
