@@ -12,7 +12,6 @@ const BASE_HALF_EXTENT_METERS = 16_000;
 const MIN_RECENTER_DISTANCE_METERS = 24_000;
 const MAX_RECENTER_DISTANCE_METERS = 250_000;
 const RECENTER_ALTITUDE_FACTOR = 0.18;
-const RECENTER_MIN_OPACITY = 0.9;
 const DEPTH_OWNERSHIP_OPACITY = 0.985;
 const DETAIL_LARGE_SCALE_METERS = 6_000;
 const DETAIL_FINE_SCALE_METERS = 1_800;
@@ -62,10 +61,9 @@ type CachedSample = {
  * scale.
  *
  * Terrain is sampled only when the local frame recenters. Surface is re-anchored
- * once when its handoff becomes visible so it starts from the same camera nadir
- * as Regional. Once Surface dominates, recenter distance scales with altitude so
- * camera rotation/panning cannot trigger a full CPU terrain refill every few
- * kilometres.
+ * when its handoff becomes visible and keeps following the camera nadir whenever
+ * the configured recenter distance is exceeded. This keeps the local clipmap
+ * spatially aligned with Regional throughout the crossfade.
  *
  * Macro geometry always comes from the canonical PlanetTerrainSampler. Surface
  * adds only deterministic high-frequency shading normals, never extra geometry,
@@ -111,12 +109,13 @@ export class SurfaceClipmapTerrain {
 		const enteringHandoff = alpha > 0.001 && this.previousOpacity <= 0.001;
 
 		// Surface can be preloaded well before it becomes visible. Re-anchor exactly
-		// when the crossfade starts so Regional and Surface share the current nadir.
-		// After that, keep the handoff stable until Surface materially dominates.
+		// when the crossfade starts, then keep following the current camera nadir
+		// whenever it moves far enough. Locking the anchor through most of the
+		// handoff lets Regional and Surface drift apart during an angled approach.
 		if (enteringHandoff) {
 			this.recenter(direction);
 		} else if (
-			alpha >= RECENTER_MIN_OPACITY &&
+			alpha > 0.001 &&
 			this.needsRecenter(direction, this.currentRecenterDistanceMeters)
 		) {
 			this.recenter(direction);
