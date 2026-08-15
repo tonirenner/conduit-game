@@ -15,6 +15,7 @@ import {
 import type { ClimateDebugMode } from '@conduit/planet/climate';
 import { PlanetViewRuntime } from './PlanetViewRuntime';
 import { PLANET_VIEW_BANDS } from './PlanetViewTransition';
+import { PlanetApproachCameraController } from './PlanetApproachCameraController';
 
 const LAB_PLANET_RADIUS = 3;
 const PLANET_CLASSES: PlanetClass[] = [
@@ -41,6 +42,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private context: FeatureTestContext | null = null;
 	private readonly root = new THREE.Group();
 	private runtime: PlanetViewRuntime | null = null;
+	private approachCamera: PlanetApproachCameraController | null = null;
 	private definition: PlanetDefinition | null = null;
 	private profile: PlanetRenderProfile | null = null;
 	private stats: HTMLElement | null = null;
@@ -63,6 +65,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 
 	update(dt: number): void {
 		if (!this.context || !this.runtime) return;
+		this.approachCamera?.update(dt);
 		this.runtime.update(this.context.camera.position, dt);
 		this.updateStats();
 	}
@@ -72,6 +75,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	}
 
 	dispose(): void {
+		this.approachCamera?.dispose();
+		this.approachCamera = null;
 		this.runtime?.dispose();
 		this.runtime = null;
 		this.definition = null;
@@ -85,6 +90,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private createPlanet(): void {
 		if (!this.context) return;
 
+		this.approachCamera?.dispose();
+		this.approachCamera = null;
 		this.runtime?.dispose();
 		this.runtime = null;
 		this.root.clear();
@@ -108,10 +115,21 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			this.context.camera.position,
 		);
 		this.root.add(this.runtime.group);
+		this.approachCamera = new PlanetApproachCameraController(
+			this.context.camera,
+			this.context.controls,
+			LAB_PLANET_RADIUS,
+			getPlanetRadiusMeters(definition),
+		);
 		this.context.report({
 			status: 'pass',
 			label: 'planet views created',
 			detail: `${definition.class} / seed ${definition.seed}`,
+		});
+		this.context.report({
+			status: 'info',
+			label: 'approach camera profile',
+			detail: 'single camera / horizon target / local up / FOV 46° → 34° → 48°',
 		});
 		this.updateClimateMap();
 		this.updateStats();
@@ -166,6 +184,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private updateStats(): void {
 		if (!this.runtime || !this.definition || !this.profile || !this.stats) return;
 		const state = this.runtime.getState();
+		const cameraState = this.approachCamera?.getState();
 		const terrain = this.runtime.planet.getTerrainStats();
 		const radiusKm = getPlanetRadiusMeters(this.definition) / 1000;
 		const isSurfacePlanet = this.profile.rendererKind === 'solid_surface';
@@ -177,6 +196,13 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			`renderer: ${this.context?.rendererMode ?? 'n/a'}`,
 			`real radius: ${radiusKm.toFixed(0)} km`,
 			`surface views: ${isSurfacePlanet ? 'enabled' : 'orbit only'}`,
+			'',
+			'<b>approach camera</b>',
+			`mode: ${cameraState?.mode ?? 'n/a'}`,
+			`target blend: ${cameraState ? formatWeight(cameraState.targetBlend) : 'n/a'}`,
+			`local up: ${cameraState ? formatWeight(cameraState.upBlend) : 'n/a'}`,
+			`fov: ${cameraState ? `${cameraState.fov.toFixed(1)}°` : 'n/a'}`,
+			`surface anchor: ${cameraState?.anchorActive ? 'LOCKED' : 'off'}`,
 			'',
 			'<b>view handoff</b>',
 			`altitude: ${formatAltitude(state.altitudeMeters)}`,
