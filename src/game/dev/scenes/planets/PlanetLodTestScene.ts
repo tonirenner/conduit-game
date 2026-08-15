@@ -1,35 +1,228 @@
 import * as THREE from 'three';
-import {disposeObject3D} from '@conduit/web3d/debug';
-import type {FeatureTestContext,FeatureTestScene} from '../../FeatureTestScene';
-import {generatePlanetDefinition,generatePlanetResourceProfile} from '@conduit/planet/generation';
-import type {PlanetClass,PlanetDefinition} from '@conduit/planet/model';
-import {Planet,createPlanetRenderProfile,getPlanetClassVisualProfile,OCEAN_COASTLINE_PROFILE,type PlanetRenderProfile,type SurfacePaletteKind} from '@conduit/planet/rendering';
-import {getPlanetRadiusMeters} from '@conduit/planet/near-view';
-import {PLANET_CLIMATE_DEBUG_MODES,createPlanetClimateDiagnostics,drawPlanetClimateDebugMap,type PlanetClimateDiagnostics} from '@conduit/planet/diagnostics';
-import type {ClimateDebugMode} from '@conduit/planet/climate';
-import {getPlanetScaleDiagnostics,getSystemPlanetRenderRadius} from '../../../spatial/SpatialRenderScale';
-import {RegionalSurfacePatch} from './RegionalSurfacePatch';
-import {PlanetLodPerformanceIsolation,type PlanetInstancedColorMode,type PlanetLodTerrainMaterialMode,type PlanetLodTerrainRendererMode} from './PlanetLodPerformanceIsolation';
-const LAB_PLANET_RADIUS=3,SURFACE_TRANSITION_START_METERS=9_000_000,SURFACE_TRANSITION_END_METERS=500_000,REGIONAL_PATCH_FULL_METERS=8_700_000,ORBIT_HIDE_METERS=7_500_000,REGIONAL_PATCH_RELEASE_METERS=9_150_000,PURE_WORKER_CUBESPHERE_TEST=true,DEFAULT_ORBIT_LOD_CAP_LEVEL=6,ORBIT_LOD_CAP_ALTITUDE_RADIUS_MULTIPLIER=0.15;
-const PLANET_CLASSES:PlanetClass[]=['barren','rocky','terrestrial','ocean','desert','ice','lava','toxic','carbon','metal_rich','gas_giant','ice_giant'];
-type PlanetLayerToggles={surface:boolean;ocean:boolean;atmosphere:boolean;clouds:boolean;gasParticles:boolean;rings:boolean;moons:boolean;nearSurfaceTerrain:boolean;toxicHaze:boolean;};
-export class PlanetLodTestScene implements FeatureTestScene{
-readonly id='planet-lod';readonly name='Planet LOD';readonly category='Planets' as const;readonly description='Production Planet renderer with LOD stats.';private context:FeatureTestContext|null=null;private readonly root=new THREE.Group();private readonly perfIsolation=new PlanetLodPerformanceIsolation(LAB_PLANET_RADIUS);private planet:Planet|null=null;private definition:PlanetDefinition|null=null;private profile:PlanetRenderProfile|null=null;private climateDiagnostics:PlanetClimateDiagnostics|null=null;private regionalPatch:RegionalSurfacePatch|null=null;private stats:HTMLElement|null=null;private climateCanvas:HTMLCanvasElement|null=null;private seed=3001;private planetClass:PlanetClass='ocean';private climateDebugMode:ClimateDebugMode='biome';private readonly layerToggles:PlanetLayerToggles={surface:true,ocean:true,atmosphere:true,clouds:true,gasParticles:true,rings:true,moons:true,nearSurfaceTerrain:true,toxicHaze:true};
-init(c:FeatureTestContext){this.context=c;this.root.name='PlanetLodTestScene';c.scene.add(this.root);c.camera.position.set(0,3.2,9.5);c.controls.target.set(0,0,0);c.controls.enablePan=false;c.controls.update();this.createUi(c.uiRoot);this.createPlanet();}
-update(dt:number){if(!this.context||!this.planet||!this.definition)return;const r=getPlanetRadiusMeters(this.definition),d=this.context.camera.position.length(),a=Math.max(0,(d/LAB_PLANET_RADIUS-1)*r),lodCapAltitude=r*ORBIT_LOD_CAP_ALTITUDE_RADIUS_MULTIPLIER,min=LAB_PLANET_RADIUS*(1+lodCapAltitude/r),lod=this.context.camera.position.clone();if(lod.length()<min)lod.setLength(min);if(PURE_WORKER_CUBESPHERE_TEST)this.disposeRegionalPatch();else this.updateRegionalPatch(a);this.planet.group.visible=true;this.perfIsolation.beforePlanetUpdate();this.planet.update(lod,dt);this.perfIsolation.update();this.planet.setRenderQuality('idle');this.updateStats();}
-dispose(){this.disposeRegionalPatch();this.perfIsolation.detach();this.planet?.dispose();this.planet=null;this.perfIsolation.dispose();this.context?.scene.remove(this.root);disposeObject3D(this.root);this.root.clear();this.context=null;}
-reset(){this.createPlanet();}
-private updateRegionalPatch(a:number){if(!this.context||!this.definition||!this.profile)return;const enabled=this.layerToggles.nearSurfaceTerrain&&this.profile.rendererKind==='solid_surface';if(enabled&&!this.regionalPatch&&a<SURFACE_TRANSITION_START_METERS){this.regionalPatch=new RegionalSurfacePatch(this.definition,LAB_PLANET_RADIUS,this.context.camera.position);this.root.add(this.regionalPatch.group);}if(this.regionalPatch&&(!enabled||a>REGIONAL_PATCH_RELEASE_METERS)){this.disposeRegionalPatch();return;}if(this.regionalPatch)this.regionalPatch.update(this.context.camera.position,getRegionalPatchOpacity(a));}
-private disposeRegionalPatch(){if(!this.regionalPatch)return;this.root.remove(this.regionalPatch.group);this.regionalPatch.dispose();this.regionalPatch=null;}
-private createUi(root:HTMLElement){const perf=this.perfIsolation.getState();root.innerHTML=`<label style="display:block;margin:6px 0;">Class <select data-planet-class>${PLANET_CLASSES.map(p=>`<option value="${p}"${p===this.planetClass?' selected':''}>${formatPlanetClass(p)}</option>`).join('')}</select></label><label style="display:block;margin:6px 0;">Seed <input data-seed type="number" value="${this.seed}" style="width:110px;"></label><label style="display:block;margin:6px 0;">Climate Map <select data-climate-debug>${PLANET_CLIMATE_DEBUG_MODES.map(m=>`<option value="${m}"${m===this.climateDebugMode?' selected':''}>${formatDebugMode(m)}</option>`).join('')}</select></label><button data-apply-planet style="margin:4px;padding:6px 8px;">Apply</button><div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(143,231,255,.16);"><div style="color:#8fe7ff;margin-bottom:5px;">Performance isolation</div><label style="display:block;margin:4px 0;"><input data-freeze-lod type="checkbox"${perf.freezeLod?' checked':''}> Freeze LOD updates</label><label style="display:block;margin:4px 0;">Terrain material <select data-terrain-material><option value="production"${perf.terrainMaterial==='production'?' selected':''}>Production</option><option value="orbit"${perf.terrainMaterial==='orbit'?' selected':''}>Orbit</option><option value="simple"${perf.terrainMaterial==='simple'?' selected':''}>Simple</option></select></label><label style="display:block;margin:4px 0;">Terrain renderer <select data-terrain-renderer><option value="patches"${perf.terrainRenderer==='patches'?' selected':''}>Patch Meshes</option><option value="instanced"${perf.terrainRenderer==='instanced'?' selected':''}>Instanced CubeSphere</option><option value="batched"${perf.terrainRenderer==='batched'?' selected':''}>BatchedMesh (old test)</option></select></label><label style="display:block;margin:4px 0;">Instanced color <select data-instanced-color><option value="fragment-atlas"${perf.instancedColorMode==='fragment-atlas'?' selected':''}>Fragment Atlas</option><option value="vertex-rgb"${perf.instancedColorMode==='vertex-rgb'?' selected':''}>Vertex RGB</option><option value="flat"${perf.instancedColorMode==='flat'?' selected':''}>Flat</option></select></label><label style="display:block;margin:4px 0;"><input data-instanced-height type="checkbox"${perf.instancedHeightDisplacement?' checked':''}> Height displacement</label><label style="display:block;margin:4px 0;"><input data-atmosphere-off type="checkbox"${perf.atmosphereOff?' checked':''}> Atmosphere off</label></div><canvas data-climate-map width="240" height="120" style="display:block;width:240px;height:120px;margin-top:8px;border:1px solid rgba(120,180,255,.35);border-radius:4px;image-rendering:pixelated;background:#05070a;"></canvas><div data-planet-stats style="margin-top:8px;opacity:.78"></div>`;this.stats=root.querySelector('[data-planet-stats]');this.climateCanvas=root.querySelector('[data-climate-map]');root.querySelector<HTMLButtonElement>('[data-apply-planet]')?.addEventListener('click',()=>{const i=root.querySelector<HTMLInputElement>('[data-seed]'),s=root.querySelector<HTMLSelectElement>('[data-planet-class]'),n=Number(i?.value??this.seed);this.seed=Number.isFinite(n)?Math.max(1,Math.floor(n)):this.seed;this.planetClass=isPlanetClass(s?.value)?s.value:this.planetClass;this.createPlanet();});root.querySelector<HTMLSelectElement>('[data-climate-debug]')?.addEventListener('change',e=>{this.climateDebugMode=(e.currentTarget as HTMLSelectElement).value as ClimateDebugMode;this.updateClimateMap();});root.querySelector<HTMLInputElement>('[data-freeze-lod]')?.addEventListener('change',e=>{this.perfIsolation.setFreezeLod((e.currentTarget as HTMLInputElement).checked);this.updateStats();});root.querySelector<HTMLSelectElement>('[data-terrain-material]')?.addEventListener('change',e=>{this.perfIsolation.setTerrainMaterial((e.currentTarget as HTMLSelectElement).value as PlanetLodTerrainMaterialMode);this.updateStats();});root.querySelector<HTMLSelectElement>('[data-terrain-renderer]')?.addEventListener('change',e=>{this.perfIsolation.setTerrainRenderer((e.currentTarget as HTMLSelectElement).value as PlanetLodTerrainRendererMode);this.updateStats();});root.querySelector<HTMLSelectElement>('[data-instanced-color]')?.addEventListener('change',e=>{this.perfIsolation.setInstancedColorMode((e.currentTarget as HTMLSelectElement).value as PlanetInstancedColorMode);this.updateStats();});root.querySelector<HTMLInputElement>('[data-instanced-height]')?.addEventListener('change',e=>{this.perfIsolation.setInstancedHeightDisplacement((e.currentTarget as HTMLInputElement).checked);this.updateStats();});root.querySelector<HTMLInputElement>('[data-atmosphere-off]')?.addEventListener('change',e=>{this.perfIsolation.setAtmosphereOff((e.currentTarget as HTMLInputElement).checked);this.updateStats();});}
-private createPlanet(){if(!this.context)return;this.disposeRegionalPatch();this.perfIsolation.detach();this.planet?.dispose();this.planet=null;this.definition=null;this.profile=null;this.climateDiagnostics=null;this.root.clear();this.context.clearReport();const g=generatePlanetDefinition(this.seed,{name:`LOD ${this.seed}`,semiMajorAxis:1,starIrradiance:1,forcePlanetClass:this.planetClass}),d=this.createDebugDefinition(g),p=this.createDebugRenderProfile(createPlanetRenderProfile(d));this.definition=d;this.profile=p;this.climateDiagnostics=createPlanetClimateDiagnostics(d);this.planet=new Planet(LAB_PLANET_RADIUS,this.context.rendererMode,null,{gasCloudParticles:this.layerToggles.gasParticles&&(d.class==='gas_giant'||d.class==='ice_giant'),moonSystem:this.layerToggles.moons,nearSurfaceTerrain:false},d,p);this.root.add(this.planet.group);this.perfIsolation.attach(this.planet);this.context.report({status:'pass',label:'planet created',detail:`${d.class} / seed ${d.seed}`});this.updateClimateMap();}
-private createDebugDefinition(d:PlanetDefinition):PlanetDefinition{if(this.layerToggles.ocean)return d;const x={...d,composition:{...d.composition,water:0},surface:{...d.surface,hasOcean:false,oceanLevel:-1},atmosphere:{...d.atmosphere,cloudCoverage:this.layerToggles.clouds?d.atmosphere.cloudCoverage:0}};return {...x,resources:generatePlanetResourceProfile({planetClass:x.class,composition:x.composition,atmosphere:x.atmosphere,surface:x.surface,climate:x.climate})};}
-private createDebugRenderProfile(p:PlanetRenderProfile):PlanetRenderProfile{return {...p,enableOcean:p.enableOcean&&this.layerToggles.ocean,enableAtmosphere:p.enableAtmosphere&&this.layerToggles.atmosphere,enableClouds:p.enableClouds&&this.layerToggles.clouds,enableRings:p.enableRings&&this.layerToggles.rings};}
-private updateStats(){if(!this.planet||!this.context||!this.stats||!this.definition||!this.profile)return;const t=this.planet.getTerrainStats(),v=getPlanetClassVisualProfile(this.profile.surfacePalette as SurfacePaletteKind),r=getPlanetRadiusMeters(this.definition),km=r/1000,gr=getSystemPlanetRenderRadius(r,this.definition.class),gs=getPlanetScaleDiagnostics(r,gr),d=this.context.camera.position.length(),a=Math.max(0,(d/LAB_PLANET_RADIUS-1)*r),tr=getSurfaceTransitionDebug(a),lodCapAltitude=r*ORBIT_LOD_CAP_ALTITUDE_RADIUS_MULTIPLIER,min=LAB_PLANET_RADIUS*(1+lodCapAltitude/r),cap=d<min,op=getRegionalPatchOpacity(a),iso=this.perfIsolation.getState(),batch=this.perfIsolation.getBatchStats(),inst=this.perfIsolation.getInstancedStats();this.stats.innerHTML=`class: ${this.planetClass}<br>renderer: ${this.context.rendererMode}<br>test mode: ${PURE_WORKER_CUBESPHERE_TEST?'WORKER CUBESPHERE ONLY':'regional transition'}<br>perf isolate: LOD ${iso.freezeLod?'FROZEN':'live'} / material ${iso.terrainMaterial.toUpperCase()} / terrain ${iso.terrainRenderer.toUpperCase()} / atmosphere ${iso.atmosphereOff?'OFF':'on'}<br>batch: ${batch.active?'ACTIVE':'off'} / sources ${batch.sourceMeshes} / batches ${batch.batches} / rebuilds ${batch.rebuilds}<br>instanced: ${inst.active?'ACTIVE':'off'} / color ${inst.colorMode.toUpperCase()} / height ${inst.heightDisplacement?'ON':'OFF'} / sources ${inst.sourceMeshes} / draws ${inst.drawMeshes} / stitch groups ${inst.stitchGroups} / atlas ${inst.atlasSize} / rebuilds ${inst.rebuilds}<br>real radius: ${formatKilometers(km)} km<br>game radius: ${gr.toFixed(1)}u (${formatScaleMultiplier(gs.visualScaleMultiplier)})<br>visual profile: ${format01(v.ambientBoost)}<br>coast: ${formatRange(OCEAN_COASTLINE_PROFILE.waterHintStart,OCEAN_COASTLINE_PROFILE.waterHintEnd)}<br>patches: ${t.visibleMeshes}/${t.totalPatches}<br>max lod: ${t.maxLevel} / target cap ${DEFAULT_ORBIT_LOD_CAP_LEVEL}<br><br><b>surface transition debug</b><br>altitude: ${formatAltitude(a)}<br>phase: ${tr.phase}<br>blend: ${(tr.blend*100).toFixed(1)}%<br>orbit weight: ${(1-tr.blend).toFixed(2)} / surface weight: ${tr.blend.toFixed(2)}<br>thresholds: 9000 km → 500 km<br>worker LOD guard: ${cap?'ACTIVE':'off'} / ~level ${DEFAULT_ORBIT_LOD_CAP_LEVEL}<br>regional patch: ${this.regionalPatch?'ACTIVE':'DISABLED'} / opacity ${(op*100).toFixed(0)}%<br>regional fade: disabled for A/B test<br>renderer: worker CubeSphere visible`;}
-private updateClimateMap(){if(this.climateCanvas&&this.definition)drawPlanetClimateDebugMap(this.climateCanvas,this.definition,this.climateDebugMode);}}
-function getSurfaceTransitionDebug(a:number):{blend:number;phase:'orbit'|'transition'|'surface'}{const t=THREE.MathUtils.clamp((SURFACE_TRANSITION_START_METERS-a)/(SURFACE_TRANSITION_START_METERS-SURFACE_TRANSITION_END_METERS),0,1),b=t*t*(3-2*t);return{blend:b,phase:b<=0?'orbit':b>=1?'surface':'transition'};}
-function getRegionalPatchOpacity(a:number){const t=THREE.MathUtils.clamp((SURFACE_TRANSITION_START_METERS-a)/(SURFACE_TRANSITION_START_METERS-REGIONAL_PATCH_FULL_METERS),0,1);return t*t*(3-2*t);}
-function isPlanetClass(v:string|undefined):v is PlanetClass{return PLANET_CLASSES.includes(v as PlanetClass);}
-function formatPlanetClass(v:PlanetClass){return v.split('_').map(p=>p.charAt(0).toUpperCase()+p.slice(1)).join(' ');}
-function formatDebugMode(m:ClimateDebugMode){return m.replace(/([A-Z])/g,' $1').replace(/^./,f=>f.toUpperCase());}
-function format01(v:number){return v.toFixed(2);}function formatRange(a:number,b:number){return `${a.toFixed(2)}-${b.toFixed(2)}`;}function formatKilometers(v:number){return Math.abs(v)>=100?v.toFixed(0):v.toFixed(1);}function formatScaleMultiplier(v:number){return v===0||!Number.isFinite(v)?'n/a':`${v.toFixed(4)}x`;}function formatAltitude(m:number){return m>=1_000_000?`${(m/1_000_000).toFixed(2)} Mm`:`${(m/1000).toFixed(1)} km`;}
+import { disposeObject3D } from '@conduit/web3d/debug';
+import type { FeatureTestContext, FeatureTestScene } from '../../FeatureTestScene';
+import { generatePlanetDefinition } from '@conduit/planet/generation';
+import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
+import {
+	createPlanetRenderProfile,
+	type PlanetRenderProfile,
+} from '@conduit/planet/rendering';
+import { getPlanetRadiusMeters } from '@conduit/planet/near-view';
+import {
+	PLANET_CLIMATE_DEBUG_MODES,
+	drawPlanetClimateDebugMap,
+} from '@conduit/planet/diagnostics';
+import type { ClimateDebugMode } from '@conduit/planet/climate';
+import { PlanetViewRuntime } from './PlanetViewRuntime';
+import { PLANET_VIEW_BANDS } from './PlanetViewTransition';
+
+const LAB_PLANET_RADIUS = 3;
+const PLANET_CLASSES: PlanetClass[] = [
+	'barren',
+	'rocky',
+	'terrestrial',
+	'ocean',
+	'desert',
+	'ice',
+	'lava',
+	'toxic',
+	'carbon',
+	'metal_rich',
+	'gas_giant',
+	'ice_giant',
+];
+
+export class PlanetLodTestScene implements FeatureTestScene {
+	readonly id = 'planet-lod';
+	readonly name = 'Planet LOD';
+	readonly category = 'Planets' as const;
+	readonly description = 'Validate Orbit, Regional and Surface view handoffs.';
+
+	private context: FeatureTestContext | null = null;
+	private readonly root = new THREE.Group();
+	private runtime: PlanetViewRuntime | null = null;
+	private definition: PlanetDefinition | null = null;
+	private profile: PlanetRenderProfile | null = null;
+	private stats: HTMLElement | null = null;
+	private climateCanvas: HTMLCanvasElement | null = null;
+	private seed = 3001;
+	private planetClass: PlanetClass = 'desert';
+	private climateDebugMode: ClimateDebugMode = 'biome';
+
+	init(context: FeatureTestContext): void {
+		this.context = context;
+		this.root.name = 'PlanetLodTestScene';
+		context.scene.add(this.root);
+		context.camera.position.set(0, 3.2, 9.5);
+		context.controls.target.set(0, 0, 0);
+		context.controls.enablePan = false;
+		context.controls.update();
+		this.createUi(context.uiRoot);
+		this.createPlanet();
+	}
+
+	update(dt: number): void {
+		if (!this.context || !this.runtime) return;
+		this.runtime.update(this.context.camera.position, dt);
+		this.updateStats();
+	}
+
+	reset(): void {
+		this.createPlanet();
+	}
+
+	dispose(): void {
+		this.runtime?.dispose();
+		this.runtime = null;
+		this.definition = null;
+		this.profile = null;
+		this.context?.scene.remove(this.root);
+		disposeObject3D(this.root);
+		this.root.clear();
+		this.context = null;
+	}
+
+	private createPlanet(): void {
+		if (!this.context) return;
+
+		this.runtime?.dispose();
+		this.runtime = null;
+		this.root.clear();
+		this.context.clearReport();
+
+		const definition = generatePlanetDefinition(this.seed, {
+			name: `LOD ${this.seed}`,
+			semiMajorAxis: 1,
+			starIrradiance: 1,
+			forcePlanetClass: this.planetClass,
+		});
+		const profile = createPlanetRenderProfile(definition);
+
+		this.definition = definition;
+		this.profile = profile;
+		this.runtime = new PlanetViewRuntime(
+			definition,
+			profile,
+			LAB_PLANET_RADIUS,
+			this.context.rendererMode,
+			this.context.camera.position,
+		);
+		this.root.add(this.runtime.group);
+		this.context.report({
+			status: 'pass',
+			label: 'planet views created',
+			detail: `${definition.class} / seed ${definition.seed}`,
+		});
+		this.updateClimateMap();
+		this.updateStats();
+	}
+
+	private createUi(root: HTMLElement): void {
+		root.innerHTML = `
+			<label style="display:block;margin:6px 0;">Class
+				<select data-planet-class>
+					${PLANET_CLASSES.map((planetClass) => (
+						`<option value="${planetClass}"${planetClass === this.planetClass ? ' selected' : ''}>${formatPlanetClass(planetClass)}</option>`
+					)).join('')}
+				</select>
+			</label>
+			<label style="display:block;margin:6px 0;">Seed
+				<input data-seed type="number" value="${this.seed}" style="width:110px;">
+			</label>
+			<label style="display:block;margin:6px 0;">Climate Map
+				<select data-climate-debug>
+					${PLANET_CLIMATE_DEBUG_MODES.map((mode) => (
+						`<option value="${mode}"${mode === this.climateDebugMode ? ' selected' : ''}>${formatDebugMode(mode)}</option>`
+					)).join('')}
+				</select>
+			</label>
+			<button data-apply-planet style="margin:4px;padding:6px 8px;">Apply</button>
+			<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(143,231,255,.16);">
+				<div style="color:#8fe7ff;margin-bottom:5px;">View architecture</div>
+				<div>Orbit → Regional → Surface</div>
+			</div>
+			<canvas data-climate-map width="240" height="120" style="display:block;width:240px;height:120px;margin-top:8px;border:1px solid rgba(120,180,255,.35);border-radius:4px;image-rendering:pixelated;background:#05070a;"></canvas>
+			<div data-planet-stats style="margin-top:8px;opacity:.82"></div>
+		`;
+
+		this.stats = root.querySelector('[data-planet-stats]');
+		this.climateCanvas = root.querySelector('[data-climate-map]');
+
+		root.querySelector<HTMLButtonElement>('[data-apply-planet]')?.addEventListener('click', () => {
+			const seedInput = root.querySelector<HTMLInputElement>('[data-seed]');
+			const classSelect = root.querySelector<HTMLSelectElement>('[data-planet-class]');
+			const seed = Number(seedInput?.value ?? this.seed);
+			this.seed = Number.isFinite(seed) ? Math.max(1, Math.floor(seed)) : this.seed;
+			this.planetClass = isPlanetClass(classSelect?.value) ? classSelect.value : this.planetClass;
+			this.createPlanet();
+		});
+
+		root.querySelector<HTMLSelectElement>('[data-climate-debug]')?.addEventListener('change', (event) => {
+			this.climateDebugMode = (event.currentTarget as HTMLSelectElement).value as ClimateDebugMode;
+			this.updateClimateMap();
+		});
+	}
+
+	private updateStats(): void {
+		if (!this.runtime || !this.definition || !this.profile || !this.stats) return;
+		const state = this.runtime.getState();
+		const terrain = this.runtime.planet.getTerrainStats();
+		const radiusKm = getPlanetRadiusMeters(this.definition) / 1000;
+		const isSurfacePlanet = this.profile.rendererKind === 'solid_surface';
+
+		this.stats.innerHTML = [
+			`class: ${this.definition.class}`,
+			`renderer: ${this.context?.rendererMode ?? 'n/a'}`,
+			`real radius: ${radiusKm.toFixed(0)} km`,
+			`surface views: ${isSurfacePlanet ? 'enabled' : 'orbit only'}`,
+			'',
+			'<b>view handoff</b>',
+			`altitude: ${formatAltitude(state.altitudeMeters)}`,
+			`phase: ${state.phase}`,
+			`orbit: ${formatWeight(state.orbitWeight)}`,
+			`regional: ${formatWeight(state.regionalWeight)} / ${state.regionalActive ? 'ACTIVE' : 'off'}`,
+			`surface: ${formatWeight(state.surfaceWeight)} / ${state.surfaceActive ? 'ACTIVE' : 'off'}`,
+			`orbit LOD: ${state.orbitLodFrozen ? 'FROZEN AT HANDOFF' : 'live'}`,
+			'',
+			'<b>orbit terrain</b>',
+			`patches: ${terrain.visibleMeshes}/${terrain.totalPatches}`,
+			`max lod: ${terrain.maxLevel}`,
+			`profile: ${terrain.profile}`,
+			'',
+			'<b>bands</b>',
+			`orbit→regional: ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalStartMeters)} → ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalEndMeters)}`,
+			`regional→surface: ${formatAltitude(PLANET_VIEW_BANDS.regionalSurfaceStartMeters)} → ${formatAltitude(PLANET_VIEW_BANDS.regionalSurfaceEndMeters)}`,
+		].join('<br>');
+	}
+
+	private updateClimateMap(): void {
+		if (this.climateCanvas && this.definition) {
+			drawPlanetClimateDebugMap(this.climateCanvas, this.definition, this.climateDebugMode);
+		}
+	}
+}
+
+function isPlanetClass(value: string | undefined): value is PlanetClass {
+	return PLANET_CLASSES.includes(value as PlanetClass);
+}
+
+function formatPlanetClass(value: PlanetClass): string {
+	return value
+		.split('_')
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(' ');
+}
+
+function formatDebugMode(mode: ClimateDebugMode): string {
+	return mode.replace(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase());
+}
+
+function formatWeight(value: number): string {
+	return `${(value * 100).toFixed(0)}%`;
+}
+
+function formatAltitude(meters: number): string {
+	return meters >= 1_000_000
+		? `${(meters / 1_000_000).toFixed(2)} Mm`
+		: `${(meters / 1000).toFixed(0)} km`;
+}
