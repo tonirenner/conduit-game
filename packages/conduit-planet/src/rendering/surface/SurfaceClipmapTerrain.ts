@@ -8,7 +8,10 @@ import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 const RING_COUNT = 9;
 const GRID_CELLS = 24;
 const BASE_HALF_EXTENT_METERS = 16_000;
-const RECENTER_DISTANCE_METERS = 8_000;
+const MIN_RECENTER_DISTANCE_METERS = 24_000;
+const MAX_RECENTER_DISTANCE_METERS = 250_000;
+const RECENTER_ALTITUDE_FACTOR = 0.18;
+const RECENTER_MIN_OPACITY = 0.9;
 
 export type SurfaceClipmapStats = {
 	active: boolean;
@@ -51,10 +54,11 @@ type CachedSample = {
  * group itself converts that local meter frame into the compact planet render
  * scale.
  *
- * Terrain is sampled only when the local frame recenters. Camera zoom and view
- * blend changes never rebuild geometry. This keeps the view-controller API
- * ready for a later GPU height-texture/compute fill without changing the
- * Orbit -> Regional -> Surface architecture.
+ * Terrain is sampled only when the local frame recenters. During the approach
+ * the initial surface anchor stays stable while Regional still carries the
+ * view. Once Surface dominates, recenter distance scales with altitude so
+ * camera rotation/panning cannot trigger a full CPU terrain refill every few
+ * kilometres.
  */
 export class SurfaceClipmapTerrain {
 	readonly group = new THREE.Group();
@@ -67,6 +71,7 @@ export class SurfaceClipmapTerrain {
 	private readonly tangentZ = new THREE.Vector3();
 	private readonly anchorPhysical = new THREE.Vector3();
 	private hasAnchor = false;
+	private currentRecenterDistanceMeters = MAX_RECENTER_DISTANCE_METERS;
 
 	constructor(
 		private readonly definition: PlanetDefinition,
@@ -87,10 +92,20 @@ export class SurfaceClipmapTerrain {
 	}
 
 	update(cameraRenderPosition: THREE.Vector3, opacity: number): void {
-		const direction = cameraRenderPosition.clone().normalize();
-		if (this.needsRecenter(direction)) this.recenter(direction);
-
 		const alpha = THREE.MathUtils.clamp(opacity, 0, 1);
+		const altitudeMeters = this.getAltitudeMeters(cameraRenderPosition);
+		this.currentRecenterDistanceMeters = this.getRecenterDistanceMeters(altitudeMeters);
+
+		// Keep the handoff anchor stable while Regional is still materially visible.
+		// Rebuilding all clipmap rings during that phase caused frame spikes and let
+		// the Surface patch wander away from the Regional patch during camera orbit.
+		if (alpha >= RECENTER_MIN_OPACITY) {
+			const direction = cameraRenderPosition.clone().normalize();
+			if (this.needsRecenter(direction, this.currentRecenterDistanceMeters)) {
+				this.recenter(direction);
+			}
+		}
+
 		this.group.visible = alpha > 0.001;
 		for (const ring of this.rings) {
 			ring.material.opacity = alpha;
@@ -105,7 +120,7 @@ export class SurfaceClipmapTerrain {
 			rings: this.rings.length,
 			gridCells: GRID_CELLS,
 			outerHalfExtentMeters: BASE_HALF_EXTENT_METERS * (1 << (RING_COUNT - 1)),
-			recenterDistanceMeters: RECENTER_DISTANCE_METERS,
+			recenterDistanceMeters: this.currentRecenterDistanceMeters,
 			indexed: false,
 		};
 	}
@@ -157,11 +172,26 @@ export class SurfaceClipmapTerrain {
 		return { mesh, geometry, material, template, positions, normals, colors };
 	}
 
-	private needsRecenter(direction: THREE.Vector3): boolean {
+	private getAltitudeMeters(cameraRenderPosition: THREE.Vector3): number {
+		return Math.max(
+			0,
+			(cameraRenderPosition.length() / this.renderRadius - 1) * this.sampler.radiusMeters,
+		);
+	}
+
+	private getRecenterDistanceMeters(altitudeMeters: number): number {
+		return THREE.MathUtils.clamp(
+			altitudeMeters * RECENTER_ALTITUDE_FACTOR,
+			MIN_RECENTER_DISTANCE_METERS,
+			MAX_RECENTER_DISTANCE_METERS,
+		);
+	}
+
+	private needsRecenter(direction: THREE.Vector3, thresholdMeters: number): boolean {
 		if (!this.hasAnchor) return true;
 		const dot = THREE.MathUtils.clamp(this.anchorDirection.dot(direction), -1, 1);
 		const arcMeters = Math.acos(dot) * this.sampler.radiusMeters;
-		return arcMeters >= RECENTER_DISTANCE_METERS;
+		return arcMeters >= thresholdMeters;
 	}
 
 	private recenter(direction: THREE.Vector3): void {
