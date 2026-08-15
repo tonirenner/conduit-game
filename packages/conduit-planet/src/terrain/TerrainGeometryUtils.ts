@@ -97,6 +97,10 @@ export function createStitchedGridIndices(
  * Builds an indexed square clipmap ring. The optional centered inner region is
  * omitted while the outer boundary can be collapsed 2:1 so a finer ring joins
  * the next coarser ring without T-junctions.
+ *
+ * Surface clipmap vertices live in a local X/Z plane with +Y as the outward
+ * terrain normal, so the triangle winding intentionally differs from the
+ * cube-face grid helpers above.
  */
 export function createStitchedRingIndices(
 	resolution: number,
@@ -146,7 +150,8 @@ export function createStitchedRingIndices(
 			const b = mapVertex(x, y + 1);
 			const c = mapVertex(x + 1, y);
 			const d = mapVertex(x + 1, y + 1);
-			indices.push(a, c, b, c, d, b);
+			// Local X/Z plane: z x x points toward +Y (outward from the planet).
+			indices.push(a, b, c, c, b, d);
 		}
 	}
 
