@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import {
 	attribute,
+	clamp,
 	color,
 	float,
 	max,
@@ -225,29 +226,62 @@ export function createSurfaceTerrainNodeMaterial(
 		.add(detail.w.sub(0.5).mul(0.04));
 	let microNormalStrength: any = float(0.06);
 
+	// Phase 4: local material cavity AO. GTAO still handles broad screen-space
+	// valleys and silhouettes; this factor only darkens fragment-scale recesses.
+	const finePocket = smoothstep(0.04, 0.72, max(float(0), fineSigned.negate()));
+	const fineCrease = smoothstep(0.91, 0.992, ridgeFine);
+	const mediumCrease = smoothstep(0.90, 0.99, ridgeMedium);
+	let cavityAmount: any = finePocket.mul(0.10)
+		.add(fineCrease.mul(0.035))
+		.add(erosion.mul(0.055))
+		.add(river.mul(0.025));
+
 	if (definition.class === 'desert') {
 		microHeight = fineSigned.mul(0.085).add(ridgeMedium.mul(0.025));
 		microNormalStrength = float(0.045);
+		cavityAmount = finePocket.mul(0.055)
+			.add(mediumCrease.mul(0.018))
+			.add(erosion.mul(0.035));
 	} else if (definition.class === 'rocky') {
 		microHeight = fineSigned.mul(0.24)
 			.add(ridgeMedium.mul(0.10))
 			.add(ridgeFine.mul(0.055));
 		microNormalStrength = float(0.105);
+		cavityAmount = finePocket.mul(0.14)
+			.add(fineCrease.mul(0.075))
+			.add(erosion.mul(0.09))
+			.add(slope.mul(0.025));
 	} else if (definition.class === 'barren') {
 		microHeight = fineSigned.mul(0.20).add(ridgeMedium.mul(0.075));
 		microNormalStrength = float(0.09);
+		cavityAmount = finePocket.mul(0.12)
+			.add(fineCrease.mul(0.065))
+			.add(erosion.mul(0.075));
 	} else if (definition.class === 'carbon') {
 		microHeight = fineSigned.mul(0.25).add(ridgeFine.mul(0.07));
 		microNormalStrength = float(0.11);
+		cavityAmount = finePocket.mul(0.15)
+			.add(fineCrease.mul(0.07))
+			.add(erosion.mul(0.06));
 	} else if (definition.class === 'metal_rich') {
 		microHeight = fineSigned.mul(0.17).add(ridgeMedium.mul(0.06));
 		microNormalStrength = float(0.075);
+		cavityAmount = finePocket.mul(0.085)
+			.add(fineCrease.mul(0.035))
+			.add(erosion.mul(0.05));
 	} else if (definition.class === 'toxic') {
 		microHeight = fineSigned.mul(0.14).add(detail.w.sub(0.5).mul(0.05));
 		microNormalStrength = float(0.065);
+		cavityAmount = finePocket.mul(0.085)
+			.add(mediumCrease.mul(0.03))
+			.add(erosion.mul(0.055))
+			.add(river.mul(0.035));
 	} else if (definition.class === 'terrestrial' || definition.class === 'ocean') {
 		microHeight = fineSigned.mul(0.10).add(detail.w.sub(0.5).mul(0.035));
 		microNormalStrength = float(0.055);
+		cavityAmount = finePocket.mul(0.065)
+			.add(erosion.mul(0.045))
+			.add(river.mul(0.035));
 	}
 
 	if (definition.class === 'lava') {
@@ -279,6 +313,11 @@ export function createSurfaceTerrainNodeMaterial(
 			.sub(crackHalo.mul(0.16))
 			.sub(crackCore.mul(0.10));
 		microNormalStrength = float(0.12);
+		cavityAmount = finePocket.mul(0.12)
+			.add(crackHalo.mul(0.24))
+			.add(erosion.mul(0.065));
+		// The luminous crack core should remain bright; cavity belongs to its rim.
+		cavityAmount = cavityAmount.mul(float(1).sub(hotCore.mul(0.48)));
 	}
 
 	if (definition.class === 'ice') {
@@ -288,12 +327,22 @@ export function createSurfaceTerrainNodeMaterial(
 		surfaceRoughness = mix(surfaceRoughness, float(0.30), crack.mul(0.36));
 		microHeight = fineSigned.mul(0.055).sub(crack.mul(0.13));
 		microNormalStrength = float(0.038);
+		cavityAmount = finePocket.mul(0.035)
+			.add(crack.mul(0.15))
+			.add(erosion.mul(0.025));
 	}
+
+	const surfaceAO = clamp(
+		float(1).sub(cavityAmount.mul(solidMicroMask)),
+		float(0.62),
+		float(1),
+	);
 
 	material.colorNode = surfaceColor;
 	material.roughnessNode = surfaceRoughness;
 	material.metalnessNode = surfaceMetalness;
 	material.emissiveNode = surfaceEmissive;
+	material.aoNode = surfaceAO;
 	material.normalNode = perturbProceduralNormal({
 		positionInput: positionView,
 		normalInput: normalView,
@@ -323,7 +372,7 @@ function getClassMaterial(planetClass: PlanetClass): ClassMaterial {
 		case 'metal_rich': return material(0x4a4038, 0x8c7864, 0x69594c, 0x403831, 0.62, 0.24, 0.12);
 		case 'barren': return material(0x41392f, 0x9c8767, 0xb7a88a, 0x50483f, 0.86, 0.0, 0.12);
 		case 'rocky': return material(0x3f403c, 0x9c957f, 0xc4b899, 0x433c36, 0.80, 0.0, 0.10);
-		case 'terrestrial': return material(0x315d35, 0x716a4e, 0x496844, 0x69675b, 0.83, 0.0, 0.28);
+		case 'terrestrial': return material(0x315d35, 0x716a4e, 0x496844, 0x696844, 0.83, 0.0, 0.28);
 		case 'ocean': return material(0x1f6a46, 0x8ca05a, 0x4d6f52, 0x5a5548, 0.78, 0.0, 0.22);
 		default: return material(0x625548, 0xa48e73, 0x786858, 0x51483f, 0.84, 0.0, 0.10);
 	}
