@@ -13,7 +13,6 @@ const EDGE_FEATHER_END = 0.17;
  * - morphs displacement back to the planet sphere at the patch border
  * - reduces relief exaggeration while the orbit renderer is still visible
  * - rebuilds normals/AO after the border morph so the edge does not read as a shell
- * - converts rebuilt regional geometry to non-indexed before WebGPU renders it
  */
 export class RegionalSurfaceHandoffTerrain extends HydraulicRegionalSurfaceTerrain {
 	private lastHeightTexture: THREE.Texture | null = null;
@@ -39,18 +38,6 @@ export class RegionalSurfaceHandoffTerrain extends HydraulicRegionalSurfaceTerra
 	private applyHandoff(cameraRenderPosition: THREE.Vector3): void {
 		const mesh = this.group.children.find((child): child is THREE.Mesh => child instanceof THREE.Mesh);
 		if (!mesh) return;
-
-		// GpuRegionalSurfaceTerrain may rebuild an indexed grid when its extent or
-		// resolution changes. Convert it immediately, in the same update tick,
-		// before WebGPU sees the mesh. This removes createIndexAttribute from the
-		// production handoff path and avoids stale index-buffer lifecycle races.
-		if (mesh.geometry.index) {
-			const indexedGeometry = mesh.geometry;
-			const nonIndexedGeometry = indexedGeometry.toNonIndexed();
-			nonIndexedGeometry.computeBoundingSphere();
-			mesh.geometry = nonIndexedGeometry;
-			indexedGeometry.dispose();
-		}
 
 		const material = mesh.material as THREE.MeshStandardMaterial;
 		const heightTexture = material.displacementMap as THREE.DataTexture | null;
