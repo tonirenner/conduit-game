@@ -19,6 +19,8 @@ const NEAR_PLANE_DAMPING = 6.0;
 const NEAR_PLANE_MIN_METERS = 2;
 const NEAR_PLANE_MAX_METERS = 50_000;
 const NEAR_PLANE_ALTITUDE_FACTOR = 0.08;
+const LOOK_SENSITIVITY = THREE.MathUtils.degToRad(0.14);
+const LOOK_MAX_PITCH = THREE.MathUtils.degToRad(85);
 
 export type PlanetApproachCameraState = {
 	altitudeMeters: number;
@@ -39,6 +41,11 @@ export type PlanetApproachCameraState = {
  * local radial up-vector at the same time. This gives the OpenWorlds-style
  * orbit -> horizon -> ground motion without coupling the camera to any terrain
  * renderer or view handoff.
+ *
+ * Holding the left mouse button adds a persistent yaw/pitch look offset to the
+ * automatic approach framing. Only the target direction changes: the camera
+ * position remains untouched, so altitude/LOD/view-handoff calculations keep
+ * using the exact same position as before.
  */
 export class PlanetApproachCameraController {
 	private readonly defaultTarget: THREE.Vector3;
@@ -48,6 +55,7 @@ export class PlanetApproachCameraController {
 	private readonly defaultZoomSpeed: number;
 	private readonly defaultRotateSpeed: number;
 	private readonly defaultMinDistance: number;
+	private readonly defaultEnableRotate: boolean;
 	private readonly renderUnitsPerMeter: number;
 
 	private anchorDirection: THREE.Vector3 | null = null;
@@ -58,8 +66,67 @@ export class PlanetApproachCameraController {
 	private readonly tangentCandidate = new THREE.Vector3();
 	private readonly approachDirection = new THREE.Vector3();
 	private readonly center = new THREE.Vector3();
+	private readonly lookDirection = new THREE.Vector3();
+	private readonly lookRight = new THREE.Vector3();
+	private readonly lookTarget = new THREE.Vector3();
+	private readonly lookYawQuaternion = new THREE.Quaternion();
+	private readonly lookPitchQuaternion = new THREE.Quaternion();
+
+	private lookYaw = 0;
+	private lookPitch = 0;
+	private lookPointerId: number | null = null;
+	private lookPointerX = 0;
+	private lookPointerY = 0;
 
 	private state: PlanetApproachCameraState;
+
+	private readonly onPointerDown = (event: PointerEvent): void => {
+		if (event.button !== 0 || this.lookPointerId !== null) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.lookPointerId = event.pointerId;
+		this.lookPointerX = event.clientX;
+		this.lookPointerY = event.clientY;
+		this.controls.enableRotate = false;
+		this.controls.domElement.setPointerCapture?.(event.pointerId);
+	};
+
+	private readonly onPointerMove = (event: PointerEvent): void => {
+		if (event.pointerId !== this.lookPointerId) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		const deltaX = event.clientX - this.lookPointerX;
+		const deltaY = event.clientY - this.lookPointerY;
+		this.lookPointerX = event.clientX;
+		this.lookPointerY = event.clientY;
+
+		this.lookYaw -= deltaX * LOOK_SENSITIVITY;
+		this.lookPitch = THREE.MathUtils.clamp(
+			this.lookPitch - deltaY * LOOK_SENSITIVITY,
+			-LOOK_MAX_PITCH,
+			LOOK_MAX_PITCH,
+		);
+
+		// Keep yaw numerically bounded during long inspection sessions.
+		if (Math.abs(this.lookYaw) > Math.PI * 2) {
+			this.lookYaw = THREE.MathUtils.euclideanModulo(
+				this.lookYaw + Math.PI,
+				Math.PI * 2,
+			) - Math.PI;
+		}
+	};
+
+	private readonly onPointerUp = (event: PointerEvent): void => {
+		if (event.pointerId !== this.lookPointerId) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.controls.domElement.releasePointerCapture?.(event.pointerId);
+		this.lookPointerId = null;
+		this.controls.enableRotate = this.defaultEnableRotate;
+	};
 
 	constructor(
 		private readonly camera: THREE.PerspectiveCamera,
@@ -74,7 +141,16 @@ export class PlanetApproachCameraController {
 		this.defaultZoomSpeed = controls.zoomSpeed;
 		this.defaultRotateSpeed = controls.rotateSpeed;
 		this.defaultMinDistance = controls.minDistance;
+		this.defaultEnableRotate = controls.enableRotate;
 		this.renderUnitsPerMeter = renderRadius / Math.max(1, radiusMeters);
+
+		// Capture-phase listeners consume only left-button look gestures before
+		// OrbitControls can interpret them as orbit rotation. Wheel/dolly and all
+		// other control input remain owned by OrbitControls.
+		this.controls.domElement.addEventListener('pointerdown', this.onPointerDown, true);
+		this.controls.domElement.addEventListener('pointermove', this.onPointerMove, true);
+		this.controls.domElement.addEventListener('pointerup', this.onPointerUp, true);
+		this.controls.domElement.addEventListener('pointercancel', this.onPointerUp, true);
 
 		// OrbitControls minDistance is measured from its target. Once the target
 		// moves to the surface the default lab value can otherwise stop us hundreds
@@ -143,16 +219,28 @@ export class PlanetApproachCameraController {
 	}
 
 	dispose(): void {
+		this.controls.domElement.removeEventListener('pointerdown', this.onPointerDown, true);
+		this.controls.domElement.removeEventListener('pointermove', this.onPointerMove, true);
+		this.controls.domElement.removeEventListener('pointerup', this.onPointerUp, true);
+		this.controls.domElement.removeEventListener('pointercancel', this.onPointerUp, true);
+		if (this.lookPointerId !== null) {
+			this.controls.domElement.releasePointerCapture?.(this.lookPointerId);
+			this.lookPointerId = null;
+		}
+
 		this.controls.target.copy(this.defaultTarget);
 		this.controls.zoomSpeed = this.defaultZoomSpeed;
 		this.controls.rotateSpeed = this.defaultRotateSpeed;
 		this.controls.minDistance = this.defaultMinDistance;
+		this.controls.enableRotate = this.defaultEnableRotate;
 		this.camera.up.copy(this.defaultCameraUp);
 		this.camera.fov = this.defaultFov;
 		this.camera.near = this.defaultNear;
 		this.camera.updateProjectionMatrix();
 		this.controls.update();
 		this.anchorDirection = null;
+		this.lookYaw = 0;
+		this.lookPitch = 0;
 	}
 
 	private updateTarget(
@@ -182,10 +270,44 @@ export class PlanetApproachCameraController {
 				.multiplyScalar(this.renderRadius * targetBlend);
 		}
 
+		const target = this.applyLookOffset(this.desiredTarget);
 		this.controls.target.lerp(
-			this.desiredTarget,
+			target,
 			dampingFactor(TARGET_DAMPING, dt),
 		);
+	}
+
+	private applyLookOffset(baseTarget: THREE.Vector3): THREE.Vector3 {
+		if (Math.abs(this.lookYaw) < 1e-8 && Math.abs(this.lookPitch) < 1e-8) {
+			return baseTarget;
+		}
+
+		this.lookDirection.copy(baseTarget).sub(this.camera.position);
+		let lookDistance = this.lookDirection.length();
+		if (lookDistance < 1e-8) {
+			this.camera.getWorldDirection(this.lookDirection);
+			lookDistance = Math.max(this.renderRadius, 1);
+		} else {
+			this.lookDirection.multiplyScalar(1 / lookDistance);
+		}
+
+		this.radialUp.copy(this.camera.up);
+		if (this.radialUp.lengthSq() < 1e-12) this.radialUp.set(0, 1, 0);
+		else this.radialUp.normalize();
+
+		this.lookYawQuaternion.setFromAxisAngle(this.radialUp, this.lookYaw);
+		this.lookDirection.applyQuaternion(this.lookYawQuaternion).normalize();
+
+		this.lookRight.crossVectors(this.lookDirection, this.radialUp);
+		if (this.lookRight.lengthSq() > 1e-10) {
+			this.lookRight.normalize();
+			this.lookPitchQuaternion.setFromAxisAngle(this.lookRight, this.lookPitch);
+			this.lookDirection.applyQuaternion(this.lookPitchQuaternion).normalize();
+		}
+
+		return this.lookTarget
+			.copy(this.camera.position)
+			.addScaledVector(this.lookDirection, lookDistance);
 	}
 
 	private updateUp(upBlend: number, dt: number): void {
