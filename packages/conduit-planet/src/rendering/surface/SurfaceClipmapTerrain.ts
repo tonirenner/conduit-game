@@ -46,7 +46,8 @@ type Ring = {
 	colors: Float32Array;
 	roughnesses: Float32Array;
 	metalnesses: Float32Array;
-	emissives: Float32Array;
+	directions: Float32Array;
+	materialData: Float32Array;
 };
 
 type CachedSample = {
@@ -61,9 +62,13 @@ type CachedSample = {
 	b: number;
 	roughness: number;
 	metalness: number;
-	er: number;
-	eg: number;
-	eb: number;
+	dx: number;
+	dy: number;
+	dz: number;
+	mountain: number;
+	erosion: number;
+	river: number;
+	slope: number;
 };
 
 /**
@@ -80,11 +85,10 @@ type CachedSample = {
  * the configured recenter distance is exceeded.
  *
  * Geometry always comes from the canonical PlanetTerrainSampler. Deterministic
- * high-frequency noise remains shading-only, so landing/collision height and the
- * Orbit -> Regional -> Surface terrain definition stay unified. The material
- * channels are evaluated separately from the existing planet material semantics:
- * class palettes, roughness, metal response, cavity and emissive lava never feed
- * back into the physical terrain height.
+ * high-frequency normal relief remains shading-only, so landing/collision height
+ * and the Orbit -> Regional -> Surface terrain definition stay unified. Broad
+ * material ownership is cached per vertex, while spherical material coordinates
+ * and terrain masks are interpolated into the fragment shader for fine texturing.
  */
 export class SurfaceClipmapTerrain {
 	readonly group = new THREE.Group();
@@ -97,7 +101,6 @@ export class SurfaceClipmapTerrain {
 	private readonly tangentZ = new THREE.Vector3();
 	private readonly anchorPhysical = new THREE.Vector3();
 	private readonly materialColor = new THREE.Color();
-	private readonly materialEmissive = new THREE.Color();
 	private hasAnchor = false;
 	private currentRecenterDistanceMeters = MAX_RECENTER_DISTANCE_METERS;
 	private previousOpacity = 0;
@@ -185,29 +188,36 @@ export class SurfaceClipmapTerrain {
 		const colors = new Float32Array(vertexCount * 3);
 		const roughnesses = new Float32Array(vertexCount);
 		const metalnesses = new Float32Array(vertexCount);
-		const emissives = new Float32Array(vertexCount * 3);
+		const directions = new Float32Array(vertexCount * 3);
+		const materialData = new Float32Array(vertexCount * 4);
 		const geometry = new THREE.BufferGeometry();
 		const positionAttribute = new THREE.BufferAttribute(positions, 3);
 		const normalAttribute = new THREE.BufferAttribute(normals, 3);
 		const colorAttribute = new THREE.BufferAttribute(colors, 3);
 		const roughnessAttribute = new THREE.BufferAttribute(roughnesses, 1);
 		const metalnessAttribute = new THREE.BufferAttribute(metalnesses, 1);
-		const emissiveAttribute = new THREE.BufferAttribute(emissives, 3);
+		const directionAttribute = new THREE.BufferAttribute(directions, 3);
+		const materialDataAttribute = new THREE.BufferAttribute(materialData, 4);
 		positionAttribute.setUsage(THREE.DynamicDrawUsage);
 		normalAttribute.setUsage(THREE.DynamicDrawUsage);
 		colorAttribute.setUsage(THREE.DynamicDrawUsage);
 		roughnessAttribute.setUsage(THREE.DynamicDrawUsage);
 		metalnessAttribute.setUsage(THREE.DynamicDrawUsage);
-		emissiveAttribute.setUsage(THREE.DynamicDrawUsage);
+		directionAttribute.setUsage(THREE.DynamicDrawUsage);
+		materialDataAttribute.setUsage(THREE.DynamicDrawUsage);
 		geometry.setAttribute('position', positionAttribute);
 		geometry.setAttribute('normal', normalAttribute);
 		geometry.setAttribute('color', colorAttribute);
 		geometry.setAttribute('terrainRoughness', roughnessAttribute);
 		geometry.setAttribute('terrainMetalness', metalnessAttribute);
-		geometry.setAttribute('terrainEmissive', emissiveAttribute);
+		geometry.setAttribute('terrainDirection', directionAttribute);
+		geometry.setAttribute('terrainMaterialData', materialDataAttribute);
 		geometry.setIndex(indices);
 
-		const material = createSurfaceTerrainNodeMaterial();
+		const material = createSurfaceTerrainNodeMaterial(
+			this.definition,
+			this.sampler.terrainSeedConfig.detailOffset,
+		);
 		material.name = `PlanetSurfaceClipmapMaterial:${level}`;
 
 		const mesh = new THREE.Mesh(geometry, material);
@@ -226,7 +236,8 @@ export class SurfaceClipmapTerrain {
 			colors,
 			roughnesses,
 			metalnesses,
-			emissives,
+			directions,
+			materialData,
 		};
 	}
 
@@ -277,21 +288,26 @@ export class SurfaceClipmapTerrain {
 				cache.set(key, sample);
 			}
 
-			const offset = vertex * 3;
-			ring.positions[offset] = sample.x;
-			ring.positions[offset + 1] = sample.y;
-			ring.positions[offset + 2] = sample.z;
-			ring.normals[offset] = sample.nx;
-			ring.normals[offset + 1] = sample.ny;
-			ring.normals[offset + 2] = sample.nz;
-			ring.colors[offset] = sample.r;
-			ring.colors[offset + 1] = sample.g;
-			ring.colors[offset + 2] = sample.b;
+			const offset3 = vertex * 3;
+			const offset4 = vertex * 4;
+			ring.positions[offset3] = sample.x;
+			ring.positions[offset3 + 1] = sample.y;
+			ring.positions[offset3 + 2] = sample.z;
+			ring.normals[offset3] = sample.nx;
+			ring.normals[offset3 + 1] = sample.ny;
+			ring.normals[offset3 + 2] = sample.nz;
+			ring.colors[offset3] = sample.r;
+			ring.colors[offset3 + 1] = sample.g;
+			ring.colors[offset3 + 2] = sample.b;
 			ring.roughnesses[vertex] = sample.roughness;
 			ring.metalnesses[vertex] = sample.metalness;
-			ring.emissives[offset] = sample.er;
-			ring.emissives[offset + 1] = sample.eg;
-			ring.emissives[offset + 2] = sample.eb;
+			ring.directions[offset3] = sample.dx;
+			ring.directions[offset3 + 1] = sample.dy;
+			ring.directions[offset3 + 2] = sample.dz;
+			ring.materialData[offset4] = sample.mountain;
+			ring.materialData[offset4 + 1] = sample.erosion;
+			ring.materialData[offset4 + 2] = sample.river;
+			ring.materialData[offset4 + 3] = sample.slope;
 		}
 
 		(ring.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
@@ -299,7 +315,8 @@ export class SurfaceClipmapTerrain {
 		(ring.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
 		(ring.geometry.getAttribute('terrainRoughness') as THREE.BufferAttribute).needsUpdate = true;
 		(ring.geometry.getAttribute('terrainMetalness') as THREE.BufferAttribute).needsUpdate = true;
-		(ring.geometry.getAttribute('terrainEmissive') as THREE.BufferAttribute).needsUpdate = true;
+		(ring.geometry.getAttribute('terrainDirection') as THREE.BufferAttribute).needsUpdate = true;
+		(ring.geometry.getAttribute('terrainMaterialData') as THREE.BufferAttribute).needsUpdate = true;
 		ring.geometry.computeBoundingSphere();
 	}
 
@@ -338,7 +355,6 @@ export class SurfaceClipmapTerrain {
 				slope,
 			},
 			this.materialColor,
-			this.materialEmissive,
 		);
 
 		return {
@@ -353,9 +369,13 @@ export class SurfaceClipmapTerrain {
 			b: surfaceMaterial.color.b,
 			roughness: surfaceMaterial.roughness,
 			metalness: surfaceMaterial.metalness,
-			er: surfaceMaterial.emissive.r,
-			eg: surfaceMaterial.emissive.g,
-			eb: surfaceMaterial.emissive.b,
+			dx: terrain.direction.x,
+			dy: terrain.direction.y,
+			dz: terrain.direction.z,
+			mountain: THREE.MathUtils.clamp(terrain.rawTerrain.mountainMask, 0, 1),
+			erosion: THREE.MathUtils.clamp(terrain.rawTerrain.erosionMask, 0, 1),
+			river: THREE.MathUtils.clamp(terrain.rawTerrain.riverMask, 0, 1),
+			slope,
 		};
 	}
 
