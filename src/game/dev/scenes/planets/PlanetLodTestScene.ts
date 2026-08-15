@@ -170,6 +170,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		const radiusKm = getPlanetRadiusMeters(this.definition) / 1000;
 		const isSurfacePlanet = this.profile.rendererKind === 'solid_surface';
 		const optimizedOrbit = state.orbitRenderer === 'instanced-fixed';
+		const clipmapSurface = state.surfaceRenderer === 'clipmap-local';
 
 		this.stats.innerHTML = [
 			`class: ${this.definition.class}`,
@@ -193,9 +194,19 @@ export class PlanetLodTestScene implements FeatureTestScene {
 				? `fixed patch level: ${state.orbitPatchLevel} / grid: ${state.orbitGridSegments}x${state.orbitGridSegments}`
 				: `max lod: ${terrain.maxLevel} / profile: ${terrain.profile}`,
 			optimizedOrbit
-				? `terrain LUT: ${state.orbitVolumeResolution}³ RGBA16F / runtime noise: OFF`
+				? `terrain LUT: ${state.orbitVolumeResolution}³ RGBA16F / runtime noise: OFF / indexed: NO`
 				: 'terrain LUT: n/a',
 			`legacy CubeSphere: ${optimizedOrbit ? 'FROZEN + HIDDEN' : state.orbitLodFrozen ? 'FROZEN AT HANDOFF' : 'live'}`,
+			'',
+			'<b>surface view</b>',
+			`renderer: ${state.surfaceRenderer.toUpperCase()}`,
+			clipmapSurface
+				? `draws: ${state.surfaceDraws} / rings: ${state.surfaceRings}`
+				: 'draws: 0 / rings: 0',
+			clipmapSurface
+				? `grid: ${state.surfaceGridCells} cells / outer half extent: ${(state.surfaceOuterHalfExtentMeters / 1000).toFixed(0)} km`
+				: 'grid: n/a',
+			clipmapSurface ? 'local frame: meters / indexed: NO' : 'local frame: n/a',
 			'',
 			'<b>bands</b>',
 			`orbit→regional: ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalStartMeters)} → ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalEndMeters)}`,

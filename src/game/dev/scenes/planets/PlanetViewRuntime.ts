@@ -5,7 +5,7 @@ import type { PlanetRenderProfile } from '@conduit/planet/rendering';
 import { getPlanetRadiusMeters } from '@conduit/planet/near-view';
 import { InstancedOrbitTerrain } from './InstancedOrbitTerrain';
 import { RegionalSurfaceHandoffTerrain } from './RegionalSurfaceHandoffTerrain';
-import { LocalSurfaceTerrain } from './LocalSurfaceTerrain';
+import { SurfaceClipmapTerrain } from './SurfaceClipmapTerrain';
 import {
 	PLANET_VIEW_BANDS,
 	getPlanetViewWeights,
@@ -33,6 +33,11 @@ export type PlanetViewRuntimeState = {
 	orbitPatchLevel: number;
 	orbitGridSegments: number;
 	orbitVolumeResolution: number;
+	surfaceRenderer: 'clipmap-local' | 'none';
+	surfaceDraws: number;
+	surfaceRings: number;
+	surfaceGridCells: number;
+	surfaceOuterHalfExtentMeters: number;
 };
 
 /**
@@ -49,8 +54,9 @@ export type PlanetViewRuntimeState = {
  * - curved regional terrain patch with hydraulic erosion/material maps
  *
  * SurfaceView:
- * - local tangent terrain boundary; replaceable by the GPU clipmap without
- *   changing this view/handoff runtime
+ * - fixed reusable local-tangent clipmap rings
+ * - one local unit = one physical meter before render-scale transform
+ * - camera zoom never refines the global CubeSphere
  */
 export class PlanetViewRuntime {
 	readonly group = new THREE.Group();
@@ -61,7 +67,7 @@ export class PlanetViewRuntime {
 	private readonly useInstancedOrbit: boolean;
 	private orbitSurface: InstancedOrbitTerrain | null = null;
 	private regional: RegionalSurfaceHandoffTerrain | null = null;
-	private surface: LocalSurfaceTerrain | null = null;
+	private surface: SurfaceClipmapTerrain | null = null;
 	private frozenTerrain: TerrainRuntime | null = null;
 	private originalTerrainUpdate: TerrainRuntime['updateLOD'] | null = null;
 	private state: PlanetViewRuntimeState;
@@ -91,9 +97,6 @@ export class PlanetViewRuntime {
 		);
 		this.group.add(this.planet.group);
 
-		// A rotating OrbitView cannot hand the same terrain location to a fixed
-		// regional/local surface frame. Keep the terrain reference frame stable;
-		// clouds/atmosphere retain their own animation.
 		if (this.surfaceViewsEnabled) this.planet.setAutoRotationEnabled(false);
 
 		if (this.useInstancedOrbit) {
@@ -121,6 +124,11 @@ export class PlanetViewRuntime {
 			orbitPatchLevel: orbitStats?.patchLevel ?? 0,
 			orbitGridSegments: orbitStats?.gridSegments ?? 0,
 			orbitVolumeResolution: orbitStats?.volumeResolution ?? 0,
+			surfaceRenderer: 'none',
+			surfaceDraws: 0,
+			surfaceRings: 0,
+			surfaceGridCells: 0,
+			surfaceOuterHalfExtentMeters: 0,
 		};
 		this.updateViewLifecycle(cameraRenderPosition, altitudeMeters);
 	}
@@ -132,17 +140,12 @@ export class PlanetViewRuntime {
 		this.updateViewLifecycle(cameraRenderPosition, altitudeMeters);
 
 		if (this.orbitSurface) {
-			// Orbit topology is intentionally fixed. The legacy CubeSphere never
-			// participates in the frame loop on the optimized WebGPU path.
 			this.freezeOrbitTerrainLod();
 			this.disableClassicOrbitVisuals();
 		} else {
 			this.updateOrbitLodState(altitudeMeters);
 		}
 
-		// Atmosphere/cloud/moon updates still come from Planet. On the optimized
-		// path PlanetTerrain.updateLOD is a no-op, so this does not re-enter the
-		// CPU quadtree.
 		this.planet.update(cameraRenderPosition, dt);
 		this.planet.setRenderQuality('idle');
 
@@ -163,11 +166,10 @@ export class PlanetViewRuntime {
 			}
 		}
 
-		if (this.surface) {
-			this.surface.update(cameraRenderPosition, weights.surface);
-		}
+		if (this.surface) this.surface.update(cameraRenderPosition, weights.surface);
 
 		const orbitStats = this.orbitSurface?.getStats();
+		const surfaceStats = this.surface?.getStats();
 		this.state = {
 			altitudeMeters,
 			phase: weights.phase,
@@ -183,6 +185,11 @@ export class PlanetViewRuntime {
 			orbitPatchLevel: orbitStats?.patchLevel ?? 0,
 			orbitGridSegments: orbitStats?.gridSegments ?? 0,
 			orbitVolumeResolution: orbitStats?.volumeResolution ?? 0,
+			surfaceRenderer: this.surface ? 'clipmap-local' : 'none',
+			surfaceDraws: surfaceStats?.draws ?? 0,
+			surfaceRings: surfaceStats?.rings ?? 0,
+			surfaceGridCells: surfaceStats?.gridCells ?? 0,
+			surfaceOuterHalfExtentMeters: surfaceStats?.outerHalfExtentMeters ?? 0,
 		};
 	}
 
@@ -227,7 +234,7 @@ export class PlanetViewRuntime {
 
 		const wantsSurface = shouldHaveSurfaceView(altitudeMeters, Boolean(this.surface));
 		if (wantsSurface && !this.surface) {
-			this.surface = new LocalSurfaceTerrain(
+			this.surface = new SurfaceClipmapTerrain(
 				this.definition,
 				this.renderRadius,
 				cameraRenderPosition,
@@ -274,10 +281,6 @@ export class PlanetViewRuntime {
 	private disableClassicOrbitVisuals(): void {
 		const terrain = this.getOrbitTerrain();
 		if (terrain) terrain.visible = false;
-
-		// The instanced OrbitView is the color surface. Keep only the invisible
-		// depth occluder from Planet; the legacy colored fallback sphere would
-		// otherwise show through during the Orbit→Regional alpha handoff.
 		const body = this.planet.group.getObjectByName('PlanetBody');
 		if (body) body.visible = false;
 	}

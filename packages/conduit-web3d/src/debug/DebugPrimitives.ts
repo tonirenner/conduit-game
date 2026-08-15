@@ -27,6 +27,17 @@ export function setDebugLinePoints(
 	start: THREE.Vector3,
 	end: THREE.Vector3,
 ): void {
+	const position = line.geometry.getAttribute('position');
+	if (position instanceof THREE.BufferAttribute && position.count >= 2) {
+		position.setXYZ(0, start.x, start.y, start.z);
+		position.setXYZ(1, end.x, end.y, end.z);
+		position.needsUpdate = true;
+		line.geometry.computeBoundingSphere();
+		return;
+	}
+
+	// Recovery path for malformed/debug geometries. Normal frame updates reuse
+	// the existing GPU attribute so WebGPU never races a disposed geometry.
 	line.geometry.dispose();
 	line.geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
 }
