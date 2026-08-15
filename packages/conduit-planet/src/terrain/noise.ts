@@ -126,13 +126,31 @@ export function getTerrainSample(
 	const basinNoise = fbm(normal.clone().multiplyScalar(3.2).add(config.erosionOffset), 3);
 	const basinMask = smoothstep(0.34, 0.66, basinNoise) * landMask;
 	const detail = (fbm(normal.clone().multiplyScalar(24).add(config.detailOffset), 4) - 0.5) * 0.010 * landMask;
+	// Canonical kilometre-scale relief. The previous height field stopped at
+	// regional-scale structure, so increasing SurfaceView mesh density merely
+	// sampled a smooth surface more often. Keep this seed-stable and low-amplitude
+	// so Orbit/Regional silhouettes remain unchanged while Surface can resolve it.
+	const localDetailStrength = lerp(
+		0.68,
+		1.32,
+		clamp(mountainMask * 0.58 + erosionMask * 0.42, 0, 1),
+	);
+	const localDetail = (
+		fbm(
+			normal.clone()
+				.multiplyScalar(260)
+				.add(config.detailOffset.clone().multiplyScalar(1.73)),
+			4,
+		) - 0.5
+	) * 0.014 * landMask * localDetailStrength;
 
 	const baseHeight =
 		landMask * 0.006 +
 		highlands * 0.095 +
 		foothills * 0.055 +
 		mountains * 0.165 +
-		detail;
+		detail +
+		localDetail;
 	const erosionCut = riverMask * (0.010 + 0.018 * basinMask) * lerp(0.72, 1.15, erosionMask);
 	const broadValleys = basinMask * (1 - mountainMask) * 0.0065;
 	const height = Math.max(0, (baseHeight - erosionCut - broadValleys) * config.heightScale);
