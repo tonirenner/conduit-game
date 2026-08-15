@@ -36,9 +36,12 @@ export type PlanetApproachCameraState = {
  * Far away the controls target the planet centre. During approach we capture a
  * stable surface direction and smoothly move the controls target towards a
  * point near that surface horizon. The camera up-vector is blended into the
- * local radial up-vector at the same time. This gives the OpenWorlds-style
- * orbit -> horizon -> ground motion without coupling the camera to any terrain
- * renderer or view handoff.
+ * local radial up-vector at the same time.
+ *
+ * A separate non-orbit controller may temporarily take ownership of camera
+ * position/orientation through setManualViewActive(). While manual ownership is
+ * active this controller still maintains FOV, near-plane and approach state,
+ * but it deliberately does not mutate target/up or call OrbitControls.update().
  */
 export class PlanetApproachCameraController {
 	private readonly defaultTarget: THREE.Vector3;
@@ -58,6 +61,7 @@ export class PlanetApproachCameraController {
 	private readonly tangentCandidate = new THREE.Vector3();
 	private readonly approachDirection = new THREE.Vector3();
 	private readonly center = new THREE.Vector3();
+	private manualViewActive = false;
 
 	private state: PlanetApproachCameraState;
 
@@ -76,9 +80,6 @@ export class PlanetApproachCameraController {
 		this.defaultMinDistance = controls.minDistance;
 		this.renderUnitsPerMeter = renderRadius / Math.max(1, radiusMeters);
 
-		// OrbitControls minDistance is measured from its target. Once the target
-		// moves to the surface the default lab value can otherwise stop us hundreds
-		// of kilometres above the terrain.
 		const surfaceMinDistance = Math.max(1e-6, 100 * this.renderUnitsPerMeter);
 		if (this.controls.minDistance <= 0 || this.controls.minDistance > surfaceMinDistance) {
 			this.controls.minDistance = surfaceMinDistance;
@@ -93,6 +94,10 @@ export class PlanetApproachCameraController {
 			fov: camera.fov,
 			anchorActive: false,
 		};
+	}
+
+	setManualViewActive(active: boolean): void {
+		this.manualViewActive = active;
 	}
 
 	update(dt: number): void {
@@ -114,15 +119,16 @@ export class PlanetApproachCameraController {
 			UP_BLEND_END_METERS,
 		);
 
-		this.updateTarget(altitudeMeters, targetBlend, delta);
-		this.updateUp(upBlend, delta);
+		if (!this.manualViewActive) {
+			this.updateTarget(altitudeMeters, targetBlend, delta);
+			this.updateUp(upBlend, delta);
+		}
 		this.updateFovAndControlSpeeds(altitudeMeters, delta);
 		this.updateNearPlane(altitudeMeters, delta);
 
-		// Apply the externally changed target/up immediately. This keeps input and
-		// the view handoff in the same frame even if the feature-lab host updates
-		// OrbitControls elsewhere in its frame loop as well.
-		this.controls.update(delta);
+		if (!this.manualViewActive) {
+			this.controls.update(delta);
+		}
 
 		this.state = {
 			altitudeMeters,
@@ -143,6 +149,7 @@ export class PlanetApproachCameraController {
 	}
 
 	dispose(): void {
+		this.manualViewActive = false;
 		this.controls.target.copy(this.defaultTarget);
 		this.controls.zoomSpeed = this.defaultZoomSpeed;
 		this.controls.rotateSpeed = this.defaultRotateSpeed;
@@ -227,8 +234,6 @@ export class PlanetApproachCameraController {
 			this.camera.updateProjectionMatrix();
 		}
 
-		// OrbitControls dolly is already multiplicative, which is useful across
-		// planetary scale. Only calm it down as the surface target takes over.
 		this.controls.zoomSpeed = THREE.MathUtils.lerp(1.0, 0.28, surfaceBlend);
 		this.controls.rotateSpeed = THREE.MathUtils.lerp(0.55, 0.16, surfaceBlend);
 	}
@@ -267,9 +272,6 @@ export class PlanetApproachCameraController {
 		if (this.anchorDirection.lengthSq() < 1e-12) this.anchorDirection.set(0, 0, 1);
 		else this.anchorDirection.normalize();
 
-		// Prefer the current screen-up direction as the stable travel direction on
-		// the tangent plane. It makes the planet fall naturally below the camera
-		// while backing out, matching the reference camera motion.
 		this.tangentCandidate
 			.copy(this.camera.up)
 			.addScaledVector(
