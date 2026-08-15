@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
+import { noise3d } from '../../terrain/noise';
 
 // SurfaceView stays local. Seven rings with the 16 km base half extent cover
 // +/-1024 km; Regional remains responsible for planetary curvature until the
@@ -13,6 +14,11 @@ const MAX_RECENTER_DISTANCE_METERS = 250_000;
 const RECENTER_ALTITUDE_FACTOR = 0.18;
 const RECENTER_MIN_OPACITY = 0.9;
 const DEPTH_OWNERSHIP_OPACITY = 0.985;
+const DETAIL_LARGE_SCALE_METERS = 6_000;
+const DETAIL_FINE_SCALE_METERS = 1_800;
+const DETAIL_SAMPLE_STEP_METERS = 450;
+const DETAIL_LARGE_AMPLITUDE_METERS = 42;
+const DETAIL_FINE_AMPLITUDE_METERS = 14;
 
 export type SurfaceClipmapStats = {
 	active: boolean;
@@ -60,6 +66,10 @@ type CachedSample = {
  * as Regional. Once Surface dominates, recenter distance scales with altitude so
  * camera rotation/panning cannot trigger a full CPU terrain refill every few
  * kilometres.
+ *
+ * Macro geometry always comes from the canonical PlanetTerrainSampler. Surface
+ * adds only deterministic high-frequency shading normals, never extra geometry,
+ * so landing/collision height and Regional -> Surface continuity remain intact.
  */
 export class SurfaceClipmapTerrain {
 	readonly group = new THREE.Group();
@@ -254,13 +264,23 @@ export class SurfaceClipmapTerrain {
 			.addScaledVector(this.tangentX, localX)
 			.addScaledVector(this.tangentZ, localZ);
 		const sampleDirection = samplePosition.normalize();
-		const terrain = this.sampler.sample(sampleDirection, false);
+		const terrain = this.sampler.sample(sampleDirection, true);
 		const surfacePoint = terrain.direction.clone().multiplyScalar(terrain.surfaceRadiusMeters);
 		const delta = surfacePoint.sub(this.anchorPhysical);
+		const shadingNormal = this.getSurfaceShadingNormal(
+			terrain.direction,
+			terrain.normal,
+			terrain.landMask,
+			terrain.rawTerrain.mountainMask,
+			terrain.rawTerrain.erosionMask,
+		);
 		const color = getSurfaceColor(
 			this.definition.class,
 			terrain.rawTerrain.height,
 			terrain.landMask,
+			terrain.rawTerrain.mountainMask,
+			terrain.rawTerrain.erosionMask,
+			terrain.rawTerrain.riverMask,
 			terrain.isWater,
 			new THREE.Color(),
 		);
@@ -269,13 +289,70 @@ export class SurfaceClipmapTerrain {
 			x: delta.dot(this.tangentX),
 			y: delta.dot(this.anchorDirection),
 			z: delta.dot(this.tangentZ),
-			nx: terrain.direction.dot(this.tangentX),
-			ny: terrain.direction.dot(this.anchorDirection),
-			nz: terrain.direction.dot(this.tangentZ),
+			nx: shadingNormal.dot(this.tangentX),
+			ny: shadingNormal.dot(this.anchorDirection),
+			nz: shadingNormal.dot(this.tangentZ),
 			r: color.r,
 			g: color.g,
 			b: color.b,
 		};
+	}
+
+	private getSurfaceShadingNormal(
+		direction: THREE.Vector3,
+		baseNormal: THREE.Vector3,
+		landMask: number,
+		mountainMask: number,
+		erosionMask: number,
+	): THREE.Vector3 {
+		const landStrength = THREE.MathUtils.clamp((landMask - 0.48) / 0.42, 0, 1);
+		if (landStrength <= 0.001) return baseNormal.clone();
+
+		const tangentA = this.tangentX.clone()
+			.addScaledVector(direction, -this.tangentX.dot(direction))
+			.normalize();
+		const tangentB = new THREE.Vector3().crossVectors(direction, tangentA).normalize();
+		const angularStep = DETAIL_SAMPLE_STEP_METERS / Math.max(1, this.sampler.radiusMeters);
+		const detailStrength = landStrength * THREE.MathUtils.lerp(
+			0.42,
+			1,
+			THREE.MathUtils.clamp(mountainMask * 0.72 + erosionMask * 0.28, 0, 1),
+		);
+
+		const plusA = direction.clone().addScaledVector(tangentA, angularStep).normalize();
+		const minusA = direction.clone().addScaledVector(tangentA, -angularStep).normalize();
+		const plusB = direction.clone().addScaledVector(tangentB, angularStep).normalize();
+		const minusB = direction.clone().addScaledVector(tangentB, -angularStep).normalize();
+		const slopeA = (
+			this.getSurfaceDetailHeightMeters(plusA) -
+			this.getSurfaceDetailHeightMeters(minusA)
+		) / (DETAIL_SAMPLE_STEP_METERS * 2);
+		const slopeB = (
+			this.getSurfaceDetailHeightMeters(plusB) -
+			this.getSurfaceDetailHeightMeters(minusB)
+		) / (DETAIL_SAMPLE_STEP_METERS * 2);
+
+		return baseNormal.clone()
+			.addScaledVector(tangentA, -slopeA * detailStrength)
+			.addScaledVector(tangentB, -slopeB * detailStrength)
+			.normalize();
+	}
+
+	private getSurfaceDetailHeightMeters(direction: THREE.Vector3): number {
+		const offset = this.sampler.terrainSeedConfig.detailOffset;
+		const largeFrequency = this.sampler.radiusMeters / DETAIL_LARGE_SCALE_METERS;
+		const fineFrequency = this.sampler.radiusMeters / DETAIL_FINE_SCALE_METERS;
+		const large = noise3d(
+			direction.x * largeFrequency + offset.x,
+			direction.y * largeFrequency + offset.y,
+			direction.z * largeFrequency + offset.z,
+		) * 2 - 1;
+		const fine = noise3d(
+			direction.x * fineFrequency + offset.x * 1.37,
+			direction.y * fineFrequency + offset.y * 1.37,
+			direction.z * fineFrequency + offset.z * 1.37,
+		) * 2 - 1;
+		return large * DETAIL_LARGE_AMPLITUDE_METERS + fine * DETAIL_FINE_AMPLITUDE_METERS;
 	}
 
 	private getAltitudeMeters(cameraRenderPosition: THREE.Vector3): number {
@@ -334,40 +411,54 @@ function getSurfaceColor(
 	planetClass: PlanetClass,
 	height: number,
 	landMask: number,
+	mountainMask: number,
+	erosionMask: number,
+	riverMask: number,
 	isWater: boolean,
 	target: THREE.Color,
 ): THREE.Color {
 	if (isWater) return target.setRGB(0.08, 0.24, 0.34);
 	const palette = getPalette(planetClass);
-	const elevation = THREE.MathUtils.clamp((height - 0.36) / 0.52, 0, 1);
+	const elevation = THREE.MathUtils.clamp(height / 0.18, 0, 1);
 	const land = THREE.MathUtils.clamp(landMask, 0, 1);
-	target.copy(palette.low).lerp(palette.high, elevation);
+	const rock = THREE.MathUtils.clamp(mountainMask * 0.62 + erosionMask * 0.18, 0, 0.72);
+	const river = THREE.MathUtils.clamp(riverMask, 0, 1);
+
+	target.copy(palette.low).lerp(palette.high, elevation * 0.78);
+	target.lerp(palette.rock, rock);
 	if (planetClass === 'terrestrial' || planetClass === 'ocean') {
-		target.lerp(palette.accent, THREE.MathUtils.clamp((land - 0.52) * 1.3, 0, 0.45));
+		target.lerp(palette.accent, THREE.MathUtils.clamp((land - 0.52) * 1.15, 0, 0.38));
 	}
+	if (river > 0.01) target.multiplyScalar(THREE.MathUtils.lerp(1, 0.72, river * 0.55));
 	return target;
 }
 
-function getPalette(planetClass: PlanetClass): { low: THREE.Color; high: THREE.Color; accent: THREE.Color } {
+function getPalette(planetClass: PlanetClass): {
+	low: THREE.Color;
+	high: THREE.Color;
+	accent: THREE.Color;
+	rock: THREE.Color;
+} {
 	switch (planetClass) {
-		case 'desert': return colors(0x8b5528, 0xd6ad67, 0xc78b43);
-		case 'ice': return colors(0x678096, 0xd8e3e5, 0x9fb8c8);
-		case 'lava': return colors(0x2e1712, 0x8d3c1d, 0xd36324);
-		case 'toxic': return colors(0x4a4d2c, 0x8c9150, 0x71803d);
-		case 'carbon': return colors(0x242424, 0x55514b, 0x3c3a36);
-		case 'metal_rich': return colors(0x4a4038, 0x8c7864, 0x69594c);
-		case 'barren': return colors(0x615446, 0xa28d72, 0x7f715f);
-		case 'rocky': return colors(0x51483f, 0x9a8871, 0x736453);
-		case 'terrestrial': return colors(0x66583d, 0x9c9166, 0x496844);
-		case 'ocean': return colors(0x655f46, 0xa79b6f, 0x4d6f52);
-		default: return colors(0x625548, 0xa48e73, 0x786858);
+		case 'desert': return colors(0x8b5528, 0xd6ad67, 0xc78b43, 0x714025);
+		case 'ice': return colors(0x678096, 0xd8e3e5, 0x9fb8c8, 0x536b7c);
+		case 'lava': return colors(0x2e1712, 0x8d3c1d, 0xd36324, 0x1d1412);
+		case 'toxic': return colors(0x4a4d2c, 0x8c9150, 0x71803d, 0x3f422d);
+		case 'carbon': return colors(0x242424, 0x55514b, 0x3c3a36, 0x171717);
+		case 'metal_rich': return colors(0x4a4038, 0x8c7864, 0x69594c, 0x403831);
+		case 'barren': return colors(0x615446, 0xa28d72, 0x7f715f, 0x50483f);
+		case 'rocky': return colors(0x51483f, 0x9a8871, 0x736453, 0x433c36);
+		case 'terrestrial': return colors(0x66583d, 0x9c9166, 0x496844, 0x595449);
+		case 'ocean': return colors(0x655f46, 0xa79b6f, 0x4d6f52, 0x5a5548);
+		default: return colors(0x625548, 0xa48e73, 0x786858, 0x51483f);
 	}
 }
 
-function colors(low: number, high: number, accent: number) {
+function colors(low: number, high: number, accent: number, rock: number) {
 	return {
 		low: new THREE.Color(low),
 		high: new THREE.Color(high),
 		accent: new THREE.Color(accent),
+		rock: new THREE.Color(rock),
 	};
 }
