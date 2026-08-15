@@ -17,10 +17,14 @@ export const PLANET_VIEW_BANDS = {
 	regionalReleaseMeters: 10_000_000,
 	orbitRegionalStartMeters: 9_000_000,
 	orbitRegionalEndMeters: 7_500_000,
-	surfacePreloadMeters: 1_250_000,
-	surfaceReleaseMeters: 1_500_000,
-	regionalSurfaceStartMeters: 1_000_000,
-	regionalSurfaceEndMeters: 250_000,
+	// Surface is a local tangent view, not another planetary-scale renderer.
+	// Keep Regional responsible for curvature until the camera is genuinely
+	// close to the ground; the 7-ring clipmap can then cover the visible horizon
+	// without stretching a tangent plane across several thousand kilometres.
+	surfacePreloadMeters: 140_000,
+	surfaceReleaseMeters: 220_000,
+	regionalSurfaceStartMeters: 90_000,
+	regionalSurfaceEndMeters: 20_000,
 } as const;
 
 export function getPlanetViewWeights(
