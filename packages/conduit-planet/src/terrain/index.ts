@@ -1,4 +1,5 @@
 export * from './noise';
+export * from './TerrainGeometryRelief';
 export * from './workers/TerrainWorkerPool';
 export * from './workers/TerrainWorkerProtocol';
 export * from '../CachedTerrainSource';
