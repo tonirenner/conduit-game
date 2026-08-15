@@ -15,6 +15,7 @@ import {
 import type { ClimateDebugMode } from '@conduit/planet/climate';
 import { PLANET_VIEW_BANDS, PlanetViewRuntime } from '@conduit/planet/view';
 import { PlanetApproachCameraController } from './PlanetApproachCameraController';
+import { PlanetFreeLookCameraController } from './PlanetFreeLookCameraController';
 
 const LAB_PLANET_RADIUS = 3;
 const PLANET_CLASSES: PlanetClass[] = [
@@ -42,6 +43,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private readonly root = new THREE.Group();
 	private runtime: PlanetViewRuntime | null = null;
 	private approachCamera: PlanetApproachCameraController | null = null;
+	private freeLookCamera: PlanetFreeLookCameraController | null = null;
 	private definition: PlanetDefinition | null = null;
 	private profile: PlanetRenderProfile | null = null;
 	private stats: HTMLElement | null = null;
@@ -64,8 +66,24 @@ export class PlanetLodTestScene implements FeatureTestScene {
 
 	update(dt: number): void {
 		if (!this.context || !this.runtime) return;
+
 		this.approachCamera?.update(dt);
 		this.runtime.update(this.context.camera.position, dt);
+
+		const viewState = this.runtime.getState();
+		const cameraState = this.approachCamera?.getState();
+		if (this.freeLookCamera && cameraState) {
+			// Enter free-look as soon as the renderer leaves pure orbit. On the way
+			// back out, keep ownership until the approach camera itself has returned
+			// to its orbit state. This hysteresis prevents controller thrashing in the
+			// orbit/regional overlap band.
+			const shouldOwnCamera = this.freeLookCamera.isActive()
+				? cameraState.mode !== 'orbit'
+				: viewState.phase !== 'orbit';
+			this.freeLookCamera.setNonOrbitActive(shouldOwnCamera);
+			this.freeLookCamera.update(dt);
+		}
+
 		this.updateStats();
 	}
 
@@ -74,6 +92,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	}
 
 	dispose(): void {
+		this.freeLookCamera?.dispose();
+		this.freeLookCamera = null;
 		this.approachCamera?.dispose();
 		this.approachCamera = null;
 		this.runtime?.dispose();
@@ -89,6 +109,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 	private createPlanet(): void {
 		if (!this.context) return;
 
+		this.freeLookCamera?.dispose();
+		this.freeLookCamera = null;
 		this.approachCamera?.dispose();
 		this.approachCamera = null;
 		this.runtime?.dispose();
@@ -103,6 +125,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			forcePlanetClass: this.planetClass,
 		});
 		const profile = createPlanetRenderProfile(definition);
+		const radiusMeters = getPlanetRadiusMeters(definition);
 
 		this.definition = definition;
 		this.profile = profile;
@@ -118,7 +141,14 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			this.context.camera,
 			this.context.controls,
 			LAB_PLANET_RADIUS,
-			getPlanetRadiusMeters(definition),
+			radiusMeters,
+		);
+		this.freeLookCamera = new PlanetFreeLookCameraController(
+			this.context.camera,
+			this.context.controls,
+			this.approachCamera,
+			LAB_PLANET_RADIUS,
+			radiusMeters,
 		);
 		this.context.report({
 			status: 'pass',
@@ -127,8 +157,8 @@ export class PlanetLodTestScene implements FeatureTestScene {
 		});
 		this.context.report({
 			status: 'info',
-			label: 'approach camera profile',
-			detail: 'single camera / horizon target / local up / FOV 46° → 34° → 48°',
+			label: 'camera handoff',
+			detail: 'OrbitControls in orbit / LMB free-look + radial wheel outside orbit',
 		});
 		this.updateClimateMap();
 		this.updateStats();
@@ -198,6 +228,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			'',
 			'<b>approach camera</b>',
 			`mode: ${cameraState?.mode ?? 'n/a'}`,
+			`control: ${this.freeLookCamera?.isActive() ? 'FREE LOOK' : 'ORBIT CONTROLS'}`,
 			`target blend: ${cameraState ? formatWeight(cameraState.targetBlend) : 'n/a'}`,
 			`local up: ${cameraState ? formatWeight(cameraState.upBlend) : 'n/a'}`,
 			`fov: ${cameraState ? `${cameraState.fov.toFixed(1)}°` : 'n/a'}`,
@@ -231,7 +262,7 @@ export class PlanetLodTestScene implements FeatureTestScene {
 			clipmapSurface
 				? `grid: ${state.surfaceGridCells} cells / outer half extent: ${(state.surfaceOuterHalfExtentMeters / 1000).toFixed(0)} km`
 				: 'grid: n/a',
-			clipmapSurface ? 'local frame: meters / indexed: NO' : 'local frame: n/a',
+			clipmapSurface ? 'local frame: meters / indexed: YES' : 'local frame: n/a',
 			'',
 			'<b>bands</b>',
 			`orbit→regional: ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalStartMeters)} → ${formatAltitude(PLANET_VIEW_BANDS.orbitRegionalEndMeters)}`,
