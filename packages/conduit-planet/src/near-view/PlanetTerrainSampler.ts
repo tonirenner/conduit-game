@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getClimateSample, type BiomeId, type ClimateSample } from '../climate';
 import type { PlanetDefinition } from '../model';
 import { resolveTerrainProfileKind } from '@conduit/planet/rendering';
+import { getTerrainGeometryReliefRawHeight } from '../terrain/TerrainGeometryRelief';
 import {
 	createTerrainSeedConfig,
 	getTerrainSample,
@@ -25,6 +26,8 @@ export type PlanetSurfaceSample = {
 	biome: BiomeId;
 	climate: ClimateSample;
 	rawTerrain: TerrainSample;
+	geometryRawHeight: number;
+	geometryReliefRawHeight: number;
 };
 
 export class PlanetTerrainSampler {
@@ -50,10 +53,21 @@ export class PlanetTerrainSampler {
 			normalDirection,
 			this.terrainSeedConfig,
 		);
+		const geometryReliefRawHeight = getTerrainGeometryReliefRawHeight(
+			normalDirection,
+			rawTerrain,
+			this.terrainSeedConfig,
+		);
+		const geometryRawHeight = Math.max(
+			0,
+			rawTerrain.height + geometryReliefRawHeight,
+		);
 		const elevationMeters = getPlanetElevationMeters(
-			rawTerrain.height,
+			geometryRawHeight,
 			this.elevationProfile,
 		);
+		// Climate and biome semantics intentionally stay tied to the canonical
+		// terrain height. Geometry-only relief must not move biome thresholds.
 		const climate = getClimateSample(
 			normalDirection,
 			rawTerrain.height,
@@ -75,6 +89,8 @@ export class PlanetTerrainSampler {
 			biome: climate.biome,
 			climate,
 			rawTerrain,
+			geometryRawHeight,
+			geometryReliefRawHeight,
 		};
 	}
 
@@ -105,8 +121,13 @@ export class PlanetTerrainSampler {
 				.addScaledVector(tangentB, offsetB * angularStep)
 				.normalize();
 			const terrain = getTerrainSample(sampleDirection, this.terrainSeedConfig);
+			const relief = getTerrainGeometryReliefRawHeight(
+				sampleDirection,
+				terrain,
+				this.terrainSeedConfig,
+			);
 			const elevation = getPlanetElevationMeters(
-				terrain.height,
+				Math.max(0, terrain.height + relief),
 				this.elevationProfile,
 			);
 
