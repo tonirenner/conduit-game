@@ -74,12 +74,12 @@ export function evaluateSurfaceTerrainMaterial(
 	if (definition.class === 'lava') {
 		// Broad basalt ownership only. Cracks and heat are fragment detail.
 		targetColor
-			.set(0x040302)
-			.lerp(new THREE.Color(0x180d09), elevation * 0.55 + rockMask * 0.20);
+			.set(0x030201)
+			.lerp(new THREE.Color(0x120905), elevation * 0.48 + rockMask * 0.16);
 		return {
 			color: targetColor,
-			roughness: 0.92,
-			metalness: 0.02,
+			roughness: 0.95,
+			metalness: 0.015,
 		};
 	}
 
@@ -220,32 +220,36 @@ export function createSurfaceTerrainNodeMaterial(
 	let surfaceEmissive: any = color(0x000000);
 
 	if (definition.class === 'lava') {
-		const crackStrength = smoothstep(0.79, 0.94, ridgeFine).mul(
-			float(0.34)
-				.add(erosion.mul(0.30))
-				.add(mountain.mul(0.20)),
+		// Keep most of the planet as cooled basalt. Fine ridges expose narrow hot
+		// seams; medium ridges only produce rare active hotspots where terrain
+		// structure supports them.
+		const crackStrength = smoothstep(0.91, 0.985, ridgeFine).mul(
+			float(0.16)
+				.add(erosion.mul(0.16))
+				.add(mountain.mul(0.10)),
 		);
-		const hotspotStrength = smoothstep(0.84, 0.965, ridgeMedium).mul(
-			mountain.mul(0.36)
-				.add(erosion.mul(0.28))
-				.add(float(0.12)),
+		const hotspotStrength = smoothstep(0.955, 0.995, ridgeMedium).mul(
+			mountain.mul(0.20)
+				.add(erosion.mul(0.14))
+				.add(float(0.025)),
 		);
-		const heat = crackStrength.mul(0.72).add(hotspotStrength.mul(0.88));
-		const hotCore = smoothstep(0.28, 0.92, heat);
+		const heat = crackStrength.mul(0.48).add(hotspotStrength.mul(0.70));
+		const hotCore = smoothstep(0.12, 0.46, heat);
 
-		// Basalt remains dominant; heat only exposes narrow hot seams.
+		// Heat tints only the immediate seam; emissive is intentionally restrained
+		// so bloom does not turn whole valleys into white lava fields.
 		surfaceColor = mix(
 			surfaceColor,
-			color(0x4a1308),
-			heat.mul(0.16),
+			color(0x351006),
+			heat.mul(0.08),
 		);
 		surfaceEmissive = mix(
-			color(0xff2204),
-			color(0xffc04a),
+			color(0xd92605),
+			color(0xff8a24),
 			hotCore,
-		).mul(heat.mul(2.15));
-		surfaceRoughness = mix(surfaceRoughness, float(0.56), heat.mul(0.62));
-		surfaceMetalness = float(0.02);
+		).mul(heat.mul(0.95));
+		surfaceRoughness = mix(surfaceRoughness, float(0.72), heat.mul(0.34));
+		surfaceMetalness = float(0.015);
 	}
 
 	if (definition.class === 'ice') {
@@ -276,7 +280,7 @@ function getClassMaterial(planetClass: PlanetClass): ClassMaterial {
 	switch (planetClass) {
 		case 'desert': return material(0x9c5e32, 0xe4b763, 0xc78b43, 0x714025, 0.94, 0.0, 0.20);
 		case 'ice': return material(0x89b5c8, 0xe8f6fb, 0xc7e3ea, 0x678096, 0.38, 0.0, 0.12);
-		case 'lava': return material(0x040302, 0x130c09, 0xff5a12, 0x0b0705, 0.92, 0.02, 0.0);
+		case 'lava': return material(0x030201, 0x120905, 0xb83c12, 0x080503, 0.95, 0.015, 0.0);
 		case 'toxic': return material(0x526f68, 0xa6b6aa, 0x71803d, 0x3f422d, 0.82, 0.0, 0.18);
 		case 'carbon': return material(0x242424, 0x55514b, 0x3c3a36, 0x171717, 0.76, 0.06, 0.10);
 		case 'metal_rich': return material(0x4a4038, 0x8c7864, 0x69594c, 0x403831, 0.62, 0.24, 0.12);
