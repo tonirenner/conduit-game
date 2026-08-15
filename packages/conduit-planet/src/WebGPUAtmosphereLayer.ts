@@ -42,7 +42,6 @@ export class WebGPUAtmosphereLayer {
 	constructor(radius: number) {
 		const mesh = new THREE.Mesh();
 		mesh.name = 'WebGPUAtmospherePostProcessSource';
-		mesh.visible = false;
 		mesh.frustumCulled = false;
 
 		this.source = {
@@ -61,6 +60,19 @@ export class WebGPUAtmosphereLayer {
 		};
 
 		mesh.userData.conduitAtmosphere = this.source;
+
+		/*
+		 * Planet's existing debug API toggles atmosphere through mesh.visible.
+		 * Preserve that API, but never let the metadata carrier itself render.
+		 */
+		Object.defineProperty(mesh, 'visible', {
+			configurable: true,
+			get: () => false,
+			set: (visible: boolean) => {
+				this.source.enabled = Boolean(visible);
+			},
+		});
+
 		this.mesh = mesh;
 	}
 
