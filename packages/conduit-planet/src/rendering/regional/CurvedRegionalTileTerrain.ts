@@ -37,7 +37,7 @@ export class CurvedRegionalTileTerrain {
 		transparent: true,
 		opacity: 0,
 		depthWrite: false,
-		depthTest: true,
+		depthTest: false,
 	});
 	private mesh: THREE.Mesh | null = null;
 	private currentExtent = 1;
@@ -88,8 +88,16 @@ export class CurvedRegionalTileTerrain {
 
 	private setOpacity(value: number): void {
 		const opacity = THREE.MathUtils.clamp(value, 0, 1);
+		const ownsDepth = opacity > 0.96;
 		this.material.opacity = opacity;
-		this.material.depthWrite = opacity > 0.96;
+		// During Orbit -> Regional handoff the two terrain representations are
+		// intentionally almost co-planar. Testing the transparent RegionalView
+		// against OrbitView's depth buffer produces a regular checker/diamond
+		// pattern as fragments alternately win and lose the depth test. While the
+		// RegionalView is blending, render it as the overlay it conceptually is.
+		// Once it owns the view, restore normal depth behaviour for terrain.
+		this.material.depthTest = ownsDepth;
+		this.material.depthWrite = ownsDepth;
 		this.group.visible = opacity > 0.001;
 	}
 
