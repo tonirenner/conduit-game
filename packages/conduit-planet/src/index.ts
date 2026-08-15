@@ -6,6 +6,7 @@ export {
 } from './generation/PlanetGenerator';
 export { generatePlanetResourceProfile } from './generation/PlanetResourceGenerator';
 export { Planet, type PlanetRendererMode, type PlanetRenderTuning } from './Planet';
+export type { CubeFace, PatchBounds } from './TerrainSource';
 export {
 	createPlanetRenderProfile,
 	type PlanetRendererKind,
