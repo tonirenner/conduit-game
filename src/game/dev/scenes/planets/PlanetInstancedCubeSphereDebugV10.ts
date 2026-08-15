@@ -31,6 +31,15 @@ type NodeMaterialRuntime = THREE.Material & {
  *
  * Geometry, topology, atlas sampling mode and height displacement stay
  * unchanged, so Orbit vs Simple isolates only the shading work.
+ *
+ * For the strongest fill-rate isolation use:
+ * - Terrain material: Simple
+ * - Instanced color: Flat
+ * - Height displacement: Off
+ * - Atmosphere: Off
+ *
+ * In that combination no atlas texture node is created at all; the fragment
+ * path receives only a constant color.
  */
 export class PlanetInstancedCubeSphereDebug extends PlanetInstancedCubeSphereDebugV9 {
 	private shadingMode: InstancedShadingMode = 'orbit';
@@ -45,18 +54,22 @@ export class PlanetInstancedCubeSphereDebug extends PlanetInstancedCubeSphereDeb
 			const material = createV9Material(colorAtlas) as NodeMaterialRuntime;
 
 			if (this.shadingMode === 'unlit') {
-				const patchUv = attribute('patchUv', 'vec2');
-				const atlasRect = attribute('iAtlasRect', 'vec4');
-				const atlasUv = atlasRect.xy.add(patchUv.mul(atlasRect.zw));
-				const colorSample = texture(colorAtlas, atlasUv).xyz;
-				const baseColor =
-					runtime.colorMode === 'flat'
-						? color(0xc58b4f)
-						: runtime.colorMode === 'vertex-rgb'
+				if (runtime.colorMode === 'flat') {
+					// Intentionally do not even construct an atlas sample node here.
+					// This is the strict solid-color/fill-rate isolation path.
+					material.colorNode = color(0xc58b4f);
+				} else {
+					const patchUv = attribute('patchUv', 'vec2');
+					const atlasRect = attribute('iAtlasRect', 'vec4');
+					const atlasUv = atlasRect.xy.add(patchUv.mul(atlasRect.zw));
+					const colorSample = texture(colorAtlas, atlasUv).xyz;
+
+					material.colorNode =
+						runtime.colorMode === 'vertex-rgb'
 							? vertexStage(colorSample)
 							: colorSample;
+				}
 
-				material.colorNode = baseColor;
 				material.toneMapped = false;
 			}
 
