@@ -1,8 +1,12 @@
 import * as THREE from 'three';
-import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
+import type { PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 import { createStitchedRingIndices } from '../../terrain/TerrainGeometryUtils';
 import { noise3d } from '../../terrain/noise';
+import {
+	createSurfaceTerrainNodeMaterial,
+	evaluateSurfaceTerrainMaterial,
+} from './SurfaceTerrainMaterial';
 
 // SurfaceView stays local. Ten rings with a 4 km base half extent still cover
 // +/-2048 km. Each ring is an indexed shared-vertex grid. Fine outer edges are
@@ -34,12 +38,15 @@ export type SurfaceClipmapStats = {
 type Ring = {
 	mesh: THREE.Mesh;
 	geometry: THREE.BufferGeometry;
-	material: THREE.MeshStandardMaterial;
+	material: any;
 	grid: Float32Array;
 	usedVertices: Uint8Array;
 	positions: Float32Array;
 	normals: Float32Array;
 	colors: Float32Array;
+	roughnesses: Float32Array;
+	metalnesses: Float32Array;
+	emissives: Float32Array;
 };
 
 type CachedSample = {
@@ -52,6 +59,11 @@ type CachedSample = {
 	r: number;
 	g: number;
 	b: number;
+	roughness: number;
+	metalness: number;
+	er: number;
+	eg: number;
+	eb: number;
 };
 
 /**
@@ -69,7 +81,10 @@ type CachedSample = {
  *
  * Geometry always comes from the canonical PlanetTerrainSampler. Deterministic
  * high-frequency noise remains shading-only, so landing/collision height and the
- * Orbit -> Regional -> Surface terrain definition stay unified.
+ * Orbit -> Regional -> Surface terrain definition stay unified. The material
+ * channels are evaluated separately from the existing planet material semantics:
+ * class palettes, roughness, metal response, cavity and emissive lava never feed
+ * back into the physical terrain height.
  */
 export class SurfaceClipmapTerrain {
 	readonly group = new THREE.Group();
@@ -81,6 +96,8 @@ export class SurfaceClipmapTerrain {
 	private readonly tangentX = new THREE.Vector3();
 	private readonly tangentZ = new THREE.Vector3();
 	private readonly anchorPhysical = new THREE.Vector3();
+	private readonly materialColor = new THREE.Color();
+	private readonly materialEmissive = new THREE.Color();
 	private hasAnchor = false;
 	private currentRecenterDistanceMeters = MAX_RECENTER_DISTANCE_METERS;
 	private previousOpacity = 0;
@@ -166,27 +183,31 @@ export class SurfaceClipmapTerrain {
 		const positions = new Float32Array(vertexCount * 3);
 		const normals = new Float32Array(vertexCount * 3);
 		const colors = new Float32Array(vertexCount * 3);
+		const roughnesses = new Float32Array(vertexCount);
+		const metalnesses = new Float32Array(vertexCount);
+		const emissives = new Float32Array(vertexCount * 3);
 		const geometry = new THREE.BufferGeometry();
 		const positionAttribute = new THREE.BufferAttribute(positions, 3);
 		const normalAttribute = new THREE.BufferAttribute(normals, 3);
 		const colorAttribute = new THREE.BufferAttribute(colors, 3);
+		const roughnessAttribute = new THREE.BufferAttribute(roughnesses, 1);
+		const metalnessAttribute = new THREE.BufferAttribute(metalnesses, 1);
+		const emissiveAttribute = new THREE.BufferAttribute(emissives, 3);
 		positionAttribute.setUsage(THREE.DynamicDrawUsage);
 		normalAttribute.setUsage(THREE.DynamicDrawUsage);
 		colorAttribute.setUsage(THREE.DynamicDrawUsage);
+		roughnessAttribute.setUsage(THREE.DynamicDrawUsage);
+		metalnessAttribute.setUsage(THREE.DynamicDrawUsage);
+		emissiveAttribute.setUsage(THREE.DynamicDrawUsage);
 		geometry.setAttribute('position', positionAttribute);
 		geometry.setAttribute('normal', normalAttribute);
 		geometry.setAttribute('color', colorAttribute);
+		geometry.setAttribute('terrainRoughness', roughnessAttribute);
+		geometry.setAttribute('terrainMetalness', metalnessAttribute);
+		geometry.setAttribute('terrainEmissive', emissiveAttribute);
 		geometry.setIndex(indices);
 
-		const material = new THREE.MeshStandardMaterial({
-			vertexColors: true,
-			roughness: 0.93,
-			metalness: 0,
-			transparent: true,
-			opacity: 0,
-			depthTest: true,
-			depthWrite: false,
-		});
+		const material = createSurfaceTerrainNodeMaterial();
 		material.name = `PlanetSurfaceClipmapMaterial:${level}`;
 
 		const mesh = new THREE.Mesh(geometry, material);
@@ -203,6 +224,9 @@ export class SurfaceClipmapTerrain {
 			positions,
 			normals,
 			colors,
+			roughnesses,
+			metalnesses,
+			emissives,
 		};
 	}
 
@@ -263,11 +287,19 @@ export class SurfaceClipmapTerrain {
 			ring.colors[offset] = sample.r;
 			ring.colors[offset + 1] = sample.g;
 			ring.colors[offset + 2] = sample.b;
+			ring.roughnesses[vertex] = sample.roughness;
+			ring.metalnesses[vertex] = sample.metalness;
+			ring.emissives[offset] = sample.er;
+			ring.emissives[offset + 1] = sample.eg;
+			ring.emissives[offset + 2] = sample.eb;
 		}
 
 		(ring.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
 		(ring.geometry.getAttribute('normal') as THREE.BufferAttribute).needsUpdate = true;
 		(ring.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+		(ring.geometry.getAttribute('terrainRoughness') as THREE.BufferAttribute).needsUpdate = true;
+		(ring.geometry.getAttribute('terrainMetalness') as THREE.BufferAttribute).needsUpdate = true;
+		(ring.geometry.getAttribute('terrainEmissive') as THREE.BufferAttribute).needsUpdate = true;
 		ring.geometry.computeBoundingSphere();
 	}
 
@@ -287,15 +319,26 @@ export class SurfaceClipmapTerrain {
 			terrain.rawTerrain.mountainMask,
 			terrain.rawTerrain.erosionMask,
 		);
-		const color = getSurfaceColor(
-			this.definition.class,
-			terrain.rawTerrain.height,
-			terrain.landMask,
-			terrain.rawTerrain.mountainMask,
-			terrain.rawTerrain.erosionMask,
-			terrain.rawTerrain.riverMask,
-			terrain.isWater,
-			new THREE.Color(),
+		const slope = THREE.MathUtils.clamp(
+			(1 - THREE.MathUtils.clamp(terrain.normal.dot(terrain.direction), -1, 1)) * 8,
+			0,
+			1,
+		);
+		const surfaceMaterial = evaluateSurfaceTerrainMaterial(
+			this.definition,
+			{
+				direction: terrain.direction,
+				detailOffset: this.sampler.terrainSeedConfig.detailOffset,
+				height: terrain.rawTerrain.height,
+				landMask: terrain.landMask,
+				mountainMask: terrain.rawTerrain.mountainMask,
+				erosionMask: terrain.rawTerrain.erosionMask,
+				riverMask: terrain.rawTerrain.riverMask,
+				isWater: terrain.isWater,
+				slope,
+			},
+			this.materialColor,
+			this.materialEmissive,
 		);
 
 		return {
@@ -305,9 +348,14 @@ export class SurfaceClipmapTerrain {
 			nx: shadingNormal.dot(this.tangentX),
 			ny: shadingNormal.dot(this.anchorDirection),
 			nz: shadingNormal.dot(this.tangentZ),
-			r: color.r,
-			g: color.g,
-			b: color.b,
+			r: surfaceMaterial.color.r,
+			g: surfaceMaterial.color.g,
+			b: surfaceMaterial.color.b,
+			roughness: surfaceMaterial.roughness,
+			metalness: surfaceMaterial.metalness,
+			er: surfaceMaterial.emissive.r,
+			eg: surfaceMaterial.emissive.g,
+			eb: surfaceMaterial.emissive.b,
 		};
 	}
 
@@ -396,60 +444,4 @@ function createRingVertexGrid(halfExtent: number, cells: number): Float32Array {
 		}
 	}
 	return vertices;
-}
-
-function getSurfaceColor(
-	planetClass: PlanetClass,
-	height: number,
-	landMask: number,
-	mountainMask: number,
-	erosionMask: number,
-	riverMask: number,
-	isWater: boolean,
-	target: THREE.Color,
-): THREE.Color {
-	if (isWater) return target.setRGB(0.08, 0.24, 0.34);
-	const palette = getPalette(planetClass);
-	const elevation = THREE.MathUtils.clamp(height / 0.18, 0, 1);
-	const land = THREE.MathUtils.clamp(landMask, 0, 1);
-	const rock = THREE.MathUtils.clamp(mountainMask * 0.62 + erosionMask * 0.18, 0, 0.72);
-	const river = THREE.MathUtils.clamp(riverMask, 0, 1);
-
-	target.copy(palette.low).lerp(palette.high, elevation * 0.78);
-	target.lerp(palette.rock, rock);
-	if (planetClass === 'terrestrial' || planetClass === 'ocean') {
-		target.lerp(palette.accent, THREE.MathUtils.clamp((land - 0.52) * 1.15, 0, 0.38));
-	}
-	if (river > 0.01) target.multiplyScalar(THREE.MathUtils.lerp(1, 0.72, river * 0.55));
-	return target;
-}
-
-function getPalette(planetClass: PlanetClass): {
-	low: THREE.Color;
-	high: THREE.Color;
-	accent: THREE.Color;
-	rock: THREE.Color;
-} {
-	switch (planetClass) {
-		case 'desert': return colors(0x8b5528, 0xd6ad67, 0xc78b43, 0x714025);
-		case 'ice': return colors(0x678096, 0xd8e3e5, 0x9fb8c8, 0x536b7c);
-		case 'lava': return colors(0x2e1712, 0x8d3c1d, 0xd36324, 0x1d1412);
-		case 'toxic': return colors(0x4a4d2c, 0x8c9150, 0x71803d, 0x3f422d);
-		case 'carbon': return colors(0x242424, 0x55514b, 0x3c3a36, 0x171717);
-		case 'metal_rich': return colors(0x4a4038, 0x8c7864, 0x69594c, 0x403831);
-		case 'barren': return colors(0x615446, 0xa28d72, 0x7f715f, 0x50483f);
-		case 'rocky': return colors(0x51483f, 0x9a8871, 0x736453, 0x433c36);
-		case 'terrestrial': return colors(0x66583d, 0x9c9166, 0x496844, 0x595449);
-		case 'ocean': return colors(0x655f46, 0xa79b6f, 0x4d6f52, 0x5a5548);
-		default: return colors(0x625548, 0xa48e73, 0x786858, 0x51483f);
-	}
-}
-
-function colors(low: number, high: number, accent: number, rock: number) {
-	return {
-		low: new THREE.Color(low),
-		high: new THREE.Color(high),
-		accent: new THREE.Color(accent),
-		rock: new THREE.Color(rock),
-	};
 }
