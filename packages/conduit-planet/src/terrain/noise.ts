@@ -127,95 +127,17 @@ export function getTerrainSample(
 	const basinMask = smoothstep(0.34, 0.66, basinNoise) * landMask;
 	const detail = (fbm(normal.clone().multiplyScalar(24).add(config.detailOffset), 4) - 0.5) * 0.010 * landMask;
 
-	// Meso terrain bridges planetary/regional landforms and the local SurfaceView.
-	// Its frequencies intentionally sit much higher than the old continent/ridge
-	// layers so 20-300 km hills, basins and ridges are already visible during the
-	// atmospheric approach instead of appearing only in the final few kilometres.
-	const mesoProfileStrength = getMesoReliefStrength(config.profile);
-	const mesoReliefMask = landMask * lerp(
-		0.72,
-		1.38,
-		clamp(mountainMask * 0.62 + erosionMask * 0.38, 0, 1),
-	);
-	const mesoRolling = (
-		fbm(
-			normal.clone()
-				.multiplyScalar(170)
-				.add(config.erosionOffset.clone().multiplyScalar(0.31)),
-			4,
-		) - 0.5
-	) * 0.034 * mesoReliefMask * mesoProfileStrength;
-	const mesoRidgeNoise = ridgedFbm(
-		normal.clone()
-			.multiplyScalar(420)
-			.add(config.ridgeOffset.clone().multiplyScalar(0.23)),
-		4,
-	);
-	const mesoRidges = Math.pow(
-		smoothstep(0.40, 0.82, mesoRidgeNoise),
-		1.45,
-	) * 0.032 * mesoReliefMask * lerp(0.72, 1.22, mountainMask) * mesoProfileStrength;
-	const mesoValleyNoise = fbm(
-		normal.clone()
-			.multiplyScalar(300)
-			.add(config.riverOffset.clone().multiplyScalar(0.19)),
-		3,
-	);
-	const mesoValleys = smoothstep(0.33, 0.66, mesoValleyNoise)
-		* (1 - mountainMask * 0.55)
-		* 0.012
-		* landMask
-		* mesoProfileStrength;
-
-	// Canonical smaller-scale relief. Surface resolves this directly while all
-	// other views still sample the exact same deterministic height field.
-	const localDetailStrength = lerp(
-		0.68,
-		1.32,
-		clamp(mountainMask * 0.58 + erosionMask * 0.42, 0, 1),
-	);
-	const localDetail = (
-		fbm(
-			normal.clone()
-				.multiplyScalar(900)
-				.add(config.detailOffset.clone().multiplyScalar(1.73)),
-		4,
-		) - 0.5
-	) * 0.012 * landMask * localDetailStrength;
-
 	const baseHeight =
 		landMask * 0.006 +
 		highlands * 0.095 +
 		foothills * 0.055 +
 		mountains * 0.165 +
-		detail +
-		mesoRolling +
-		mesoRidges +
-		localDetail;
+		detail;
 	const erosionCut = riverMask * (0.010 + 0.018 * basinMask) * lerp(0.72, 1.15, erosionMask);
 	const broadValleys = basinMask * (1 - mountainMask) * 0.0065;
-	const height = Math.max(
-		0,
-		(baseHeight - erosionCut - broadValleys - mesoValleys) * config.heightScale,
-	);
+	const height = Math.max(0, (baseHeight - erosionCut - broadValleys) * config.heightScale);
 
 	return { height, landMask, continent, mountainMask, erosionMask, riverMask };
-}
-
-function getMesoReliefStrength(profile: TerrainProfileKind): number {
-	switch (profile) {
-		case 'oceanic': return 0.72;
-		case 'ice': return 0.86;
-		case 'desert': return 1.18;
-		case 'lava': return 1.32;
-		case 'barren': return 1.28;
-		case 'rocky': return 1.24;
-		case 'toxic': return 0.88;
-		case 'carbon': return 1.08;
-		case 'metallic': return 1.30;
-		case 'earthlike':
-		default: return 1;
-	}
 }
 
 export function fbm(position: THREE.Vector3, octaves: number): number {
