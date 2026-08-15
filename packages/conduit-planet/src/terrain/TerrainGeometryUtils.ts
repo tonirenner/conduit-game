@@ -93,6 +93,66 @@ export function createStitchedGridIndices(
 	return indices;
 }
 
+/**
+ * Builds an indexed square clipmap ring. The optional centered inner region is
+ * omitted while the outer boundary can be collapsed 2:1 so a finer ring joins
+ * the next coarser ring without T-junctions.
+ */
+export function createStitchedRingIndices(
+	resolution: number,
+	innerResolution = 0,
+	stitchOuterEdge = true,
+): number[] {
+	if (resolution <= 0 || resolution % 2 !== 0) {
+		throw new Error('Terrain ring resolution must be a positive even number.');
+	}
+	if (
+		innerResolution < 0 ||
+		innerResolution >= resolution ||
+		innerResolution % 2 !== 0
+	) {
+		throw new Error('Terrain ring inner resolution must be even and smaller than the ring resolution.');
+	}
+
+	const indices: number[] = [];
+	const rowSize = resolution + 1;
+	const innerStart = (resolution - innerResolution) / 2;
+	const innerEnd = innerStart + innerResolution;
+	const mapVertex = (x: number, y: number): number => {
+		let mappedX = x;
+		let mappedY = y;
+
+		if (stitchOuterEdge) {
+			if (y === 0 && x % 2 === 1) mappedX = x - 1;
+			if (y === resolution && x % 2 === 1) mappedX = x - 1;
+			if (x === 0 && y % 2 === 1) mappedY = y - 1;
+			if (x === resolution && y % 2 === 1) mappedY = y - 1;
+		}
+
+		return mappedX + mappedY * rowSize;
+	};
+
+	for (let y = 0; y < resolution; y++) {
+		for (let x = 0; x < resolution; x++) {
+			if (
+				innerResolution > 0 &&
+				x >= innerStart && x < innerEnd &&
+				y >= innerStart && y < innerEnd
+			) {
+				continue;
+			}
+
+			const a = mapVertex(x, y);
+			const b = mapVertex(x, y + 1);
+			const c = mapVertex(x + 1, y);
+			const d = mapVertex(x + 1, y + 1);
+			indices.push(a, c, b, c, d, b);
+		}
+	}
+
+	return indices;
+}
+
 export function getCubeFaceIndex(normal: Vector3Like): number {
 	if (normal.x > 0.5) return 0;
 	if (normal.x < -0.5) return 1;
