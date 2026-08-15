@@ -3,14 +3,14 @@ import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 import { noise3d } from '../../terrain/noise';
 
-// SurfaceView stays local. Nine rings with the 8 km base half extent still
-// cover +/-2048 km. A uniform 24-cell grid keeps neighboring ring boundaries
-// aligned while retaining twice the original near-field linear resolution
-// (~667 m instead of ~1.33 km) without the 48-cell sampling cost.
-const RING_COUNT = 9;
+// SurfaceView stays local. Ten rings with a 4 km base half extent still cover
+// +/-2048 km. Keeping the uniform 24-cell topology preserves exact neighboring
+// ring boundaries while adding one cheaper near-field LOD step (~333 m cells
+// instead of ~667 m) without multiplying every outer ring's vertex count.
+const RING_COUNT = 10;
 const GRID_CELLS = 24;
-const BASE_HALF_EXTENT_METERS = 8_000;
-const MIN_RECENTER_DISTANCE_METERS = 24_000;
+const BASE_HALF_EXTENT_METERS = 4_000;
+const MIN_RECENTER_DISTANCE_METERS = 6_000;
 const MAX_RECENTER_DISTANCE_METERS = 250_000;
 const RECENTER_ALTITUDE_FACTOR = 0.18;
 const DEPTH_OWNERSHIP_OPACITY = 0.985;
