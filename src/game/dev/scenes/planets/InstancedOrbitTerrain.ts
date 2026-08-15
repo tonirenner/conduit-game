@@ -244,12 +244,15 @@ function createGridIndices(segments: number): Uint16Array {
 			const b = a + 1;
 			const c = a + stride;
 			const d = c + 1;
+
+			// Match TerrainGeometryUtils.appendRegularGridIndices exactly:
+			// a -> right -> down, then right -> down-right -> down.
 			indices[write++] = a;
-			indices[write++] = c;
-			indices[write++] = b;
 			indices[write++] = b;
 			indices[write++] = c;
+			indices[write++] = b;
 			indices[write++] = d;
+			indices[write++] = c;
 		}
 	}
 	return indices;
