@@ -3,12 +3,12 @@ import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
 import { noise3d } from '../../terrain/noise';
 
-// SurfaceView stays local. Eight rings with the 16 km base half extent cover
-// +/-2048 km so the local surface still reaches beyond the visible horizon
-// throughout the Regional -> Surface handoff.
-const RING_COUNT = 8;
-const GRID_CELLS = 24;
-const BASE_HALF_EXTENT_METERS = 16_000;
+// SurfaceView stays local. Nine rings with the 8 km base half extent still
+// cover +/-2048 km, but the denser 48-cell grid gives the near field four times
+// the previous linear geometry resolution (~333 m instead of ~1.33 km).
+const RING_COUNT = 9;
+const GRID_CELLS = 48;
+const BASE_HALF_EXTENT_METERS = 8_000;
 const MIN_RECENTER_DISTANCE_METERS = 24_000;
 const MAX_RECENTER_DISTANCE_METERS = 250_000;
 const RECENTER_ALTITUDE_FACTOR = 0.18;
@@ -65,9 +65,11 @@ type CachedSample = {
  * the configured recenter distance is exceeded. This keeps the local clipmap
  * spatially aligned with Regional throughout the crossfade.
  *
- * Macro geometry always comes from the canonical PlanetTerrainSampler. Surface
- * adds only deterministic high-frequency shading normals, never extra geometry,
- * so landing/collision height and Regional -> Surface continuity remain intact.
+ * Geometry always comes from the canonical PlanetTerrainSampler. The denser
+ * near-field clipmap does not invent a second terrain layer; it simply samples
+ * the existing mountain/erosion/detail height field closely enough to preserve
+ * its shape near the camera. Deterministic high-frequency noise remains shading
+ * only, so landing/collision height stays identical to the canonical terrain.
  */
 export class SurfaceClipmapTerrain {
 	readonly group = new THREE.Group();
@@ -108,10 +110,6 @@ export class SurfaceClipmapTerrain {
 		const direction = cameraRenderPosition.clone().normalize();
 		const enteringHandoff = alpha > 0.001 && this.previousOpacity <= 0.001;
 
-		// Surface can be preloaded well before it becomes visible. Re-anchor exactly
-		// when the crossfade starts, then keep following the current camera nadir
-		// whenever it moves far enough. Locking the anchor through most of the
-		// handoff lets Regional and Surface drift apart during an angled approach.
 		if (enteringHandoff) {
 			this.recenter(direction);
 		} else if (
@@ -125,9 +123,6 @@ export class SurfaceClipmapTerrain {
 		const ownsDepth = alpha > DEPTH_OWNERSHIP_OPACITY;
 		for (const ring of this.rings) {
 			ring.material.opacity = alpha;
-			// Regional still owns the depth buffer throughout the crossfade. Testing
-			// the almost-coincident Surface mesh against it exposes polygon-shaped
-			// holes. Surface takes normal depth ownership only after the handoff.
 			ring.material.depthTest = ownsDepth;
 			ring.material.depthWrite = ownsDepth;
 		}
