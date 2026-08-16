@@ -15,13 +15,21 @@ import {
  * coastline and the low-frequency OrbitView LUT keep using the canonical
  * terrain semantics, while Regional/Surface/landing can share additional
  * physical relief at scales that are only meaningful near the planet.
+ *
+ * terrainRoughness controls only this additional meso/local geometry layer.
+ * It is intentionally separate from mountainScale (macro elevation) and from
+ * PBR material roughness.
  */
 export function getTerrainGeometryReliefRawHeight(
 	normal: THREE.Vector3,
 	terrain: TerrainSample,
 	config: TerrainSeedConfig,
+	terrainRoughness = 1,
 ): number {
 	if (terrain.landMask <= 0.001) return 0;
+
+	const roughnessStrength = clamp(terrainRoughness, 0, 1);
+	if (roughnessStrength <= 0) return 0;
 
 	const mesoProfileStrength = getMesoReliefStrength(config.profile);
 	const mesoReliefMask = terrain.landMask * lerp(
@@ -81,7 +89,7 @@ export function getTerrainGeometryReliefRawHeight(
 		mesoRidges -
 		mesoValleys +
 		localDetail
-	) * config.heightScale;
+	) * config.heightScale * roughnessStrength;
 }
 
 function getMesoReliefStrength(profile: TerrainProfileKind): number {
