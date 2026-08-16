@@ -35,6 +35,7 @@ export class PlanetTerrainSampler {
 	readonly terrainSeedConfig: TerrainSeedConfig;
 	readonly radiusMeters: number;
 	readonly oceanLandMaskThreshold: number;
+	readonly terrainRoughness: number;
 
 	constructor(readonly definition: PlanetDefinition) {
 		this.radiusMeters = getPlanetRadiusMeters(definition);
@@ -53,6 +54,14 @@ export class PlanetTerrainSampler {
 			0,
 			1,
 		);
+		// terrainRoughness controls the strength of the additional geometry-only
+		// meso/local relief layer. Macro elevation remains owned by the canonical
+		// terrain sample + mountainScale; PBR roughness remains a material concern.
+		this.terrainRoughness = THREE.MathUtils.clamp(
+			definition.surface.terrainRoughness,
+			0,
+			1,
+		);
 	}
 
 	sample(
@@ -68,6 +77,7 @@ export class PlanetTerrainSampler {
 			normalDirection,
 			rawTerrain,
 			this.terrainSeedConfig,
+			this.terrainRoughness,
 		);
 		const geometryRawHeight = Math.max(
 			0,
@@ -136,6 +146,7 @@ export class PlanetTerrainSampler {
 				sampleDirection,
 				terrain,
 				this.terrainSeedConfig,
+				this.terrainRoughness,
 			);
 			const elevation = getPlanetElevationMeters(
 				Math.max(0, terrain.height + relief),
