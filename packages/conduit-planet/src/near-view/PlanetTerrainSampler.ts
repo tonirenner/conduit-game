@@ -34,6 +34,7 @@ export class PlanetTerrainSampler {
 	readonly elevationProfile: PlanetElevationProfile;
 	readonly terrainSeedConfig: TerrainSeedConfig;
 	readonly radiusMeters: number;
+	readonly oceanLandMaskThreshold: number;
 
 	constructor(readonly definition: PlanetDefinition) {
 		this.radiusMeters = getPlanetRadiusMeters(definition);
@@ -41,6 +42,16 @@ export class PlanetTerrainSampler {
 		this.terrainSeedConfig = createTerrainSeedConfig(
 			definition.render.terrainSeed,
 			resolveTerrainProfileKind(definition.class),
+		);
+		// PlanetDefinition.surface.oceanLevel is the canonical normalized
+		// land-mask threshold for ocean coverage, not a metric elevation.
+		// The old fixed 0.54 value was effectively one Earth-like preset and
+		// prevented generated terrestrial/ocean planets from expressing their
+		// configured water coverage.
+		this.oceanLandMaskThreshold = THREE.MathUtils.clamp(
+			definition.surface.oceanLevel,
+			0,
+			1,
 		);
 	}
 
@@ -85,7 +96,7 @@ export class PlanetTerrainSampler {
 			landMask: rawTerrain.landMask,
 			isWater:
 				this.definition.surface.hasOcean &&
-				rawTerrain.landMask < 0.54,
+				rawTerrain.landMask < this.oceanLandMaskThreshold,
 			biome: climate.biome,
 			climate,
 			rawTerrain,
