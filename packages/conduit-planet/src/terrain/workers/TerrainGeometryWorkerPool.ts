@@ -49,7 +49,7 @@ export class TerrainGeometryWorkerPool {
 	private disposed = false;
 
 	static isSupported(): boolean {
-		return typeof Worker !== 'undefined';
+		return typeof Worker !== 'undefined' && typeof document !== 'undefined';
 	}
 
 	constructor(size = getDefaultWorkerCount()) {
