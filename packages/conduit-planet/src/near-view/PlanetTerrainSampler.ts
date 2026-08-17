@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { getClimateSample, type BiomeId, type ClimateSample } from '../climate';
 import type { PlanetDefinition } from '../model';
 import { resolveTerrainProfileKind } from '@conduit/planet/rendering';
-import { getTerrainGeometryReliefRawHeight } from '../terrain/TerrainGeometryRelief';
+import {
+	getTerrainGeometryReliefRawHeight,
+	getTerrainVolcanicMask,
+} from '../terrain/TerrainGeometryRelief';
 import {
 	createTerrainSeedConfig,
 	getTerrainSample,
@@ -28,6 +31,7 @@ export type PlanetSurfaceSample = {
 	rawTerrain: TerrainSample;
 	geometryRawHeight: number;
 	geometryReliefRawHeight: number;
+	volcanicMask: number;
 };
 
 export class PlanetTerrainSampler {
@@ -37,6 +41,7 @@ export class PlanetTerrainSampler {
 	readonly oceanLandMaskThreshold: number;
 	readonly terrainRoughness: number;
 	readonly hasTectonics: boolean;
+	readonly hasVolcanism: boolean;
 
 	constructor(readonly definition: PlanetDefinition) {
 		this.radiusMeters = getPlanetRadiusMeters(definition);
@@ -67,6 +72,10 @@ export class PlanetTerrainSampler {
 		// ridge/fault relief without changing the canonical TerrainSample masks,
 		// climate inputs or biome thresholds.
 		this.hasTectonics = definition.surface.hasTectonics;
+		// Volcanism owns sparse deterministic volcanic activity provinces and
+		// their physical relief. It does not imply lava-class material shading;
+		// the resulting volcanicMask is exposed for later shared material use.
+		this.hasVolcanism = definition.surface.hasVolcanism;
 	}
 
 	sample(
@@ -84,6 +93,13 @@ export class PlanetTerrainSampler {
 			this.terrainSeedConfig,
 			this.terrainRoughness,
 			this.hasTectonics,
+			this.hasVolcanism,
+		);
+		const volcanicMask = getTerrainVolcanicMask(
+			normalDirection,
+			rawTerrain,
+			this.terrainSeedConfig,
+			this.hasVolcanism,
 		);
 		const geometryRawHeight = Math.max(
 			0,
@@ -118,6 +134,7 @@ export class PlanetTerrainSampler {
 			rawTerrain,
 			geometryRawHeight,
 			geometryReliefRawHeight,
+			volcanicMask,
 		};
 	}
 
@@ -154,6 +171,7 @@ export class PlanetTerrainSampler {
 				this.terrainSeedConfig,
 				this.terrainRoughness,
 				this.hasTectonics,
+				this.hasVolcanism,
 			);
 			const elevation = getPlanetElevationMeters(
 				Math.max(0, terrain.height + relief),
