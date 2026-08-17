@@ -32,6 +32,7 @@ export type PlanetSurfaceSample = {
 	geometryRawHeight: number;
 	geometryReliefRawHeight: number;
 	volcanicMask: number;
+	iceCapMask: number;
 };
 
 export class PlanetTerrainSampler {
@@ -42,6 +43,7 @@ export class PlanetTerrainSampler {
 	readonly terrainRoughness: number;
 	readonly hasTectonics: boolean;
 	readonly hasVolcanism: boolean;
+	readonly hasIceCaps: boolean;
 
 	constructor(readonly definition: PlanetDefinition) {
 		this.radiusMeters = getPlanetRadiusMeters(definition);
@@ -50,32 +52,22 @@ export class PlanetTerrainSampler {
 			definition.render.terrainSeed,
 			resolveTerrainProfileKind(definition.class),
 		);
-		// PlanetDefinition.surface.oceanLevel is the canonical normalized
-		// land-mask threshold for ocean coverage, not a metric elevation.
-		// The old fixed 0.54 value was effectively one Earth-like preset and
-		// prevented generated terrestrial/ocean planets from expressing their
-		// configured water coverage.
 		this.oceanLandMaskThreshold = THREE.MathUtils.clamp(
 			definition.surface.oceanLevel,
 			0,
 			1,
 		);
-		// terrainRoughness controls the strength of the additional geometry-only
-		// meso/local relief layer. Macro elevation remains owned by the canonical
-		// terrain sample + mountainScale; PBR roughness remains a material concern.
 		this.terrainRoughness = THREE.MathUtils.clamp(
 			definition.surface.terrainRoughness,
 			0,
 			1,
 		);
-		// Tectonics is a separate geometry concern. It enables deterministic
-		// ridge/fault relief without changing the canonical TerrainSample masks,
-		// climate inputs or biome thresholds.
 		this.hasTectonics = definition.surface.hasTectonics;
-		// Volcanism owns sparse deterministic volcanic activity provinces and
-		// their physical relief. It does not imply lava-class material shading;
-		// the resulting volcanicMask is exposed for later shared material use.
 		this.hasVolcanism = definition.surface.hasVolcanism;
+		// Ice caps expose a canonical surface mask rather than modifying terrain
+		// geometry. Material/climate consumers can share this mask later without
+		// inventing independent polar thresholds.
+		this.hasIceCaps = definition.surface.hasIceCaps;
 	}
 
 	sample(
@@ -101,6 +93,7 @@ export class PlanetTerrainSampler {
 			this.terrainSeedConfig,
 			this.hasVolcanism,
 		);
+		const iceCapMask = this.getIceCapMask(normalDirection);
 		const geometryRawHeight = Math.max(
 			0,
 			rawTerrain.height + geometryReliefRawHeight,
@@ -109,8 +102,6 @@ export class PlanetTerrainSampler {
 			geometryRawHeight,
 			this.elevationProfile,
 		);
-		// Climate and biome semantics intentionally stay tied to the canonical
-		// terrain height. Geometry-only relief must not move biome thresholds.
 		const climate = getClimateSample(
 			normalDirection,
 			rawTerrain.height,
@@ -135,6 +126,7 @@ export class PlanetTerrainSampler {
 			geometryRawHeight,
 			geometryReliefRawHeight,
 			volcanicMask,
+			iceCapMask,
 		};
 	}
 
@@ -147,6 +139,33 @@ export class PlanetTerrainSampler {
 		return target
 			.copy(sample.direction)
 			.multiplyScalar(sample.surfaceRadiusMeters);
+	}
+
+	private getIceCapMask(direction: THREE.Vector3): number {
+		if (!this.hasIceCaps) return 0;
+
+		const polarLatitude = Math.abs(direction.y);
+		const temperature = THREE.MathUtils.clamp(
+			this.definition.climate.temperature01,
+			0,
+			1,
+		);
+		const iceAbundance = THREE.MathUtils.clamp(
+			this.definition.composition.ice,
+			0,
+			1,
+		);
+
+		// Colder / ice-richer worlds extend their caps further toward the equator.
+		// Warm, ice-poor worlds keep only narrow polar caps when the domain flag
+		// explicitly says that caps exist.
+		const capStart = THREE.MathUtils.clamp(
+			0.88 - (1 - temperature) * 0.24 - iceAbundance * 0.16,
+			0.46,
+			0.90,
+		);
+		const capFull = Math.min(0.985, capStart + 0.12);
+		return THREE.MathUtils.smoothstep(polarLatitude, capStart, capFull);
 	}
 
 	private sampleNormal(direction: THREE.Vector3): THREE.Vector3 {
