@@ -17,9 +17,10 @@ import {
  * physical relief at scales that are only meaningful near the planet.
  *
  * terrainRoughness controls only the existing meso/local geometry layer.
- * hasTectonics enables a separate deterministic ridge/fault contribution so
- * the two PlanetDefinition values keep independent physical responsibilities.
- * Both remain separate from mountainScale (macro elevation) and from PBR
+ * hasTectonics enables a separate deterministic ridge/fault contribution.
+ * hasVolcanism enables sparse deterministic volcanic provinces/vents and
+ * exposes the same spatial mask for later material consumers.
+ * These remain separate from mountainScale (macro elevation) and from PBR
  * material roughness.
  */
 export function getTerrainGeometryReliefRawHeight(
@@ -28,6 +29,7 @@ export function getTerrainGeometryReliefRawHeight(
 	config: TerrainSeedConfig,
 	terrainRoughness = 1,
 	hasTectonics = false,
+	hasVolcanism = false,
 ): number {
 	if (terrain.landMask <= 0.001) return 0;
 
@@ -95,8 +97,52 @@ export function getTerrainGeometryReliefRawHeight(
 	const tectonicRelief = hasTectonics
 		? getTectonicReliefRawHeight(normal, terrain, config, mesoProfileStrength)
 		: 0;
+	const volcanicRelief = hasVolcanism
+		? getVolcanicReliefRawHeight(normal, terrain, config, mesoProfileStrength)
+		: 0;
 
-	return (roughnessRelief + tectonicRelief) * config.heightScale;
+	return (
+		roughnessRelief +
+		tectonicRelief +
+		volcanicRelief
+	) * config.heightScale;
+}
+
+/**
+ * Canonical deterministic volcanic activity mask.
+ *
+ * The mask describes sparse volcanic provinces rather than lava material.
+ * It is independent from planet class and can later be consumed by Surface
+ * material shading without introducing a second hotspot calculation.
+ */
+export function getTerrainVolcanicMask(
+	normal: THREE.Vector3,
+	terrain: TerrainSample,
+	config: TerrainSeedConfig,
+	hasVolcanism = false,
+): number {
+	if (!hasVolcanism || terrain.landMask <= 0.001) return 0;
+
+	const provinceField = fbm(
+		normal.clone()
+			.multiplyScalar(17)
+			.add(config.detailOffset.clone().multiplyScalar(0.053)),
+		4,
+	);
+	const provinceMask = smoothstep(0.59, 0.79, provinceField);
+	const ventField = ridgedFbm(
+		normal.clone()
+			.multiplyScalar(74)
+			.add(config.ridgeOffset.clone().multiplyScalar(0.137)),
+		3,
+	);
+	const ventMask = smoothstep(0.48, 0.82, ventField);
+
+	return clamp(
+		provinceMask * lerp(0.42, 1, ventMask) * terrain.landMask,
+		0,
+		1,
+	);
 }
 
 /**
@@ -149,6 +195,48 @@ function getTectonicReliefRawHeight(
 	return (uplift + offset)
 		* terrainMask
 		* lerp(0.82, 1.12, clamp(profileStrength, 0.7, 1.4));
+}
+
+/**
+ * Geometry-only volcanic province contribution.
+ *
+ * Broad activity provinces are modulated by a finer vent field. Uplift builds
+ * volcanic terrain while a narrow high-activity subtraction creates a modest
+ * caldera/vent depression. This is intentionally not a lava material model.
+ */
+function getVolcanicReliefRawHeight(
+	normal: THREE.Vector3,
+	terrain: TerrainSample,
+	config: TerrainSeedConfig,
+	profileStrength: number,
+): number {
+	const activity = getTerrainVolcanicMask(normal, terrain, config, true);
+	if (activity <= 0) return 0;
+
+	const coneField = ridgedFbm(
+		normal.clone()
+			.multiplyScalar(138)
+			.add(config.erosionOffset.clone().multiplyScalar(0.181)),
+		3,
+	);
+	const calderaField = fbm(
+		normal.clone()
+			.multiplyScalar(206)
+			.add(config.riverOffset.clone().multiplyScalar(0.149)),
+		3,
+	);
+	const coneUplift = activity
+		* Math.pow(smoothstep(0.34, 0.86, coneField), 1.35)
+		* 0.030;
+	const calderaCut = activity
+		* smoothstep(0.74, 0.91, calderaField)
+		* 0.012;
+	const terrainMask = lerp(0.82, 1.16, terrain.mountainMask)
+		* lerp(0.92, 1.08, terrain.erosionMask);
+
+	return (coneUplift - calderaCut)
+		* terrainMask
+		* lerp(0.84, 1.14, clamp(profileStrength, 0.7, 1.4));
 }
 
 function getMesoReliefStrength(profile: TerrainProfileKind): number {
