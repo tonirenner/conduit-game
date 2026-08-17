@@ -46,6 +46,11 @@ describe('surface.terrainRoughness migration', () => {
 		});
 		const smoothDefinition = structuredClone(base);
 		const roughDefinition = structuredClone(base);
+		// This test characterizes terrainRoughness alone. Tectonic relief is a
+		// separate Phase-3 geometry contribution and must not leak into the
+		// zero-roughness baseline asserted below.
+		smoothDefinition.surface.hasTectonics = false;
+		roughDefinition.surface.hasTectonics = false;
 		smoothDefinition.surface.terrainRoughness = 0;
 		roughDefinition.surface.terrainRoughness = 1;
 
