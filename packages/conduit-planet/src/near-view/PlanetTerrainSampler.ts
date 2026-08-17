@@ -36,6 +36,7 @@ export class PlanetTerrainSampler {
 	readonly radiusMeters: number;
 	readonly oceanLandMaskThreshold: number;
 	readonly terrainRoughness: number;
+	readonly hasTectonics: boolean;
 
 	constructor(readonly definition: PlanetDefinition) {
 		this.radiusMeters = getPlanetRadiusMeters(definition);
@@ -62,6 +63,10 @@ export class PlanetTerrainSampler {
 			0,
 			1,
 		);
+		// Tectonics is a separate geometry concern. It enables deterministic
+		// ridge/fault relief without changing the canonical TerrainSample masks,
+		// climate inputs or biome thresholds.
+		this.hasTectonics = definition.surface.hasTectonics;
 	}
 
 	sample(
@@ -78,6 +83,7 @@ export class PlanetTerrainSampler {
 			rawTerrain,
 			this.terrainSeedConfig,
 			this.terrainRoughness,
+			this.hasTectonics,
 		);
 		const geometryRawHeight = Math.max(
 			0,
@@ -147,6 +153,7 @@ export class PlanetTerrainSampler {
 				terrain,
 				this.terrainSeedConfig,
 				this.terrainRoughness,
+				this.hasTectonics,
 			);
 			const elevation = getPlanetElevationMeters(
 				Math.max(0, terrain.height + relief),
