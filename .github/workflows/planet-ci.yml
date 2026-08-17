@@ -1,0 +1,52 @@
+name: Conduit Planet CI
+
+on:
+  push:
+    branches:
+      - planet-seamless-surface
+    paths:
+      - 'packages/conduit-planet/**'
+      - 'packages/conduit-web3d/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/planet-ci.yml'
+  pull_request:
+    paths:
+      - 'packages/conduit-planet/**'
+      - 'packages/conduit-web3d/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.github/workflows/planet-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conduit-planet-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck conduit-planet
+        run: bunx tsc -p packages/conduit-planet/tsconfig.json --noEmit
+
+      - name: Test conduit-planet
+        run: bun test packages/conduit-planet/tests
