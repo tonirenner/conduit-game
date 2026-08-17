@@ -16,21 +16,22 @@ import {
  * terrain semantics, while Regional/Surface/landing can share additional
  * physical relief at scales that are only meaningful near the planet.
  *
- * terrainRoughness controls only this additional meso/local geometry layer.
- * It is intentionally separate from mountainScale (macro elevation) and from
- * PBR material roughness.
+ * terrainRoughness controls only the existing meso/local geometry layer.
+ * hasTectonics enables a separate deterministic ridge/fault contribution so
+ * the two PlanetDefinition values keep independent physical responsibilities.
+ * Both remain separate from mountainScale (macro elevation) and from PBR
+ * material roughness.
  */
 export function getTerrainGeometryReliefRawHeight(
 	normal: THREE.Vector3,
 	terrain: TerrainSample,
 	config: TerrainSeedConfig,
 	terrainRoughness = 1,
+	hasTectonics = false,
 ): number {
 	if (terrain.landMask <= 0.001) return 0;
 
 	const roughnessStrength = clamp(terrainRoughness, 0, 1);
-	if (roughnessStrength <= 0) return 0;
-
 	const mesoProfileStrength = getMesoReliefStrength(config.profile);
 	const mesoReliefMask = terrain.landMask * lerp(
 		0.72,
@@ -84,12 +85,70 @@ export function getTerrainGeometryReliefRawHeight(
 		) - 0.5
 	) * 0.012 * terrain.landMask * localDetailStrength;
 
-	return (
+	const roughnessRelief = (
 		mesoRolling +
 		mesoRidges -
 		mesoValleys +
 		localDetail
-	) * config.heightScale * roughnessStrength;
+	) * roughnessStrength;
+
+	const tectonicRelief = hasTectonics
+		? getTectonicReliefRawHeight(normal, terrain, config, mesoProfileStrength)
+		: 0;
+
+	return (roughnessRelief + tectonicRelief) * config.heightScale;
+}
+
+/**
+ * Deterministic geometry-only tectonic contribution.
+ *
+ * Low-frequency plate noise creates narrow boundary bands. A second ridged
+ * field gives those boundaries an uplifted/faulted character while a signed
+ * side field allows modest local uplift/subsidence variation. The contribution
+ * is land-bound and deliberately leaves the canonical TerrainSample masks and
+ * climate inputs unchanged.
+ */
+function getTectonicReliefRawHeight(
+	normal: THREE.Vector3,
+	terrain: TerrainSample,
+	config: TerrainSeedConfig,
+	profileStrength: number,
+): number {
+	const plateField = fbm(
+		normal.clone()
+			.multiplyScalar(26)
+			.add(config.ridgeOffset.clone().multiplyScalar(0.071)),
+		3,
+	);
+	const boundaryDistance = Math.abs(plateField - 0.5);
+	const boundaryBand = 1 - smoothstep(0.055, 0.24, boundaryDistance);
+
+	const faultRidges = ridgedFbm(
+		normal.clone()
+			.multiplyScalar(92)
+			.add(config.erosionOffset.clone().multiplyScalar(0.113)),
+		3,
+	);
+	const faultSide = fbm(
+		normal.clone()
+			.multiplyScalar(48)
+			.add(config.riverOffset.clone().multiplyScalar(0.097)),
+		2,
+	) - 0.5;
+
+	const uplift = boundaryBand
+		* lerp(0.36, 1, faultRidges)
+		* 0.026;
+	const offset = boundaryBand
+		* faultSide
+		* 0.012;
+	const terrainMask = terrain.landMask
+		* lerp(0.68, 1.18, terrain.mountainMask)
+		* lerp(0.88, 1.12, terrain.erosionMask);
+
+	return (uplift + offset)
+		* terrainMask
+		* lerp(0.82, 1.12, clamp(profileStrength, 0.7, 1.4));
 }
 
 function getMesoReliefStrength(profile: TerrainProfileKind): number {
