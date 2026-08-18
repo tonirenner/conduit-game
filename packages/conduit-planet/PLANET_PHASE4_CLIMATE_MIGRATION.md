@@ -22,7 +22,7 @@
 
 - [x] `climate.seed`
 - [x] `climate.temperature01`
-- [ ] `climate.humidity`
+- [x] `climate.humidity`
 - [ ] `climate.aridity`
 - [ ] `climate.biomeSeed`
 - [ ] `climate.weatherSeed` / weather integration
@@ -129,8 +129,6 @@ When a climate definition is present:
 - `climate.temperature01` biases the generated local temperature,
 - the resulting temperature continues through the existing aridity/snow/vegetation/biome logic.
 
-Humidity/aridity global definition values are **not yet wired** in this step.
-
 ### `src/near-view/PlanetTerrainSampler.ts`
 
 The canonical sampler now calls:
@@ -192,14 +190,109 @@ This may legitimately change biome identity at some locations because biome is d
 
 ---
 
-# Next step: `climate.humidity`
+# 2. `climate.humidity`
 
-Wire the generated global humidity tendency into the existing local humidity field while preserving:
+## Previous state
 
-- coast/ocean moisture influence,
-- rain bands,
-- altitude drying,
-- local noise variation,
-- deterministic terrain independence.
+The local humidity model already combined useful spatial context:
 
-Do not wire `aridity` or `biomeSeed` in the same change.
+```text
+humidity noise
++ coastline influence
++ ocean moisture
++ latitude rain bands
+- altitude drying
+```
+
+However, generated `PlanetDefinition.climate.humidity` was not part of that calculation. Two planets with different global humidity tendencies therefore still shared the same local humidity result when sampled at the same terrain context.
+
+## Migration decision
+
+`climate.humidity` is the global humidity baseline, not a replacement for the local humidity field.
+
+The historical local structure remains intact:
+
+```text
+localHumidity
+    = humidityNoise
+    + coast moisture
+    + ocean moisture
+    + rain-band moisture
+    - altitude drying
+```
+
+The generated definition contributes an additive normalized bias around the neutral midpoint `0.5`:
+
+```text
+globalHumidityBias = (clamp(humidity, 0, 1) - 0.5) * 0.70
+finalHumidity = clamp(localHumidity + globalHumidityBias, 0, 1)
+```
+
+This gives globally dry/wet planets coherent tendencies while preserving local geography-driven variation.
+
+## Downstream behavior
+
+The generated `climate.aridity` definition value is **not** wired in this step.
+
+Existing local aridity already depends on the calculated local humidity:
+
+```text
+local aridity ~ 1 - humidity + temperature + dry noise - coast influence
+```
+
+Therefore changing global humidity legitimately changes the downstream calculated aridity, vegetation, cloud potential and biome outcomes. This is not equivalent to consuming `PlanetDefinition.climate.aridity`; that value remains a separate Phase-4 migration responsibility.
+
+## Intentionally unchanged
+
+Changing only `climate.humidity` does not change:
+
+- `climate.seed` or temperature noise identity,
+- local temperature,
+- terrain seed output,
+- `rawTerrain`,
+- `geometryReliefRawHeight`,
+- `geometryRawHeight`,
+- land/water classification,
+- collision / landing height,
+- terrain normals.
+
+The old three-argument `getClimateSample()` path also remains unchanged because the global humidity bias is applied only when a `PlanetClimateDefinition` is supplied.
+
+## Characterization tests
+
+Added:
+
+`tests/PlanetClimateHumidity.test.ts`
+
+Coverage:
+
+1. higher `climate.humidity` monotonically produces equal-or-wetter local samples,
+2. changing humidity alone leaves local temperature unchanged,
+3. coast/ocean moisture remains stronger than dry inland context at a neutral global humidity baseline,
+4. changing only global humidity leaves canonical terrain geometry, land mask and water classification unchanged.
+
+## Risk assessment
+
+Risk: **moderate visual/domain, low architectural**.
+
+Expected effects:
+
+- wet planets gain more humid local regions and cloud/vegetation potential,
+- dry planets retain the same local humidity structure but shift downward globally,
+- coastlines and oceans still provide local moisture,
+- biome changes can occur because biome is downstream of canonical climate,
+- terrain geometry remains identical.
+
+---
+
+# Next step: `climate.aridity`
+
+Wire the generated global aridity tendency into the existing local aridity field while preserving:
+
+- dependence on canonical local humidity,
+- temperature influence,
+- local dry-noise variation,
+- coast moderation,
+- geometry independence.
+
+Do not wire `biomeSeed` or weather semantics in the same change.
