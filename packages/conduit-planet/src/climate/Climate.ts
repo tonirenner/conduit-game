@@ -98,8 +98,9 @@ const BIOME_COLORS: Record<BiomeId, number> = {
  * - climate.seed: spatial identity for the temperature noise field
  * - climate.temperature01: global temperature baseline
  * - climate.humidity: global humidity baseline
+ * - climate.aridity: global aridity baseline
  *
- * The generated aridity and biome seeds are wired in later isolated steps.
+ * The biome seed is wired in a later isolated step.
  */
 export function getClimateSample(
 	normal: THREE.Vector3,
@@ -171,13 +172,17 @@ export function getClimateSample(
 	);
 
 	const dryNoise = fbm(normal, 2.8, 8.6, 71.2, 4.0);
-
-	const aridity = clamp01(
+	const localAridity =
 		1 -
 		humidity +
 		temperature * 0.16 +
 		(dryNoise - 0.5) * 0.20 -
-		coastInfluence * 0.10,
+		coastInfluence * 0.10;
+	const globalAridityBias = climate
+		? (clamp01(climate.aridity) - 0.5) * 0.65
+		: 0;
+	const aridity = clamp01(
+		localAridity + globalAridityBias,
 	);
 
 	const snow = clamp01(
