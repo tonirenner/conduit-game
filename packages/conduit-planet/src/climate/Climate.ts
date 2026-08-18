@@ -94,11 +94,12 @@ const BIOME_COLORS: Record<BiomeId, number> = {
  * sample contract for direct callers while PlanetTerrainSampler supplies the
  * generated definition.
  *
- * Phase 4 step 1 owns only:
+ * Phase 4 currently owns:
  * - climate.seed: spatial identity for the temperature noise field
  * - climate.temperature01: global temperature baseline
+ * - climate.humidity: global humidity baseline
  *
- * Humidity, aridity and biome seeds are wired in later isolated steps.
+ * The generated aridity and biome seeds are wired in later isolated steps.
  */
 export function getClimateSample(
 	normal: THREE.Vector3,
@@ -156,13 +157,17 @@ export function getClimateSample(
 		      );
 
 	const humidityNoise = fbm(normal, 2.05, 41.2, 7.3, 18.1);
-
-	const humidity = clamp01(
+	const localHumidity =
 		humidityNoise * 0.52 +
 		coastInfluence * 0.22 +
 		ocean * 0.22 +
 		rainBand * 0.18 -
-		altitude * 0.18,
+		altitude * 0.18;
+	const globalHumidityBias = climate
+		? (clamp01(climate.humidity) - 0.5) * 0.70
+		: 0;
+	const humidity = clamp01(
+		localHumidity + globalHumidityBias,
 	);
 
 	const dryNoise = fbm(normal, 2.8, 8.6, 71.2, 4.0);
