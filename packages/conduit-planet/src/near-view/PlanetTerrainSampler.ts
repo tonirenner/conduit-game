@@ -102,10 +102,14 @@ export class PlanetTerrainSampler {
 			geometryRawHeight,
 			this.elevationProfile,
 		);
+		// Climate owns biome semantics. The generated planet climate definition
+		// now supplies the per-planet seed and global temperature baseline while
+		// terrain geometry remains independent.
 		const climate = getClimateSample(
 			normalDirection,
 			rawTerrain.height,
 			rawTerrain.landMask,
+			this.definition.climate,
 		);
 
 		return {
