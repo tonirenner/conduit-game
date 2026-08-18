@@ -23,7 +23,7 @@
 - [x] `climate.seed`
 - [x] `climate.temperature01`
 - [x] `climate.humidity`
-- [ ] `climate.aridity`
+- [x] `climate.aridity`
 - [ ] `climate.biomeSeed`
 - [ ] `climate.weatherSeed` / weather integration
 
@@ -285,14 +285,113 @@ Expected effects:
 
 ---
 
-# Next step: `climate.aridity`
+# 3. `climate.aridity`
 
-Wire the generated global aridity tendency into the existing local aridity field while preserving:
+## Previous state
 
-- dependence on canonical local humidity,
-- temperature influence,
-- local dry-noise variation,
-- coast moderation,
-- geometry independence.
+Local aridity was already derived from meaningful local climate context:
 
-Do not wire `biomeSeed` or weather semantics in the same change.
+```text
+1 - humidity
++ temperature contribution
++ dry-noise variation
+- coastline moderation
+```
+
+But generated `PlanetDefinition.climate.aridity` was not consumed. Therefore two planets with different global dryness tendencies could still produce identical local aridity when temperature, humidity and terrain context matched.
+
+## Migration decision
+
+`climate.aridity` is the global dryness baseline, layered on top of the existing local aridity model.
+
+The existing local calculation remains authoritative for geography-driven variation:
+
+```text
+localAridity
+    = 1 - localHumidity
+    + temperature influence
+    + dry-noise variation
+    - coast moderation
+```
+
+The generated definition contributes an additive normalized bias around the neutral midpoint `0.5`:
+
+```text
+globalAridityBias = (clamp(aridity, 0, 1) - 0.5) * 0.65
+finalAridity = clamp(localAridity + globalAridityBias, 0, 1)
+```
+
+This preserves wet coasts and humid regions as relatively less dry while allowing globally arid planets to shift the complete dryness field upward.
+
+## Direction of dependency
+
+Aridity is downstream of temperature and humidity.
+
+Changing only `climate.aridity` must therefore **not** alter:
+
+- local temperature,
+- local humidity.
+
+It may legitimately change:
+
+- vegetation,
+- cloud potential,
+- savanna/desert/dry-hills biome selection.
+
+This keeps the climate dependency graph one-directional instead of allowing a derived dryness value to feed backward into moisture or temperature.
+
+## Intentionally unchanged
+
+Changing only global aridity does not alter:
+
+- `climate.seed`,
+- temperature noise identity,
+- global/local humidity,
+- terrain seed output,
+- `rawTerrain`,
+- `geometryReliefRawHeight`,
+- `geometryRawHeight`,
+- land/water classification,
+- collision / landing height,
+- terrain normals.
+
+The three-argument legacy/debug `getClimateSample()` path remains unchanged because no global aridity bias exists without a supplied `PlanetClimateDefinition`.
+
+## Characterization tests
+
+Added:
+
+`tests/PlanetClimateAridity.test.ts`
+
+Coverage:
+
+1. higher `climate.aridity` monotonically produces equal-or-drier local samples,
+2. changing aridity alone leaves temperature and humidity identical,
+3. coast/humidity moderation remains active even with a non-neutral global dryness baseline,
+4. changing only global aridity leaves canonical terrain geometry, land mask and water classification unchanged.
+
+## Risk assessment
+
+Risk: **moderate visual/domain, low architectural**.
+
+Expected effects:
+
+- globally arid planets produce more dry-hills/savanna/desert outcomes where thresholds permit,
+- humid coastal regions remain relatively moderated,
+- vegetation and cloud potential can fall in dry regions,
+- terrain geometry remains identical.
+
+---
+
+# Next step: `climate.biomeSeed`
+
+Use `biomeSeed` only for deterministic spatial variation inside biome/climate classification. It must not modify terrain geometry or become a second terrain seed.
+
+Likely first responsibility:
+
+- offset one or more biome-transition/local ecological variation fields,
+- preserve temperature/humidity/aridity baselines,
+- keep deterministic results for identical definition + direction,
+- allow otherwise identical climate definitions with different `biomeSeed` values to produce different local biome boundaries.
+
+Do not wire `weatherSeed` in the same change.
