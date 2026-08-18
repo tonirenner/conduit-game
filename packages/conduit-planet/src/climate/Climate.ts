@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { PlanetClimateDefinition } from '../model';
 
 import {
 	clamp01,
@@ -85,10 +86,25 @@ const BIOME_COLORS: Record<BiomeId, number> = {
 	snow: 0xd6d8cf,
 };
 
+/**
+ * Deterministic local climate sample.
+ *
+ * Passing a PlanetClimateDefinition enables the canonical per-planet climate
+ * identity. The optional argument preserves the historical renderer-independent
+ * sample contract for direct callers while PlanetTerrainSampler supplies the
+ * generated definition.
+ *
+ * Phase 4 step 1 owns only:
+ * - climate.seed: spatial identity for the temperature noise field
+ * - climate.temperature01: global temperature baseline
+ *
+ * Humidity, aridity and biome seeds are wired in later isolated steps.
+ */
 export function getClimateSample(
 	normal: THREE.Vector3,
 	height: number,
 	landMask: number,
+	climate?: PlanetClimateDefinition,
 ): ClimateSample {
 	const latitude = Math.asin(clamp01Signed(normal.y));
 	const latitudeAbs = Math.abs(normal.y);
@@ -106,15 +122,29 @@ export function getClimateSample(
 		      1 -
 		      smoothstep(0.12, 0.98, latitudeAbs);
 
+	const temperatureSeedOffsets = climate
+		? getSeedOffsets(climate.seed, 0x43a7)
+		: [0, 0, 0] as const;
 	const temperatureNoise =
-		      (fbm(normal, 1.7, 12.4, 4.1, 8.8) - 0.5) *
+		      (fbm(
+			normal,
+			1.7,
+			12.4 + temperatureSeedOffsets[0],
+			4.1 + temperatureSeedOffsets[1],
+			8.8 + temperatureSeedOffsets[2],
+		) - 0.5) *
 		      0.18;
 
-	const temperature = clamp01(
+	const localTemperature =
 		equatorWarmth +
 		temperatureNoise -
 		altitude * 0.46 -
-		smoothstep(0.72, 1.0, latitudeAbs) * 0.22,
+		smoothstep(0.72, 1.0, latitudeAbs) * 0.22;
+	const globalTemperatureBias = climate
+		? (clamp01(climate.temperature01) - 0.5) * 0.85
+		: 0;
+	const temperature = clamp01(
+		localTemperature + globalTemperatureBias,
 	);
 
 	const rainBand =
@@ -183,15 +213,15 @@ export function getClimateSample(
 	);
 
 	const biome = getBiome({
-		                       height,
-		                       landMask,
-		                       temperature,
-		                       humidity,
-		                       aridity,
-		                       vegetation,
-		                       snow,
-		                       latitudeAbs,
-	                       });
+		height,
+		landMask,
+		temperature,
+		humidity,
+		aridity,
+		vegetation,
+		snow,
+		latitudeAbs,
+	});
 
 	return {
 		latitude,
@@ -209,6 +239,24 @@ export function getClimateSample(
 		biome,
 		biomeColor: BIOME_COLORS[biome],
 	};
+}
+
+function getSeedOffsets(seed: number, salt: number): readonly [number, number, number] {
+	return [
+		(seedHash01(seed, salt) - 0.5) * 96,
+		(seedHash01(seed, salt + 1) - 0.5) * 96,
+		(seedHash01(seed, salt + 2) - 0.5) * 96,
+	];
+}
+
+function seedHash01(seed: number, salt: number): number {
+	let value = (Math.trunc(seed) ^ Math.imul(salt, 0x9e3779b9)) >>> 0;
+	value ^= value >>> 16;
+	value = Math.imul(value, 0x7feb352d) >>> 0;
+	value ^= value >>> 15;
+	value = Math.imul(value, 0x846ca68b) >>> 0;
+	value ^= value >>> 16;
+	return value / 0xffffffff;
 }
 
 function getBiome(input: {
