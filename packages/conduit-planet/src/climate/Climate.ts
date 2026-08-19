@@ -99,8 +99,9 @@ const BIOME_COLORS: Record<BiomeId, number> = {
  * - climate.temperature01: global temperature baseline
  * - climate.humidity: global humidity baseline
  * - climate.aridity: global aridity baseline
+ * - climate.biomeSeed: ecological variation within plausible land-biome zones
  *
- * The biome seed is wired in a later isolated step.
+ * Weather integration is wired in a later isolated step.
  */
 export function getClimateSample(
 	normal: THREE.Vector3,
@@ -222,6 +223,22 @@ export function getClimateSample(
 		aridity * 0.24,
 	);
 
+	const biomeSeedOffsets = climate
+		? getSeedOffsets(climate.biomeSeed, 0x71bd)
+		: [0, 0, 0] as const;
+	const biomeEcologyBias = climate
+		? (
+			fbm(
+				normal,
+				3.6,
+				22.1 + biomeSeedOffsets[0],
+				63.7 + biomeSeedOffsets[1],
+				11.4 + biomeSeedOffsets[2],
+				4,
+			) - 0.5
+		) * 0.12
+		: 0;
+
 	const biome = getBiome({
 		height,
 		landMask,
@@ -231,6 +248,7 @@ export function getClimateSample(
 		vegetation,
 		snow,
 		latitudeAbs,
+		ecologyBias: biomeEcologyBias,
 	});
 
 	return {
@@ -278,6 +296,7 @@ function getBiome(input: {
 	vegetation: number;
 	snow: number;
 	latitudeAbs: number;
+	ecologyBias: number;
 }): BiomeId {
 	if (input.landMask < 0.34) {
 		return 'deepOcean';
@@ -303,27 +322,33 @@ function getBiome(input: {
 		return 'tundra';
 	}
 
-	if (input.humidity > 0.72 && input.temperature > 0.60) {
+	// biomeSeed does not rewrite climate. It only nudges ecological thresholds
+	// inside otherwise plausible temperate/warm land-biome zones.
+	const ecologicalHumidity = clamp01(input.humidity + input.ecologyBias);
+	const ecologicalAridity = clamp01(input.aridity - input.ecologyBias * 0.85);
+	const ecologicalVegetation = clamp01(input.vegetation + input.ecologyBias * 0.35);
+
+	if (ecologicalHumidity > 0.72 && input.temperature > 0.60) {
 		return 'rainforest';
 	}
 
-	if (input.humidity > 0.62 && input.temperature > 0.36) {
+	if (ecologicalHumidity > 0.62 && input.temperature > 0.36) {
 		return 'temperateForest';
 	}
 
-	if (input.humidity > 0.54 && input.temperature <= 0.36) {
+	if (ecologicalHumidity > 0.54 && input.temperature <= 0.36) {
 		return 'borealForest';
 	}
 
-	if (input.aridity > 0.72 && input.temperature > 0.44) {
+	if (ecologicalAridity > 0.72 && input.temperature > 0.44) {
 		return 'desert';
 	}
 
-	if (input.aridity > 0.58 && input.temperature > 0.52) {
+	if (ecologicalAridity > 0.58 && input.temperature > 0.52) {
 		return 'savanna';
 	}
 
-	if (input.vegetation > 0.28) {
+	if (ecologicalVegetation > 0.28) {
 		return 'grassland';
 	}
 
