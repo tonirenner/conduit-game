@@ -49,12 +49,12 @@ function clampSigned(value: number): number {
  * identity. The optional fourth argument preserves the historical three-
  * argument API while migration is in progress.
  *
- * Phase 4 weather step 1 owns only:
+ * Phase 4 weather currently owns:
  * - weatherSeed: spatial identity for dynamic weather fields
  * - windStrength: global intensity for the existing local wind structure
+ * - stormActivity: global tendency layered on top of local storm potential
  *
- * stormActivity, seasonality and cloudPersistence are intentionally not wired
- * here and remain isolated later migration steps.
+ * seasonality and cloudPersistence remain isolated later migration steps.
  */
 export function getWeatherSample(
 	normal: THREE.Vector3,
@@ -146,12 +146,18 @@ export function getWeatherSample(
 		smoothstep(0.58, 0.86, cellNoise) *
 		(1 - highPressure * 0.55);
 
-	const stormPotential = clamp01(
+	const localStormPotential = clamp01(
 		climate.cloudPotential * 0.48 +
 		instability * 0.34 +
 		stormCells * 0.32 +
 		lowPressure * 0.18 -
 		highPressure * 0.18,
+	);
+	const globalStormBias = definition
+		? (clamp01(definition.stormActivity) - 0.5) * 0.60
+		: 0;
+	const stormPotential = clamp01(
+		localStormPotential + globalStormBias,
 	);
 
 	const localWindStrength = clamp01(
