@@ -2,7 +2,7 @@
 
 > Working document for the climate/biome canonicalization phase.
 >
-> Target: make generated `PlanetDefinition.climate` values authoritative inputs to local climate sampling without changing terrain geometry or creating renderer-owned climate truth.
+> Target: make generated `PlanetDefinition.climate` values authoritative inputs to local climate/weather sampling without changing terrain geometry or creating renderer-owned climate truth.
 
 ---
 
@@ -11,10 +11,11 @@
 - WebGPU first; WebGL follows later.
 - `PlanetDefinition.climate` is the global climate domain truth.
 - `getClimateSample()` remains the canonical local climate/biome evaluator.
+- `getWeatherSample()` remains the canonical local dynamic weather evaluator.
 - `PlanetTerrainSampler` supplies terrain context and the generated climate definition.
-- Climate migration must not change terrain seed output, geometry relief, collision or land/water classification.
-- One climate value/responsibility at a time.
-- Existing direct three-argument `getClimateSample()` callers remain compatible while migration is in progress.
+- Climate/weather migration must not change terrain seed output, geometry relief, collision or land/water classification.
+- One climate/weather value or responsibility at a time.
+- Existing legacy/direct call signatures remain compatible while migration is in progress.
 
 ---
 
@@ -24,70 +25,22 @@
 - [x] `climate.temperature01`
 - [x] `climate.humidity`
 - [x] `climate.aridity`
-- [ ] `climate.biomeSeed`
-- [ ] `climate.weatherSeed` / weather integration
+- [x] `climate.biomeSeed`
+- [x] `climate.weatherSeed`
+- [x] `climate.windStrength`
+- [ ] `climate.stormActivity`
+- [ ] `climate.seasonality`
+- [ ] `climate.cloudPersistence`
 
 ---
 
 # 1. `climate.seed` + `climate.temperature01`
 
-## Previous state
-
-`getClimateSample(normal, height, landMask)` was planet-independent.
-
-Every planet used the same fixed procedural offsets for the local temperature field:
-
-```text
-temperature FBM offsets: 12.4 / 4.1 / 8.8
-```
-
-The generated values:
-
-```ts
-PlanetDefinition.climate.seed
-PlanetDefinition.climate.temperature01
-```
-
-were not supplied to the canonical terrain climate sample.
-
-Consequences:
-
-- planets shared the same local temperature-noise identity for equal terrain directions,
-- generated global temperature intent was not the baseline of local temperature sampling,
-- climate/biome output could disagree with the already-generated planet definition.
-
 ## Migration decision
 
-### `climate.seed`
+`climate.seed` owns deterministic spatial identity for the local temperature field. `climate.temperature01` is the generated global temperature baseline layered on top of latitude, altitude, polar cooling and local procedural variation.
 
-`climate.seed` owns the deterministic spatial identity of the local climate field.
-
-For this first Phase-4 step it affects **temperature noise only**.
-
-The seed is converted into three deterministic offsets and added to the existing temperature FBM offsets. This preserves the existing frequency/amplitude structure while giving each planet its own spatial temperature pattern.
-
-No random state is consumed during sampling; identical inputs remain exactly deterministic.
-
-### `climate.temperature01`
-
-`climate.temperature01` is treated as the generated **global temperature baseline**.
-
-The existing local temperature model remains responsible for:
-
-- latitude / equator warmth,
-- altitude cooling,
-- polar cooling,
-- local procedural temperature variation.
-
-The generated global temperature contributes an additive normalized bias around the historical neutral midpoint `0.5`:
-
-```text
-global bias = (clamp(temperature01, 0, 1) - 0.5) * 0.85
-```
-
-This keeps the local latitude/altitude shape intact while allowing cold and hot planets to shift the full field coherently.
-
-## Canonical flow
+The canonical path is:
 
 ```text
 PlanetDefinition.climate
@@ -99,118 +52,19 @@ PlanetTerrainSampler
 getClimateSample(normal, rawHeight, landMask, definition.climate)
           ↓
 local ClimateSample.temperature
-          ↓
-existing dependent climate semantics
-    aridity / snow / vegetation / cloudPotential / biome
 ```
 
-Because the existing dependent quantities are calculated after temperature, they automatically see the canonicalized local temperature rather than a disconnected post-process value.
+The legacy three-argument `getClimateSample()` path remains available.
 
-## Production changes
-
-### `src/climate/Climate.ts`
-
-`getClimateSample()` now accepts an optional fourth argument:
-
-```ts
-getClimateSample(
-    normal,
-    height,
-    landMask,
-    climate?: PlanetClimateDefinition,
-)
-```
-
-The optional argument deliberately preserves the existing three-argument API for direct legacy/debug callers.
-
-When a climate definition is present:
-
-- `climate.seed` offsets the temperature FBM field,
-- `climate.temperature01` biases the generated local temperature,
-- the resulting temperature continues through the existing aridity/snow/vegetation/biome logic.
-
-### `src/near-view/PlanetTerrainSampler.ts`
-
-The canonical sampler now calls:
-
-```ts
-getClimateSample(
-    normalDirection,
-    rawTerrain.height,
-    rawTerrain.landMask,
-    definition.climate,
-)
-```
-
-Climate continues to consume the canonical raw terrain height rather than geometry-only relief. Therefore tectonic, volcanic and roughness relief cannot move biome thresholds indirectly.
-
-## Intentionally unchanged
-
-This step does not alter:
-
-- `terrainSeed`,
-- `rawTerrain`,
-- continent layout,
-- `landMask`,
-- `geometryReliefRawHeight`,
-- `geometryRawHeight`,
-- water classification,
-- collision / landing height,
-- terrain normals,
-- `surface.iceCapMask`,
-- material shader logic.
-
-`surface.iceCapMask` already uses the global definition temperature directly and remains a separate canonical surface mask.
-
-## Characterization tests
-
-Added:
-
-`tests/PlanetClimateDefinition.test.ts`
-
-Coverage:
-
-1. same climate definition + same input is deterministic,
-2. changing only `climate.seed` changes spatial temperature identity,
-3. higher `climate.temperature01` monotonically produces equal-or-warmer local samples,
-4. changing climate seed/temperature leaves canonical terrain geometry, land mask and water classification unchanged.
-
-## Risk assessment
-
-Risk: **moderate visual, low architectural**.
-
-Expected visible/domain effects:
-
-- terrestrial planets no longer share an identical local temperature-noise layout,
-- cold planets can produce more tundra/snow/ice-oriented climate samples,
-- hot planets can produce warmer/drier biome outcomes,
-- terrain shape and view transitions remain unchanged.
-
-This may legitimately change biome identity at some locations because biome is downstream of canonical climate. That is intended climate behavior, not a geometry regression.
+Characterization coverage: `tests/PlanetClimateDefinition.test.ts`.
 
 ---
 
 # 2. `climate.humidity`
 
-## Previous state
-
-The local humidity model already combined useful spatial context:
-
-```text
-humidity noise
-+ coastline influence
-+ ocean moisture
-+ latitude rain bands
-- altitude drying
-```
-
-However, generated `PlanetDefinition.climate.humidity` was not part of that calculation. Two planets with different global humidity tendencies therefore still shared the same local humidity result when sampled at the same terrain context.
-
 ## Migration decision
 
-`climate.humidity` is the global humidity baseline, not a replacement for the local humidity field.
-
-The historical local structure remains intact:
+`climate.humidity` is the global humidity baseline, not a replacement for local geography-driven moisture.
 
 ```text
 localHumidity
@@ -219,92 +73,22 @@ localHumidity
     + ocean moisture
     + rain-band moisture
     - altitude drying
+
+globalHumidityBias
+    = (clamp(humidity, 0, 1) - 0.5) * 0.70
 ```
 
-The generated definition contributes an additive normalized bias around the neutral midpoint `0.5`:
+Changing humidity may affect downstream aridity, vegetation, cloud potential and biome, but does not change temperature or terrain geometry.
 
-```text
-globalHumidityBias = (clamp(humidity, 0, 1) - 0.5) * 0.70
-finalHumidity = clamp(localHumidity + globalHumidityBias, 0, 1)
-```
-
-This gives globally dry/wet planets coherent tendencies while preserving local geography-driven variation.
-
-## Downstream behavior
-
-The generated `climate.aridity` definition value is **not** wired in this step.
-
-Existing local aridity already depends on the calculated local humidity:
-
-```text
-local aridity ~ 1 - humidity + temperature + dry noise - coast influence
-```
-
-Therefore changing global humidity legitimately changes the downstream calculated aridity, vegetation, cloud potential and biome outcomes. This is not equivalent to consuming `PlanetDefinition.climate.aridity`; that value remains a separate Phase-4 migration responsibility.
-
-## Intentionally unchanged
-
-Changing only `climate.humidity` does not change:
-
-- `climate.seed` or temperature noise identity,
-- local temperature,
-- terrain seed output,
-- `rawTerrain`,
-- `geometryReliefRawHeight`,
-- `geometryRawHeight`,
-- land/water classification,
-- collision / landing height,
-- terrain normals.
-
-The old three-argument `getClimateSample()` path also remains unchanged because the global humidity bias is applied only when a `PlanetClimateDefinition` is supplied.
-
-## Characterization tests
-
-Added:
-
-`tests/PlanetClimateHumidity.test.ts`
-
-Coverage:
-
-1. higher `climate.humidity` monotonically produces equal-or-wetter local samples,
-2. changing humidity alone leaves local temperature unchanged,
-3. coast/ocean moisture remains stronger than dry inland context at a neutral global humidity baseline,
-4. changing only global humidity leaves canonical terrain geometry, land mask and water classification unchanged.
-
-## Risk assessment
-
-Risk: **moderate visual/domain, low architectural**.
-
-Expected effects:
-
-- wet planets gain more humid local regions and cloud/vegetation potential,
-- dry planets retain the same local humidity structure but shift downward globally,
-- coastlines and oceans still provide local moisture,
-- biome changes can occur because biome is downstream of canonical climate,
-- terrain geometry remains identical.
+Characterization coverage: `tests/PlanetClimateHumidity.test.ts`.
 
 ---
 
 # 3. `climate.aridity`
 
-## Previous state
-
-Local aridity was already derived from meaningful local climate context:
-
-```text
-1 - humidity
-+ temperature contribution
-+ dry-noise variation
-- coastline moderation
-```
-
-But generated `PlanetDefinition.climate.aridity` was not consumed. Therefore two planets with different global dryness tendencies could still produce identical local aridity when temperature, humidity and terrain context matched.
-
 ## Migration decision
 
-`climate.aridity` is the global dryness baseline, layered on top of the existing local aridity model.
-
-The existing local calculation remains authoritative for geography-driven variation:
+`climate.aridity` is the global dryness baseline layered on the existing local dryness model.
 
 ```text
 localAridity
@@ -312,63 +96,123 @@ localAridity
     + temperature influence
     + dry-noise variation
     - coast moderation
+
+globalAridityBias
+    = (clamp(aridity, 0, 1) - 0.5) * 0.65
 ```
 
-The generated definition contributes an additive normalized bias around the neutral midpoint `0.5`:
+Aridity stays downstream of temperature and humidity and does not feed backward into either.
+
+Characterization coverage: `tests/PlanetClimateAridity.test.ts`.
+
+---
+
+# 4. `climate.biomeSeed`
+
+## Migration decision
+
+`biomeSeed` affects only deterministic ecological variation inside already-plausible land-biome boundaries. It does not modify temperature, humidity, aridity, vegetation, snow, terrain geometry or hard biome gates such as ocean/coast, mountain, snow/ice and tundra.
+
+The ecological variation is intentionally small and coherent so it can shift forest/grassland/savanna/dry-hills/desert transitions without overriding climate physics.
+
+Detailed migration notes: `PLANET_PHASE4_BIOME_SEED.md`.
+
+Characterization coverage: `tests/PlanetBiomeSeed.test.ts`.
+
+---
+
+# 5. `climate.weatherSeed` + `climate.windStrength`
+
+## Previous state
+
+`getWeatherSample(normal, climate, time)` was planet-independent. Jet bands, pressure systems, storm cells and swirl fields used fixed procedural offsets, so planets with equal climate context shared the same weather topology at equal direction/time.
+
+The generated values:
+
+```ts
+PlanetDefinition.climate.weatherSeed
+PlanetDefinition.climate.windStrength
+```
+
+were not consumed by the canonical weather evaluator.
+
+## Migration decision
+
+### `weatherSeed`
+
+`weatherSeed` owns the deterministic spatial identity of dynamic weather fields.
+
+One set of deterministic seed offsets now shifts the existing procedural fields for:
+
+- latitude/jet-band phase,
+- broad pressure systems,
+- pressure detail,
+- storm cells,
+- swirl structure.
+
+The existing frequencies, time evolution and climate dependencies remain unchanged. No random state is consumed during sampling, so identical direction + climate + time + definition remains deterministic.
+
+### `windStrength`
+
+`climate.windStrength` owns global wind intensity only.
+
+The historical local wind structure still comes from:
 
 ```text
-globalAridityBias = (clamp(aridity, 0, 1) - 0.5) * 0.65
-finalAridity = clamp(localAridity + globalAridityBias, 0, 1)
+latitude wind
++ jet bands
++ pressure deviation
 ```
 
-This preserves wet coasts and humid regions as relatively less dry while allowing globally arid planets to shift the complete dryness field upward.
+The generated global value is blended after that local structure is calculated:
 
-## Direction of dependency
+```text
+finalWind = clamp(
+    localWind * 0.65
+    + clamp(definition.windStrength, 0, 1) * 0.45
+)
+```
 
-Aridity is downstream of temperature and humidity.
+This preserves spatial wind variation while making generated calm/windy planets meaningfully different.
 
-Changing only `climate.aridity` must therefore **not** alter:
+Critically, changing only `windStrength` does **not** change:
 
-- local temperature,
-- local humidity.
+- pressure,
+- low/high pressure masks,
+- wind-band position,
+- storm potential,
+- cloud boost,
+- swirl,
+- canonical ClimateSample values.
 
-It may legitimately change:
+`stormActivity` remains a separate later control and is intentionally not folded into wind strength.
 
-- vegetation,
-- cloud potential,
-- savanna/desert/dry-hills biome selection.
+## API compatibility
 
-This keeps the climate dependency graph one-directional instead of allowing a derived dryness value to feed backward into moisture or temperature.
+`getWeatherSample()` now accepts an optional fourth argument:
 
-## Intentionally unchanged
+```ts
+getWeatherSample(
+    normal,
+    climate,
+    time = 0,
+    definition?: PlanetClimateDefinition,
+)
+```
 
-Changing only global aridity does not alter:
-
-- `climate.seed`,
-- temperature noise identity,
-- global/local humidity,
-- terrain seed output,
-- `rawTerrain`,
-- `geometryReliefRawHeight`,
-- `geometryRawHeight`,
-- land/water classification,
-- collision / landing height,
-- terrain normals.
-
-The three-argument legacy/debug `getClimateSample()` path remains unchanged because no global aridity bias exists without a supplied `PlanetClimateDefinition`.
+Existing three-argument callers retain the historical behavior.
 
 ## Characterization tests
 
-Added:
-
-`tests/PlanetClimateAridity.test.ts`
+Added `tests/PlanetWeatherWind.test.ts`.
 
 Coverage:
 
-1. higher `climate.aridity` monotonically produces equal-or-drier local samples,
-2. changing aridity alone leaves temperature and humidity identical,
-3. coast/humidity moderation remains active even with a non-neutral global dryness baseline,
-4. changing only global aridity leaves canonical terrain geometry, land mask and water classification unchanged.
+1. same weather seed/climate/time is deterministic,
+2. changing only `weatherSeed` changes the spatial weather identity,
+3. higher `windStrength` monotonically increases local wind intensity,
+4. changing only wind strength leaves all non-wind WeatherSample fields identical,
+5. weather sampling does not mutate/redefine the canonical ClimateSample.
 
 ## Risk assessment
 
@@ -376,22 +220,22 @@ Risk: **moderate visual/domain, low architectural**.
 
 Expected effects:
 
-- globally arid planets produce more dry-hills/savanna/desert outcomes where thresholds permit,
-- humid coastal regions remain relatively moderated,
-- vegetation and cloud potential can fall in dry regions,
-- terrain geometry remains identical.
+- different planets no longer share the same pressure/jet/storm-cell map at equal direction and time,
+- generated calm worlds remain spatially varied but globally calmer,
+- generated windy worlds retain the same local structure at higher intensity,
+- terrain, climate and biome truth remain unchanged.
 
 ---
 
-# Next step: `climate.biomeSeed`
+# Next step: `climate.stormActivity`
 
-Use `biomeSeed` only for deterministic spatial variation inside biome/climate classification. It must not modify terrain geometry or become a second terrain seed.
+Wire `stormActivity` only as the generated global storm tendency applied to existing local storm ingredients:
 
-Likely first responsibility:
+- cloud potential,
+- instability,
+- storm cells,
+- low/high pressure.
 
-- offset one or more biome-transition/local ecological variation fields,
-- preserve temperature/humidity/aridity baselines,
-- keep deterministic results for identical definition + direction,
-- allow otherwise identical climate definitions with different `biomeSeed` values to produce different local biome boundaries.
+It must not alter the pressure topology, climate temperature/humidity/aridity, wind-strength control or terrain geometry.
 
-Do not wire `weatherSeed` in the same change.
+Do not wire `seasonality` or `cloudPersistence` in the same change.
