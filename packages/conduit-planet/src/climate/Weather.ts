@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { PlanetClimateDefinition } from '../model';
 import type { ClimateSample } from './Climate';
 import {
 	clamp01,
@@ -40,47 +41,73 @@ export const WEATHER_DEBUG_MODES: WeatherDebugMode[] = [
 function clampSigned(value: number): number {
 	return Math.max(-1, Math.min(1, value));
 }
+
+/**
+ * Deterministic local weather sample.
+ *
+ * Passing the generated PlanetClimateDefinition enables the per-planet weather
+ * identity. The optional fourth argument preserves the historical three-
+ * argument API while migration is in progress.
+ *
+ * Phase 4 weather step 1 owns only:
+ * - weatherSeed: spatial identity for dynamic weather fields
+ * - windStrength: global intensity for the existing local wind structure
+ *
+ * stormActivity, seasonality and cloudPersistence are intentionally not wired
+ * here and remain isolated later migration steps.
+ */
 export function getWeatherSample(
 	normal: THREE.Vector3,
 	climate: ClimateSample,
 	time = 0,
+	definition?: PlanetClimateDefinition,
 ): WeatherSample {
 	const latitude = Math.asin(clampSigned(normal.y));
 	const ocean = 1 - climate.landMask;
+	const weatherOffsets = definition
+		? getSeedOffsets(definition.weatherSeed, 0x6f31)
+		: [0, 0, 0] as const;
 
 	const latitudeWind =
-		      0.5 +
-		      0.5 *
-		      Math.sin(
-		      latitude * 10.0 +
-		      climate.pressure * 3.2 +
-		      time * 0.16,
-		      );
+		0.5 +
+		0.5 *
+		Math.sin(
+			latitude * 10.0 +
+			climate.pressure * 3.2 +
+			time * 0.16 +
+			weatherOffsets[0] * 0.025,
+		);
 
 	const jetBands =
-		      0.5 +
-		      0.5 *
-		      Math.sin(
-		      latitude * 18.0 +
-		      (fbm(normal, 1.1, 13.4, 2.7, 9.1) - 0.5) * 5.0 +
-		      time * 0.22,
-		      );
+		0.5 +
+		0.5 *
+		Math.sin(
+			latitude * 18.0 +
+			(fbm(
+				normal,
+				1.1,
+				13.4 + weatherOffsets[0],
+				2.7 + weatherOffsets[1],
+				9.1 + weatherOffsets[2],
+			) - 0.5) * 5.0 +
+			time * 0.22,
+		);
 
 	const pressureBase = fbm(
 		normal,
 		1.20,
-		19.1 + time * 0.025,
-		2.4,
-		33.7,
+		19.1 + weatherOffsets[0] + time * 0.025,
+		2.4 + weatherOffsets[1],
+		33.7 + weatherOffsets[2],
 		5,
 	);
 
 	const pressureDetail = fbm(
 		normal,
 		3.40,
-		31.3,
-		8.6 + time * 0.045,
-		12.7,
+		31.3 + weatherOffsets[2],
+		8.6 + weatherOffsets[0] + time * 0.045,
+		12.7 + weatherOffsets[1],
 		4,
 	);
 
@@ -92,11 +119,11 @@ export function getWeatherSample(
 	);
 
 	const lowPressure =
-		      1 -
-		      smoothstep(0.40, 0.74, pressure);
+		1 -
+		smoothstep(0.40, 0.74, pressure);
 
 	const highPressure =
-		      smoothstep(0.56, 0.84, pressure);
+		smoothstep(0.56, 0.84, pressure);
 
 	const instability = clamp01(
 		climate.humidity * 0.48 +
@@ -109,15 +136,15 @@ export function getWeatherSample(
 	const cellNoise = fbm(
 		normal,
 		6.2,
-		5.1 + time * 0.075,
-		91.4,
-		17.7,
+		5.1 + weatherOffsets[1] + time * 0.075,
+		91.4 + weatherOffsets[2],
+		17.7 + weatherOffsets[0],
 		4,
 	);
 
 	const stormCells =
-		      smoothstep(0.58, 0.86, cellNoise) *
-		      (1 - highPressure * 0.55);
+		smoothstep(0.58, 0.86, cellNoise) *
+		(1 - highPressure * 0.55);
 
 	const stormPotential = clamp01(
 		climate.cloudPotential * 0.48 +
@@ -127,12 +154,18 @@ export function getWeatherSample(
 		highPressure * 0.18,
 	);
 
-	const windStrength = clamp01(
+	const localWindStrength = clamp01(
 		0.18 +
 		latitudeWind * 0.30 +
 		jetBands * 0.28 +
 		Math.abs(pressure - 0.5) * 0.34,
 	);
+	const globalWindStrength = definition
+		? clamp01(definition.windStrength)
+		: 0.5;
+	const windStrength = definition
+		? clamp01(localWindStrength * 0.65 + globalWindStrength * 0.45)
+		: localWindStrength;
 
 	const cloudBoost = clamp01(
 		climate.cloudPotential * 0.66 +
@@ -144,9 +177,9 @@ export function getWeatherSample(
 	const swirlNoise = fbm(
 		normal,
 		8.4,
-		73.2,
-		14.5 + time * 0.10,
-		42.0,
+		73.2 + weatherOffsets[0],
+		14.5 + weatherOffsets[1] + time * 0.10,
+		42.0 + weatherOffsets[2],
 		4,
 	);
 
@@ -169,6 +202,24 @@ export function getWeatherSample(
 		cloudBoost,
 		swirl,
 	};
+}
+
+function getSeedOffsets(seed: number, salt: number): readonly [number, number, number] {
+	return [
+		(seedHash01(seed, salt) - 0.5) * 96,
+		(seedHash01(seed, salt + 1) - 0.5) * 96,
+		(seedHash01(seed, salt + 2) - 0.5) * 96,
+	];
+}
+
+function seedHash01(seed: number, salt: number): number {
+	let value = (Math.trunc(seed) ^ Math.imul(salt, 0x9e3779b9)) >>> 0;
+	value ^= value >>> 16;
+	value = Math.imul(value, 0x7feb352d) >>> 0;
+	value ^= value >>> 15;
+	value = Math.imul(value, 0x846ca68b) >>> 0;
+	value ^= value >>> 16;
+	return value / 0xffffffff;
 }
 
 export function getWeatherDebugColor(
