@@ -28,7 +28,7 @@
 - [x] `climate.biomeSeed`
 - [x] `climate.weatherSeed`
 - [x] `climate.windStrength`
-- [ ] `climate.stormActivity`
+- [x] `climate.stormActivity`
 - [ ] `climate.seasonality`
 - [ ] `climate.cloudPersistence`
 
@@ -123,26 +123,13 @@ Characterization coverage: `tests/PlanetBiomeSeed.test.ts`.
 
 # 5. `climate.weatherSeed` + `climate.windStrength`
 
-## Previous state
-
-`getWeatherSample(normal, climate, time)` was planet-independent. Jet bands, pressure systems, storm cells and swirl fields used fixed procedural offsets, so planets with equal climate context shared the same weather topology at equal direction/time.
-
-The generated values:
-
-```ts
-PlanetDefinition.climate.weatherSeed
-PlanetDefinition.climate.windStrength
-```
-
-were not consumed by the canonical weather evaluator.
-
 ## Migration decision
 
 ### `weatherSeed`
 
 `weatherSeed` owns the deterministic spatial identity of dynamic weather fields.
 
-One set of deterministic seed offsets now shifts the existing procedural fields for:
+One set of deterministic seed offsets shifts the existing procedural fields for:
 
 - latitude/jet-band phase,
 - broad pressure systems,
@@ -150,7 +137,7 @@ One set of deterministic seed offsets now shifts the existing procedural fields 
 - storm cells,
 - swirl structure.
 
-The existing frequencies, time evolution and climate dependencies remain unchanged. No random state is consumed during sampling, so identical direction + climate + time + definition remains deterministic.
+The existing frequencies, time evolution and climate dependencies remain unchanged.
 
 ### `windStrength`
 
@@ -173,46 +160,90 @@ finalWind = clamp(
 )
 ```
 
-This preserves spatial wind variation while making generated calm/windy planets meaningfully different.
+Changing only `windStrength` does not alter pressure, storm potential, cloud boost, swirl or canonical ClimateSample values.
 
-Critically, changing only `windStrength` does **not** change:
+Characterization coverage: `tests/PlanetWeatherWind.test.ts`.
+
+---
+
+# 6. `climate.stormActivity`
+
+## Previous state
+
+Local storm potential already had meaningful dynamic inputs:
+
+```text
+cloud potential
++ atmospheric instability
++ seeded storm cells
++ low-pressure boost
+- high-pressure suppression
+```
+
+But generated `PlanetDefinition.climate.stormActivity` was not consumed by `getWeatherSample()`. Two otherwise equal planets with very different generated storm tendency could therefore still produce identical storm potential.
+
+## Migration decision
+
+`climate.stormActivity` is a **global storm tendency** layered on top of the existing local storm physics.
+
+The existing local structure remains unchanged:
+
+```text
+localStormPotential
+    = cloudPotential
+    + instability
+    + stormCells
+    + lowPressure
+    - highPressure
+```
+
+The generated definition contributes a normalized bias around the neutral midpoint:
+
+```text
+globalStormBias
+    = (clamp(stormActivity, 0, 1) - 0.5) * 0.60
+
+stormPotential
+    = clamp(localStormPotential + globalStormBias, 0, 1)
+```
+
+This means a globally stormy planet still needs the existing local weather structure to decide *where* storms form, while the definition controls how readily those systems become storm-active.
+
+## Dependency direction
+
+`stormActivity` must not feed backward into pressure topology or wind generation.
+
+Changing only `stormActivity` therefore leaves unchanged:
 
 - pressure,
 - low/high pressure masks,
 - wind-band position,
-- storm potential,
-- cloud boost,
-- swirl,
-- canonical ClimateSample values.
+- final wind strength,
+- climate temperature/humidity/aridity,
+- terrain/biome truth.
 
-`stormActivity` remains a separate later control and is intentionally not folded into wind strength.
+It may legitimately change downstream weather presentation values that already consume final `stormPotential`:
+
+- `cloudBoost`,
+- `swirl`.
+
+That is intentional one-directional weather dependency rather than a second pressure/storm simulation.
 
 ## API compatibility
 
-`getWeatherSample()` now accepts an optional fourth argument:
+No signature change was required. `stormActivity` is read only when the optional `PlanetClimateDefinition` is supplied to `getWeatherSample()`.
 
-```ts
-getWeatherSample(
-    normal,
-    climate,
-    time = 0,
-    definition?: PlanetClimateDefinition,
-)
-```
-
-Existing three-argument callers retain the historical behavior.
+The historical three-argument path remains unchanged.
 
 ## Characterization tests
 
-Added `tests/PlanetWeatherWind.test.ts`.
+Added `tests/PlanetWeatherStormActivity.test.ts`.
 
 Coverage:
 
-1. same weather seed/climate/time is deterministic,
-2. changing only `weatherSeed` changes the spatial weather identity,
-3. higher `windStrength` monotonically increases local wind intensity,
-4. changing only wind strength leaves all non-wind WeatherSample fields identical,
-5. weather sampling does not mutate/redefine the canonical ClimateSample.
+1. higher `stormActivity` monotonically increases/equalizes storm potential,
+2. changing only storm activity leaves pressure, pressure masks, wind band and wind strength identical,
+3. cloud boost and swirl may react only downstream of final storm potential.
 
 ## Risk assessment
 
@@ -220,22 +251,17 @@ Risk: **moderate visual/domain, low architectural**.
 
 Expected effects:
 
-- different planets no longer share the same pressure/jet/storm-cell map at equal direction and time,
-- generated calm worlds remain spatially varied but globally calmer,
-- generated windy worlds retain the same local structure at higher intensity,
-- terrain, climate and biome truth remain unchanged.
+- low-storm planets keep the same pressure/cell topology but fewer systems reach high storm potential,
+- storm-active planets more readily turn suitable local weather into strong storm systems,
+- wind and pressure remain independently controlled,
+- no terrain/climate geometry semantics change.
 
 ---
 
-# Next step: `climate.stormActivity`
+# Next step: `climate.seasonality`
 
-Wire `stormActivity` only as the generated global storm tendency applied to existing local storm ingredients:
+Wire `seasonality` only as a deterministic time-varying modulation of weather/climate intensity. It should not redefine the static global climate baseline or mutate terrain/biome truth directly.
 
-- cloud potential,
-- instability,
-- storm cells,
-- low/high pressure.
+Before implementation, define the time scale clearly so seasonal cycles remain deterministic and renderer-independent.
 
-It must not alter the pressure topology, climate temperature/humidity/aridity, wind-strength control or terrain geometry.
-
-Do not wire `seasonality` or `cloudPersistence` in the same change.
+Do not wire `cloudPersistence` in the same change.
