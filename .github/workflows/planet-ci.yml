@@ -7,6 +7,9 @@ on:
     paths:
       - 'packages/conduit-planet/**'
       - 'packages/conduit-web3d/**'
+      - 'src/game/simulation/**'
+      - 'tests/SimulationClock.test.ts'
+      - 'index.html'
       - 'package.json'
       - 'bun.lock'
       - 'tsconfig.json'
@@ -15,6 +18,9 @@ on:
     paths:
       - 'packages/conduit-planet/**'
       - 'packages/conduit-web3d/**'
+      - 'src/game/simulation/**'
+      - 'tests/SimulationClock.test.ts'
+      - 'index.html'
       - 'package.json'
       - 'bun.lock'
       - 'tsconfig.json'
@@ -47,6 +53,9 @@ jobs:
 
       - name: Test conduit-planet
         run: bun test packages/conduit-planet/tests
+
+      - name: Test simulation clock
+        run: bun test tests/SimulationClock.test.ts
 
       # The package currently contains known legacy WebGPU/TSL typing debt and
       # rootDir issues across conduit-web3d. Keep reporting those errors, but do
