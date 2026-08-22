@@ -1,8 +1,8 @@
 # Conduit Planet – Phase 4 Climate Migration
 
-> Working document for the climate/biome canonicalization phase.
+> Status: **complete**
 >
-> Target: make generated `PlanetDefinition.climate` values authoritative inputs to local climate/weather sampling without changing terrain geometry or creating renderer-owned climate truth.
+> Goal: make generated `PlanetDefinition.climate` values authoritative inputs to canonical climate/weather sampling without changing terrain geometry or creating renderer-owned climate truth.
 
 ---
 
@@ -10,12 +10,11 @@
 
 - WebGPU first; WebGL follows later.
 - `PlanetDefinition.climate` is the global climate domain truth.
-- `getClimateSample()` remains the canonical local climate/biome evaluator.
-- `getWeatherSample()` remains the canonical local dynamic weather evaluator.
-- `PlanetTerrainSampler` supplies terrain context and the generated climate definition.
+- `getClimateSample()` owns canonical static local climate/biome evaluation.
+- `getWeatherSample()` owns canonical fast local dynamic weather evaluation.
+- Slow orbital/seasonal effects are layered separately from static climate truth.
 - Climate/weather migration must not change terrain seed output, geometry relief, collision or land/water classification.
-- One climate/weather value or responsibility at a time.
-- Existing legacy/direct call signatures remain compatible while migration is in progress.
+- Existing legacy/direct call signatures stay compatible where practical.
 
 ---
 
@@ -29,239 +28,182 @@
 - [x] `climate.weatherSeed`
 - [x] `climate.windStrength`
 - [x] `climate.stormActivity`
-- [ ] `climate.seasonality`
-- [ ] `climate.cloudPersistence`
+- [x] `climate.seasonality`
+- [x] `climate.cloudPersistence`
+
+`climate.ashLoad` is intentionally **not** part of the general climate/weather migration. It belongs to later volcanic/atmospheric visual-material integration.
 
 ---
 
-# 1. `climate.seed` + `climate.temperature01`
+# Canonical responsibilities
 
-## Migration decision
+## `climate.seed`
 
-`climate.seed` owns deterministic spatial identity for the local temperature field. `climate.temperature01` is the generated global temperature baseline layered on top of latitude, altitude, polar cooling and local procedural variation.
+Owns deterministic spatial identity of the local temperature field.
 
-The canonical path is:
+## `climate.temperature01`
 
-```text
-PlanetDefinition.climate
-    ├─ seed
-    └─ temperature01
-          ↓
-PlanetTerrainSampler
-          ↓
-getClimateSample(normal, rawHeight, landMask, definition.climate)
-          ↓
-local ClimateSample.temperature
-```
+Owns the generated global temperature baseline. Latitude, altitude, polar cooling and local procedural variation remain local modifiers.
 
-The legacy three-argument `getClimateSample()` path remains available.
-
-Characterization coverage: `tests/PlanetClimateDefinition.test.ts`.
+Characterization: `tests/PlanetClimateDefinition.test.ts`.
 
 ---
 
-# 2. `climate.humidity`
+## `climate.humidity`
 
-## Migration decision
+Owns the global humidity baseline layered on top of local coast/ocean/rain-band/altitude moisture structure.
 
-`climate.humidity` is the global humidity baseline, not a replacement for local geography-driven moisture.
-
-```text
-localHumidity
-    = humidityNoise
-    + coast moisture
-    + ocean moisture
-    + rain-band moisture
-    - altitude drying
-
-globalHumidityBias
-    = (clamp(humidity, 0, 1) - 0.5) * 0.70
-```
-
-Changing humidity may affect downstream aridity, vegetation, cloud potential and biome, but does not change temperature or terrain geometry.
-
-Characterization coverage: `tests/PlanetClimateHumidity.test.ts`.
+Characterization: `tests/PlanetClimateHumidity.test.ts`.
 
 ---
 
-# 3. `climate.aridity`
+## `climate.aridity`
 
-## Migration decision
+Owns the global dryness baseline downstream of temperature and humidity. It does not feed backward into either.
 
-`climate.aridity` is the global dryness baseline layered on the existing local dryness model.
-
-```text
-localAridity
-    = 1 - localHumidity
-    + temperature influence
-    + dry-noise variation
-    - coast moderation
-
-globalAridityBias
-    = (clamp(aridity, 0, 1) - 0.5) * 0.65
-```
-
-Aridity stays downstream of temperature and humidity and does not feed backward into either.
-
-Characterization coverage: `tests/PlanetClimateAridity.test.ts`.
+Characterization: `tests/PlanetClimateAridity.test.ts`.
 
 ---
 
-# 4. `climate.biomeSeed`
+## `climate.biomeSeed`
 
-## Migration decision
+Owns deterministic ecological variation inside already plausible biome boundaries.
 
-`biomeSeed` affects only deterministic ecological variation inside already-plausible land-biome boundaries. It does not modify temperature, humidity, aridity, vegetation, snow, terrain geometry or hard biome gates such as ocean/coast, mountain, snow/ice and tundra.
+It does not modify temperature, humidity, aridity, vegetation, snow, terrain geometry or hard ocean/coast/mountain/snow/tundra gates.
 
-The ecological variation is intentionally small and coherent so it can shift forest/grassland/savanna/dry-hills/desert transitions without overriding climate physics.
+Detailed notes: `PLANET_PHASE4_BIOME_SEED.md`.
 
-Detailed migration notes: `PLANET_PHASE4_BIOME_SEED.md`.
-
-Characterization coverage: `tests/PlanetBiomeSeed.test.ts`.
+Characterization: `tests/PlanetBiomeSeed.test.ts`.
 
 ---
 
-# 5. `climate.weatherSeed` + `climate.windStrength`
+## `climate.weatherSeed`
 
-## Migration decision
+Owns deterministic spatial identity of dynamic weather fields:
 
-### `weatherSeed`
-
-`weatherSeed` owns the deterministic spatial identity of dynamic weather fields.
-
-One set of deterministic seed offsets shifts the existing procedural fields for:
-
-- latitude/jet-band phase,
-- broad pressure systems,
+- jet-band phase,
+- pressure systems,
 - pressure detail,
 - storm cells,
 - swirl structure.
 
-The existing frequencies, time evolution and climate dependencies remain unchanged.
+## `climate.windStrength`
 
-### `windStrength`
+Owns global wind intensity only. Local wind structure remains derived from latitude, jet bands and pressure deviation.
 
-`climate.windStrength` owns global wind intensity only.
-
-The historical local wind structure still comes from:
-
-```text
-latitude wind
-+ jet bands
-+ pressure deviation
-```
-
-The generated global value is blended after that local structure is calculated:
-
-```text
-finalWind = clamp(
-    localWind * 0.65
-    + clamp(definition.windStrength, 0, 1) * 0.45
-)
-```
-
-Changing only `windStrength` does not alter pressure, storm potential, cloud boost, swirl or canonical ClimateSample values.
-
-Characterization coverage: `tests/PlanetWeatherWind.test.ts`.
+Characterization: `tests/PlanetWeatherWind.test.ts`.
 
 ---
 
-# 6. `climate.stormActivity`
+## `climate.stormActivity`
 
-## Previous state
-
-Local storm potential already had meaningful dynamic inputs:
+Owns the global storm tendency layered on top of local storm ingredients:
 
 ```text
 cloud potential
-+ atmospheric instability
-+ seeded storm cells
-+ low-pressure boost
-- high-pressure suppression
++ instability
++ storm cells
++ low pressure
+- high pressure
 ```
 
-But generated `PlanetDefinition.climate.stormActivity` was not consumed by `getWeatherSample()`. Two otherwise equal planets with very different generated storm tendency could therefore still produce identical storm potential.
+Changing only storm activity does not alter pressure topology or wind generation. `cloudBoost` and `swirl` may react downstream through final `stormPotential`.
 
-## Migration decision
-
-`climate.stormActivity` is a **global storm tendency** layered on top of the existing local storm physics.
-
-The existing local structure remains unchanged:
-
-```text
-localStormPotential
-    = cloudPotential
-    + instability
-    + stormCells
-    + lowPressure
-    - highPressure
-```
-
-The generated definition contributes a normalized bias around the neutral midpoint:
-
-```text
-globalStormBias
-    = (clamp(stormActivity, 0, 1) - 0.5) * 0.60
-
-stormPotential
-    = clamp(localStormPotential + globalStormBias, 0, 1)
-```
-
-This means a globally stormy planet still needs the existing local weather structure to decide *where* storms form, while the definition controls how readily those systems become storm-active.
-
-## Dependency direction
-
-`stormActivity` must not feed backward into pressure topology or wind generation.
-
-Changing only `stormActivity` therefore leaves unchanged:
-
-- pressure,
-- low/high pressure masks,
-- wind-band position,
-- final wind strength,
-- climate temperature/humidity/aridity,
-- terrain/biome truth.
-
-It may legitimately change downstream weather presentation values that already consume final `stormPotential`:
-
-- `cloudBoost`,
-- `swirl`.
-
-That is intentional one-directional weather dependency rather than a second pressure/storm simulation.
-
-## API compatibility
-
-No signature change was required. `stormActivity` is read only when the optional `PlanetClimateDefinition` is supplied to `getWeatherSample()`.
-
-The historical three-argument path remains unchanged.
-
-## Characterization tests
-
-Added `tests/PlanetWeatherStormActivity.test.ts`.
-
-Coverage:
-
-1. higher `stormActivity` monotonically increases/equalizes storm potential,
-2. changing only storm activity leaves pressure, pressure masks, wind band and wind strength identical,
-3. cloud boost and swirl may react only downstream of final storm potential.
-
-## Risk assessment
-
-Risk: **moderate visual/domain, low architectural**.
-
-Expected effects:
-
-- low-storm planets keep the same pressure/cell topology but fewer systems reach high storm potential,
-- storm-active planets more readily turn suitable local weather into strong storm systems,
-- wind and pressure remain independently controlled,
-- no terrain/climate geometry semantics change.
+Characterization: `tests/PlanetWeatherStormActivity.test.ts`.
 
 ---
 
-# Next step: `climate.seasonality`
+## `climate.seasonality`
 
-Wire `seasonality` only as a deterministic time-varying modulation of weather/climate intensity. It should not redefine the static global climate baseline or mutate terrain/biome truth directly.
+Owns the strength of slow orbital-seasonal weather modulation.
 
-Before implementation, define the time scale clearly so seasonal cycles remain deterministic and renderer-independent.
+Season phase comes from the canonical game `SimulationClock` and each planet's `orbit.orbitalPeriod`:
 
-Do not wire `cloudPersistence` in the same change.
+```text
+SimulationClock elapsedSeconds
++ orbitalPeriod in Earth-year units
+→ normalized seasonPhase 0..1
+```
+
+`01.01.3030 00:00:00` is phase zero only; it is deliberately not named as a terrestrial season.
+
+Current seasonal effects are layered on dynamic storm/cloud/swirl response and are mirrored between hemispheres. Static canonical climate/terrain truth remains time-independent.
+
+Detailed notes: `PLANET_PHASE4_SEASONALITY.md`.
+
+Characterization:
+
+- `tests/PlanetSeasonality.test.ts`
+- root `tests/PlanetSeasonCycle.test.ts`
+- root `tests/SimulationClock.test.ts`
+
+---
+
+## `climate.cloudPersistence`
+
+Owns temporal persistence of storm-cell/cloud structure, **not cloud amount**.
+
+Fast weather time is split conceptually:
+
+```text
+weatherTime
+├─ pressure / jet / wind time   → unchanged
+└─ cloud/storm structure time   → persistence-scaled
+```
+
+Mapping:
+
+```text
+structureSpeed = 1.6 - clamp(cloudPersistence, 0, 1) * 1.2
+cloudStructureTime = weatherTime * structureSpeed
+```
+
+Semantics:
+
+- `0.0` → faster-changing structures (`1.6x`)
+- `0.5` → exact historical timing (`1.0x`)
+- `1.0` → slower-changing structures (`0.4x`)
+
+Pressure topology, wind, static climate and baseline cloud coverage remain unchanged.
+
+Detailed notes: `PLANET_PHASE4_CLOUD_PERSISTENCE.md`.
+
+Characterization: `tests/PlanetCloudPersistence.test.ts`.
+
+---
+
+# Canonical dependency flow after Phase 4
+
+```text
+PlanetDefinition.climate
+        ↓
+PlanetTerrainSampler
+        ↓
+ClimateSample
+        ↓
+getWeatherSample()
+        ↓
+weatherSeed / windStrength / stormActivity
+        ↓
+seasonal layer + cloud-persistence time layer
+        ↑
+SimulationClock + planet orbitalPeriod
+```
+
+Terrain geometry, landing/collision and land/water classification remain outside the dynamic climate/weather dependency graph.
+
+---
+
+# Phase 4 completion criteria
+
+Completed:
+
+- generated climate baselines are consumed by canonical climate sampling,
+- biome identity has a dedicated deterministic seed,
+- dynamic weather has a dedicated deterministic seed,
+- global wind and storm controls have isolated responsibilities,
+- simulation-driven orbital season phase exists,
+- cloud persistence controls temporal structure rather than cloud quantity,
+- characterization tests protect terrain/climate/weather responsibility boundaries.
+
+Phase 4 is closed. The next stabilization work can continue with the definition-usage cleanup plan without reopening climate/weather ownership.
