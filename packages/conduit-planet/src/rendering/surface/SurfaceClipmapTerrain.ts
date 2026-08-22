@@ -351,6 +351,7 @@ export class SurfaceClipmapTerrain {
 				mountainMask: terrain.rawTerrain.mountainMask,
 				erosionMask: terrain.rawTerrain.erosionMask,
 				riverMask: terrain.rawTerrain.riverMask,
+				volcanicMask: terrain.volcanicMask,
 				isWater: terrain.isWater,
 				slope,
 			},
