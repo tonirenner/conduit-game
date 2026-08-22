@@ -83,13 +83,33 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xfbfdff), iceBright * 0.42);
 	}
 
-	let roughness = material.roughness;
+	const metalInfluence = getSurfaceMetalInfluence(definition);
+	const exposedMetal = THREE.MathUtils.clamp(
+		metalInfluence * (0.34 + rockMask * 0.66),
+		0,
+		1,
+	);
+	if (exposedMetal > 0.001) {
+		targetColor.lerp(new THREE.Color(0x8b8178), exposedMetal * 0.16);
+	}
+
+	let roughness = THREE.MathUtils.lerp(
+		material.roughness,
+		Math.min(material.roughness, 0.52),
+		exposedMetal * 0.34,
+	);
 	if (river > 0.01) {
 		targetColor.multiplyScalar(THREE.MathUtils.lerp(1, 0.76, river * 0.58));
 		roughness = THREE.MathUtils.lerp(roughness, 0.58, river * 0.35);
 	}
 
-	return { color: targetColor, roughness, metalness: material.metalness };
+	const metalness = THREE.MathUtils.lerp(
+		material.metalness,
+		0.42,
+		exposedMetal * 0.68,
+	);
+
+	return { color: targetColor, roughness, metalness };
 }
 
 const proceduralMaterialDetail = wgslFn(`
@@ -376,6 +396,12 @@ function getClassMaterial(planetClass: PlanetClass): ClassMaterial {
 		case 'ocean': return material(0x1f6a46, 0x8ca05a, 0x4d6f52, 0x5a5548, 0.78, 0.0, 0.22);
 		default: return material(0x625548, 0xa48e73, 0x786858, 0x51483f, 0.84, 0.0, 0.10);
 	}
+}
+
+function getSurfaceMetalInfluence(definition: PlanetDefinition): number {
+	return definition.class === 'metal_rich'
+		? 1
+		: THREE.MathUtils.clamp(definition.composition.metal, 0, 1);
 }
 
 function material(
