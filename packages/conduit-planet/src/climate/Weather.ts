@@ -19,6 +19,14 @@ export type WeatherSample = {
 	swirl: number;
 };
 
+export type WeatherSampleOptions = {
+	/**
+	 * Optional time source for storm-cell and swirl structure only.
+	 * Pressure, jet bands and wind continue to use the canonical weather time.
+	 */
+	cloudStructureTime?: number;
+};
+
 export type WeatherDebugMode =
 	| 'weatherPressure'
 	| 'weatherLowPressure'
@@ -46,24 +54,27 @@ function clampSigned(value: number): number {
  * Deterministic local weather sample.
  *
  * Passing the generated PlanetClimateDefinition enables the per-planet weather
- * identity. The optional fourth argument preserves the historical three-
- * argument API while migration is in progress.
+ * identity. Optional arguments preserve the historical call contract while
+ * allowing slow cloud/storm structure time to be supplied independently.
  *
- * Phase 4 weather currently owns:
+ * Phase 4 weather owns:
  * - weatherSeed: spatial identity for dynamic weather fields
  * - windStrength: global intensity for the existing local wind structure
  * - stormActivity: global tendency layered on top of local storm potential
  *
- * seasonality and cloudPersistence remain isolated later migration steps.
+ * seasonality and cloudPersistence are layered by dedicated wrappers so the
+ * canonical fast weather evaluator stays stateless and reusable.
  */
 export function getWeatherSample(
 	normal: THREE.Vector3,
 	climate: ClimateSample,
 	time = 0,
 	definition?: PlanetClimateDefinition,
+	options: WeatherSampleOptions = {},
 ): WeatherSample {
 	const latitude = Math.asin(clampSigned(normal.y));
 	const ocean = 1 - climate.landMask;
+	const cloudStructureTime = options.cloudStructureTime ?? time;
 	const weatherOffsets = definition
 		? getSeedOffsets(definition.weatherSeed, 0x6f31)
 		: [0, 0, 0] as const;
@@ -136,7 +147,7 @@ export function getWeatherSample(
 	const cellNoise = fbm(
 		normal,
 		6.2,
-		5.1 + weatherOffsets[1] + time * 0.075,
+		5.1 + weatherOffsets[1] + cloudStructureTime * 0.075,
 		91.4 + weatherOffsets[2],
 		17.7 + weatherOffsets[0],
 		4,
@@ -184,7 +195,7 @@ export function getWeatherSample(
 		normal,
 		8.4,
 		73.2 + weatherOffsets[0],
-		14.5 + weatherOffsets[1] + time * 0.10,
+		14.5 + weatherOffsets[1] + cloudStructureTime * 0.10,
 		42.0 + weatherOffsets[2],
 		4,
 	);
