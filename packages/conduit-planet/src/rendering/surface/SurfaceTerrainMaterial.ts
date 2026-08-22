@@ -109,6 +109,16 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x77736b), exposedRock * 0.14);
 	}
 
+	const organicInfluence = getSurfaceOrganicInfluence(definition);
+	const localOrganic = THREE.MathUtils.clamp(
+		organicInfluence * (0.52 + erosion * 0.26 + river * 0.22),
+		0,
+		1,
+	);
+	if (localOrganic > 0.001) {
+		targetColor.lerp(new THREE.Color(0x16140f), localOrganic * 0.30);
+	}
+
 	const lavaInfluence = getSurfaceLavaInfluence(definition);
 	const localLava = THREE.MathUtils.clamp(lavaInfluence * volcanic, 0, 1);
 	if (localLava > 0.001) {
@@ -154,9 +164,14 @@ export function evaluateSurfaceTerrainMaterial(
 		0,
 		1,
 	);
-	const lavaRoughness = THREE.MathUtils.lerp(
+	const organicRoughness = THREE.MathUtils.lerp(
 		rockRoughness,
-		Math.max(rockRoughness, 0.90),
+		Math.min(rockRoughness, 0.64),
+		localOrganic * 0.32,
+	);
+	const lavaRoughness = THREE.MathUtils.lerp(
+		organicRoughness,
+		Math.max(organicRoughness, 0.90),
 		localLava * 0.58,
 	);
 	const toxicRoughness = THREE.MathUtils.clamp(
@@ -511,6 +526,12 @@ function getSurfaceToxicInfluence(definition: PlanetDefinition): number {
 function getSurfaceLavaInfluence(definition: PlanetDefinition): number {
 	return definition.class === 'lava' || definition.surface.hasVolcanism
 		? 1
+		: 0;
+}
+
+function getSurfaceOrganicInfluence(definition: PlanetDefinition): number {
+	return definition.class === 'carbon'
+		? THREE.MathUtils.clamp(definition.composition.organic, 0, 1)
 		: 0;
 }
 
