@@ -28,6 +28,7 @@ export type SurfaceTerrainMaterialInput = {
 	mountainMask: number;
 	erosionMask: number;
 	riverMask: number;
+	volcanicMask?: number;
 	isWater: boolean;
 	slope: number;
 };
@@ -47,6 +48,7 @@ export function evaluateSurfaceTerrainMaterial(
 	const mountain = THREE.MathUtils.clamp(input.mountainMask, 0, 1);
 	const erosion = THREE.MathUtils.clamp(input.erosionMask, 0, 1);
 	const river = THREE.MathUtils.clamp(input.riverMask, 0, 1);
+	const volcanic = THREE.MathUtils.clamp(input.volcanicMask ?? 0, 0, 1);
 	const height = THREE.MathUtils.clamp(input.height, 0, 1);
 	const slope = THREE.MathUtils.clamp(input.slope, 0, 1);
 
@@ -97,6 +99,12 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xfbfdff), iceBright * 0.42);
 	}
 
+	const lavaInfluence = getSurfaceLavaInfluence(definition);
+	const localLava = THREE.MathUtils.clamp(lavaInfluence * volcanic, 0, 1);
+	if (localLava > 0.001) {
+		targetColor.lerp(new THREE.Color(0x24130f), localLava * 0.44);
+	}
+
 	const toxicInfluence = getSurfaceToxicInfluence(definition);
 	const localToxic = THREE.MathUtils.clamp(
 		toxicInfluence * (0.42 + erosion * 0.34 + river * 0.24),
@@ -122,7 +130,8 @@ export function evaluateSurfaceTerrainMaterial(
 	const exposedMetal = THREE.MathUtils.clamp(
 		metalInfluence *
 		(0.34 + rockMask * 0.66) *
-		(1 - localIce * 0.92),
+		(1 - localIce * 0.92) *
+		(1 - localLava * 0.75),
 		0,
 		1,
 	);
@@ -130,8 +139,13 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x8b8178), exposedMetal * 0.16);
 	}
 
+	const lavaRoughness = THREE.MathUtils.lerp(
+		material.roughness,
+		Math.max(material.roughness, 0.90),
+		localLava * 0.58,
+	);
 	const toxicRoughness = THREE.MathUtils.clamp(
-		material.roughness + localToxic * 0.07,
+		lavaRoughness + localToxic * 0.07,
 		0,
 		1,
 	);
@@ -477,6 +491,12 @@ function getSurfaceToxicInfluence(definition: PlanetDefinition): number {
 	return definition.class === 'toxic'
 		? 1
 		: THREE.MathUtils.clamp(definition.composition.volatiles, 0, 1);
+}
+
+function getSurfaceLavaInfluence(definition: PlanetDefinition): number {
+	return definition.class === 'lava' || definition.surface.hasVolcanism
+		? 1
+		: 0;
 }
 
 function material(
