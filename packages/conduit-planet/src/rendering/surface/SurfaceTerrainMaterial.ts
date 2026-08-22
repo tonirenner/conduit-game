@@ -52,8 +52,21 @@ export function evaluateSurfaceTerrainMaterial(
 
 	if (input.isWater) {
 		const shallow = cpuSmoothstep(0.28, 0.72, land);
-		targetColor.set(0x071f2f).lerp(new THREE.Color(0x155463), shallow);
-		return { color: targetColor, roughness: 0.28, metalness: 0 };
+		const waterInfluence = getSurfaceWaterInfluence(definition);
+		const deepColor = new THREE.Color(0x0a2630).lerp(
+			new THREE.Color(0x06283a),
+			waterInfluence * 0.72,
+		);
+		const shallowColor = new THREE.Color(0x315d5a).lerp(
+			new THREE.Color(0x176b78),
+			waterInfluence * 0.72,
+		);
+		targetColor.copy(deepColor).lerp(shallowColor, shallow);
+		return {
+			color: targetColor,
+			roughness: THREE.MathUtils.lerp(0.34, 0.22, waterInfluence),
+			metalness: 0,
+		};
 	}
 
 	const material = getClassMaterial(definition.class);
@@ -429,6 +442,17 @@ function getSurfaceIceInfluence(definition: PlanetDefinition): number {
 	return THREE.MathUtils.clamp(
 		definition.composition.ice +
 		(definition.surface.hasIceCaps ? 0.25 : 0),
+		0,
+		1,
+	);
+}
+
+function getSurfaceWaterInfluence(definition: PlanetDefinition): number {
+	if (definition.class === 'toxic') return 0;
+
+	return THREE.MathUtils.clamp(
+		definition.composition.water *
+		(definition.surface.hasOcean ? 1 : 0.35),
 		0,
 		1,
 	);
