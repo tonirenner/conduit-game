@@ -6,6 +6,7 @@ import {
 	getTerrainGeometryReliefRawHeight,
 	getTerrainVolcanicMask,
 } from '../terrain/TerrainGeometryRelief';
+import { getPlanetIceCapMask } from '../terrain/PlanetSurfaceMasks';
 import {
 	createTerrainSeedConfig,
 	getTerrainSample,
@@ -65,8 +66,8 @@ export class PlanetTerrainSampler {
 		this.hasTectonics = definition.surface.hasTectonics;
 		this.hasVolcanism = definition.surface.hasVolcanism;
 		// Ice caps expose a canonical surface mask rather than modifying terrain
-		// geometry. Material/climate consumers can share this mask later without
-		// inventing independent polar thresholds.
+		// geometry. Material/climate consumers share this mask without inventing
+		// independent polar thresholds.
 		this.hasIceCaps = definition.surface.hasIceCaps;
 	}
 
@@ -93,7 +94,10 @@ export class PlanetTerrainSampler {
 			this.terrainSeedConfig,
 			this.hasVolcanism,
 		);
-		const iceCapMask = this.getIceCapMask(normalDirection);
+		const iceCapMask = getPlanetIceCapMask(
+			this.definition,
+			normalDirection,
+		);
 		const geometryRawHeight = Math.max(
 			0,
 			rawTerrain.height + geometryReliefRawHeight,
@@ -143,33 +147,6 @@ export class PlanetTerrainSampler {
 		return target
 			.copy(sample.direction)
 			.multiplyScalar(sample.surfaceRadiusMeters);
-	}
-
-	private getIceCapMask(direction: THREE.Vector3): number {
-		if (!this.hasIceCaps) return 0;
-
-		const polarLatitude = Math.abs(direction.y);
-		const temperature = THREE.MathUtils.clamp(
-			this.definition.climate.temperature01,
-			0,
-			1,
-		);
-		const iceAbundance = THREE.MathUtils.clamp(
-			this.definition.composition.ice,
-			0,
-			1,
-		);
-
-		// Colder / ice-richer worlds extend their caps further toward the equator.
-		// Warm, ice-poor worlds keep only narrow polar caps when the domain flag
-		// explicitly says that caps exist.
-		const capStart = THREE.MathUtils.clamp(
-			0.88 - (1 - temperature) * 0.24 - iceAbundance * 0.16,
-			0.46,
-			0.90,
-		);
-		const capFull = Math.min(0.985, capStart + 0.12);
-		return THREE.MathUtils.smoothstep(polarLatitude, capStart, capFull);
 	}
 
 	private sampleNormal(direction: THREE.Vector3): THREE.Vector3 {
