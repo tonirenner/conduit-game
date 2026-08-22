@@ -32,7 +32,7 @@ volatiles
 | `water` | Ocean/terrestrial/classification input | Density + climate humidity input | Direct water resource input | Ocean presence/threshold still belongs to `surface.hasOcean` + `surface.oceanLevel` | Active Surface water shading now uses continuous water abundance only after canonical water classification | Regional/orbit alignment remains later work |
 | `gas` | Gas/ice-giant classification input | Low-density physical contribution; atmosphere-adjacent generation | Strong fuel/volatile resource input | No solid-surface geometry role intended | Gas giant visuals are currently fixed class profiles | Gas abundance does not continuously alter gas-giant visual profile |
 | `organic` | Carbon-world classification input | Small physical-density contribution | Rare-material/fuel/research input | No geometry role intended | No current surface material influence | Carbon/organic abundance is effectively collapsed to class selection for visuals |
-| `volatiles` | Toxic/ice-giant/atmosphere-potential classification input | Density + climate/storm generation input | Rare/fuel/volatile resource input | No geometry role intended | `SurfaceRenderProfile.toxicInfluence` uses volatiles outside toxic class | Current WebGPU material does not consume this derived influence |
+| `volatiles` | Toxic/ice-giant/atmosphere-potential classification input | Density + climate/storm generation input | Rare/fuel/volatile resource input | No geometry role intended | Active Surface shading now derives the same `toxicInfluence` semantics as `SurfaceRenderProfile` | Regional/orbit alignment remains later work |
 
 ---
 
@@ -80,7 +80,7 @@ metalInfluence
 
 from `PlanetDefinition`.
 
-The active WebGPU `SurfaceTerrainMaterial` still receives the full `PlanetDefinition`, but Phase 5 is now migrating those same influence semantics into the active material one value at a time. `metalInfluence`, `iceInfluence` and `waterInfluence` are complete for SurfaceView.
+The active WebGPU `SurfaceTerrainMaterial` still receives the full `PlanetDefinition`, but Phase 5 is now migrating those same influence semantics into the active material one value at a time. `metalInfluence`, `iceInfluence`, `waterInfluence` and `toxicInfluence` are complete for SurfaceView.
 
 The long-term RenderProfile cleanup can later centralize the derivation without mixing that architectural refactor into the composition migration.
 
@@ -149,6 +149,19 @@ The value modulates only already-classified water albedo and roughness. Higher w
 
 Characterization: `tests/PlanetWaterComposition.test.ts`.
 
+### `toxicInfluence`
+
+Toxic class/atmosphere semantics remain authoritative. Surface shading derives the existing profile semantics only as a material influence:
+
+```text
+toxic class → 1.0
+otherwise   → clamp(composition.volatiles)
+```
+
+The influence is restricted to solid-surface shading. Volatile-rich material receives a restrained mineral/toxic tint and a small roughness increase, weighted toward erosion/river deposition structure. It does not create a toxic atmosphere, alter climate, or change terrain. Ice is layered after the toxic tint so canonical ice cover visually overrides deposits, and water stays outside this path.
+
+Characterization: `tests/PlanetCompositionToxicSurface.test.ts`.
+
 ---
 
 ## Recommended migration order
@@ -161,15 +174,15 @@ Use the already-derived influences first:
 metalInfluence ✅
 iceInfluence ✅
 waterInfluence ✅
-toxicInfluence
+toxicInfluence ✅
 lavaInfluence
 ```
 
 One influence at a time, with characterization tests.
 
-### Step 2 — volatile/toxic and lava influence alignment
+### Step 2 — lava influence alignment
 
-Do not let composition abundance implicitly enable volcanism or toxic atmosphere. These remain definition/class responsibilities; influence only shades already-valid material domains.
+Do not let composition abundance implicitly enable volcanism. `surface.hasVolcanism` / lava class remain the domain gate; `lavaInfluence` may only shade an already-valid volcanic material domain.
 
 ### Step 3 — decide explicit semantics for `rock`, `organic`, `gas`
 
@@ -207,7 +220,7 @@ Material outputs allowed to change:
 - [x] `metalInfluence` active surface shading
 - [x] `iceInfluence` active surface shading
 - [x] `waterInfluence` active surface shading
-- [ ] `toxicInfluence` active surface shading
+- [x] `toxicInfluence` active surface shading
 - [ ] `lavaInfluence` active surface shading
 - [ ] decide `rock` visual semantics
 - [ ] decide `organic` visual semantics
@@ -219,6 +232,6 @@ Material outputs allowed to change:
 
 ## Next step
 
-Wire **only `toxicInfluence`** into active Surface shading.
+Wire **only `lavaInfluence`** into active Surface shading.
 
-Keep toxic atmosphere/class semantics authoritative. Volatile abundance may influence the appearance of an already-valid surface material domain, but must not create a toxic atmosphere or change terrain/climate truth by itself.
+Keep `surface.hasVolcanism` and lava-class semantics authoritative. Do not make composition or material shading enable volcanism or alter canonical volcanic geometry/masks.
