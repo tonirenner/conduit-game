@@ -97,6 +97,16 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xfbfdff), iceBright * 0.42);
 	}
 
+	const toxicInfluence = getSurfaceToxicInfluence(definition);
+	const localToxic = THREE.MathUtils.clamp(
+		toxicInfluence * (0.42 + erosion * 0.34 + river * 0.24),
+		0,
+		1,
+	);
+	if (localToxic > 0.001) {
+		targetColor.lerp(new THREE.Color(0x77823e), localToxic * 0.22);
+	}
+
 	const iceCapMask = getPlanetIceCapMask(definition, input.direction);
 	const iceInfluence = getSurfaceIceInfluence(definition);
 	const localIce = THREE.MathUtils.clamp(
@@ -120,8 +130,13 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x8b8178), exposedMetal * 0.16);
 	}
 
+	const toxicRoughness = THREE.MathUtils.clamp(
+		material.roughness + localToxic * 0.07,
+		0,
+		1,
+	);
 	const iceRoughness = THREE.MathUtils.lerp(
-		material.roughness,
+		toxicRoughness,
 		0.34,
 		localIce * 0.72,
 	);
@@ -456,6 +471,12 @@ function getSurfaceWaterInfluence(definition: PlanetDefinition): number {
 		0,
 		1,
 	);
+}
+
+function getSurfaceToxicInfluence(definition: PlanetDefinition): number {
+	return definition.class === 'toxic'
+		? 1
+		: THREE.MathUtils.clamp(definition.composition.volatiles, 0, 1);
 }
 
 function material(
