@@ -99,6 +99,16 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xfbfdff), iceBright * 0.42);
 	}
 
+	const rockInfluence = THREE.MathUtils.clamp(definition.composition.rock, 0, 1);
+	const exposedRock = THREE.MathUtils.clamp(
+		rockInfluence * (0.24 + rockMask * 0.76),
+		0,
+		1,
+	);
+	if (exposedRock > 0.001) {
+		targetColor.lerp(new THREE.Color(0x77736b), exposedRock * 0.14);
+	}
+
 	const lavaInfluence = getSurfaceLavaInfluence(definition);
 	const localLava = THREE.MathUtils.clamp(lavaInfluence * volcanic, 0, 1);
 	if (localLava > 0.001) {
@@ -139,9 +149,14 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x8b8178), exposedMetal * 0.16);
 	}
 
+	const rockRoughness = THREE.MathUtils.clamp(
+		material.roughness + exposedRock * 0.055,
+		0,
+		1,
+	);
 	const lavaRoughness = THREE.MathUtils.lerp(
-		material.roughness,
-		Math.max(material.roughness, 0.90),
+		rockRoughness,
+		Math.max(rockRoughness, 0.90),
 		localLava * 0.58,
 	);
 	const toxicRoughness = THREE.MathUtils.clamp(
