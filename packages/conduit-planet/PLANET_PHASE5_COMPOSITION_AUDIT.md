@@ -66,7 +66,7 @@ Existing exceptions are explicit domain semantics:
 
 Do not move these responsibilities back into raw composition.
 
-### 3. Main integration gap: derived rendering influences stop before the active material
+### 3. Existing SurfaceRenderProfile influences are now active in SurfaceView
 
 `createSurfaceRenderProfile()` already derives:
 
@@ -80,7 +80,7 @@ metalInfluence
 
 from `PlanetDefinition`.
 
-The active WebGPU `SurfaceTerrainMaterial` still receives the full `PlanetDefinition`, but Phase 5 is now migrating those same influence semantics into the active material one value at a time. `metalInfluence`, `iceInfluence`, `waterInfluence` and `toxicInfluence` are complete for SurfaceView.
+Phase 5 has now migrated the same semantics into active Surface shading one value at a time. `metalInfluence`, `iceInfluence`, `waterInfluence`, `toxicInfluence` and `lavaInfluence` are complete for SurfaceView.
 
 The long-term RenderProfile cleanup can later centralize the derivation without mixing that architectural refactor into the composition migration.
 
@@ -162,31 +162,37 @@ The influence is restricted to solid-surface shading. Volatile-rich material rec
 
 Characterization: `tests/PlanetCompositionToxicSurface.test.ts`.
 
+### `lavaInfluence`
+
+Volcanism remains owned by the canonical domain flags and masks:
+
+```text
+lava class OR surface.hasVolcanism
+→ lavaInfluence = 1
+
+non-lava world
+→ local lava response = lavaInfluence * canonical terrain.volcanicMask
+```
+
+The Surface clipmap now passes `PlanetTerrainSampler.volcanicMask` into material evaluation rather than generating a second volcanic pattern. On non-lava volcanic worlds, only masked solid terrain receives a restrained basalt/lava tint, roughness increase, and suppression of exposed metal. Water remains outside this path. Lava-class planets keep their existing full lava material behavior independent of the local mask.
+
+Characterization: `tests/PlanetLavaInfluenceSurface.test.ts`.
+
 ---
 
 ## Recommended migration order
 
-### Step 1 — close the existing SurfaceRenderProfile → SurfaceTerrainMaterial gap
-
-Use the already-derived influences first:
+The pre-existing SurfaceRenderProfile influence block is now complete for SurfaceView:
 
 ```text
 metalInfluence ✅
 iceInfluence ✅
 waterInfluence ✅
 toxicInfluence ✅
-lavaInfluence
+lavaInfluence ✅
 ```
 
-One influence at a time, with characterization tests.
-
-### Step 2 — lava influence alignment
-
-Do not let composition abundance implicitly enable volcanism. `surface.hasVolcanism` / lava class remain the domain gate; `lavaInfluence` may only shade an already-valid volcanic material domain.
-
-### Step 3 — decide explicit semantics for `rock`, `organic`, `gas`
-
-Do this only after the existing profile contract is actually consumed.
+Next, decide explicit semantics for `rock`, `organic`, and `gas`. Do not force them into the same material contract automatically: `gas` especially belongs to gas/ice-giant rendering rather than solid-surface terrain.
 
 ---
 
@@ -221,7 +227,7 @@ Material outputs allowed to change:
 - [x] `iceInfluence` active surface shading
 - [x] `waterInfluence` active surface shading
 - [x] `toxicInfluence` active surface shading
-- [ ] `lavaInfluence` active surface shading
+- [x] `lavaInfluence` active surface shading
 - [ ] decide `rock` visual semantics
 - [ ] decide `organic` visual semantics
 - [ ] decide `gas` visual semantics
@@ -232,6 +238,6 @@ Material outputs allowed to change:
 
 ## Next step
 
-Wire **only `lavaInfluence`** into active Surface shading.
+Define explicit visual semantics for **`rock`**, **`organic`**, and **`gas`** before wiring any of them.
 
-Keep `surface.hasVolcanism` and lava-class semantics authoritative. Do not make composition or material shading enable volcanism or alter canonical volcanic geometry/masks.
+Do not assume every remaining composition key belongs in solid-surface shading. In particular, `gas` should be evaluated against the gas/ice-giant visual pipeline rather than added to `SurfaceTerrainMaterial` by default.
