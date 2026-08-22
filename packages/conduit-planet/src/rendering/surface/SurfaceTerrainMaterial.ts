@@ -16,6 +16,7 @@ import {
 	wgslFn,
 } from 'three/tsl';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
+import { getPlanetIceCapMask } from '../../terrain/PlanetSurfaceMasks';
 
 const EARTH_RADIUS_METERS = 6_371_000;
 
@@ -83,9 +84,22 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xfbfdff), iceBright * 0.42);
 	}
 
+	const iceCapMask = getPlanetIceCapMask(definition, input.direction);
+	const iceInfluence = getSurfaceIceInfluence(definition);
+	const localIce = THREE.MathUtils.clamp(
+		iceCapMask * iceInfluence,
+		0,
+		1,
+	);
+	if (localIce > 0.001) {
+		targetColor.lerp(new THREE.Color(0xe8f7fb), localIce * 0.78);
+	}
+
 	const metalInfluence = getSurfaceMetalInfluence(definition);
 	const exposedMetal = THREE.MathUtils.clamp(
-		metalInfluence * (0.34 + rockMask * 0.66),
+		metalInfluence *
+		(0.34 + rockMask * 0.66) *
+		(1 - localIce * 0.92),
 		0,
 		1,
 	);
@@ -93,9 +107,14 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x8b8178), exposedMetal * 0.16);
 	}
 
-	let roughness = THREE.MathUtils.lerp(
+	const iceRoughness = THREE.MathUtils.lerp(
 		material.roughness,
-		Math.min(material.roughness, 0.52),
+		0.34,
+		localIce * 0.72,
+	);
+	let roughness = THREE.MathUtils.lerp(
+		iceRoughness,
+		Math.min(iceRoughness, 0.52),
 		exposedMetal * 0.34,
 	);
 	if (river > 0.01) {
@@ -402,6 +421,17 @@ function getSurfaceMetalInfluence(definition: PlanetDefinition): number {
 	return definition.class === 'metal_rich'
 		? 1
 		: THREE.MathUtils.clamp(definition.composition.metal, 0, 1);
+}
+
+function getSurfaceIceInfluence(definition: PlanetDefinition): number {
+	if (definition.class === 'ice') return 1;
+
+	return THREE.MathUtils.clamp(
+		definition.composition.ice +
+		(definition.surface.hasIceCaps ? 0.25 : 0),
+		0,
+		1,
+	);
 }
 
 function material(
