@@ -27,8 +27,8 @@ volatiles
 | Key | Generation / classification | Physical / climate | Resources | Terrain / surface | Rendering | Current gap |
 | --- | --- | --- | --- | --- | --- | --- |
 | `rock` | Strong class-resolution input; generated for all classes | Contributes directly to physical density/mass/gravity | Contributes to metal resource score | No canonical geometry control | Not consumed by current surface material except indirectly through `PlanetClass` | No continuous rocky/mineral material influence |
-| `metal` | Strong `metal_rich` classification input | Strong physical density contribution | Direct metal + rare-material resource input | No canonical geometry control | `SurfaceRenderProfile.metalInfluence` exists | Current WebGPU surface material still uses class presets rather than composition influence |
-| `ice` | Strong ice/ice-giant classification input | Density input; climate generation input | Water/fuel/volatile resource input | Canonically affects `iceCapMask` extent when `hasIceCaps` is true | `SurfaceRenderProfile.iceInfluence` exists | Canonical mask exists, but composition-driven ice material is not yet consistently consumed by Surface material |
+| `metal` | Strong `metal_rich` classification input | Strong physical density contribution | Direct metal + rare-material resource input | No canonical geometry control | Active Surface shading now derives the same `metalInfluence` semantics as `SurfaceRenderProfile` | Regional/orbit alignment remains later work |
+| `ice` | Strong ice/ice-giant classification input | Density input; climate generation input | Water/fuel/volatile resource input | Canonically affects shared `iceCapMask` extent when `hasIceCaps` is true | Active Surface shading now consumes the shared canonical ice-cap mask plus composition-derived ice influence | Regional/orbit alignment remains later work |
 | `water` | Ocean/terrestrial/classification input | Density + climate humidity input | Direct water resource input | Ocean presence/threshold still belongs to `surface.hasOcean` + `surface.oceanLevel` | `SurfaceRenderProfile.waterInfluence` exists | Surface water rendering mostly follows water classification/flag, not continuous composition abundance |
 | `gas` | Gas/ice-giant classification input | Low-density physical contribution; atmosphere-adjacent generation | Strong fuel/volatile resource input | No solid-surface geometry role intended | Gas giant visuals are currently fixed class profiles | Gas abundance does not continuously alter gas-giant visual profile |
 | `organic` | Carbon-world classification input | Small physical-density contribution | Rare-material/fuel/research input | No geometry role intended | No current surface material influence | Carbon/organic abundance is effectively collapsed to class selection for visuals |
@@ -80,14 +80,9 @@ metalInfluence
 
 from `PlanetDefinition`.
 
-However the active WebGPU `SurfaceTerrainMaterial` receives the full `PlanetDefinition` and still resolves most visual behavior from `definition.class` plus local terrain masks. It does not currently use the derived `SurfaceRenderProfile` influences.
+The active WebGPU `SurfaceTerrainMaterial` still receives the full `PlanetDefinition`, but Phase 5 is now migrating those same influence semantics into the active material one value at a time. `metalInfluence` and `iceInfluence` are complete for SurfaceView.
 
-This creates two problems:
-
-1. continuous composition differences inside one planet class are visually weak or invisible,
-2. `SurfaceRenderProfile` contains meaningful derived values that are not yet the active shading contract.
-
-This is the highest-value Phase 5 migration target.
+The long-term RenderProfile cleanup can later centralize the derivation without mixing that architectural refactor into the composition migration.
 
 ### 4. `rock`, `organic`, and `gas` need explicit visual decisions
 
@@ -104,6 +99,36 @@ Recommended semantics:
 
 ---
 
+## Completed migrations
+
+### `metalInfluence`
+
+Surface shading now derives:
+
+```text
+metal_rich → 1.0
+otherwise  → clamp(composition.metal)
+```
+
+It affects only exposed solid-surface albedo, roughness and metalness. Water remains non-metallic; geometry/climate/collision are unchanged.
+
+### `iceInfluence`
+
+The previous sampler-owned polar formula was extracted to shared canonical `getPlanetIceCapMask()` surface-domain logic.
+
+Both `PlanetTerrainSampler` and active Surface shading consume that same mask. The material derives the existing profile semantics:
+
+```text
+ice class → 1.0
+otherwise → clamp(composition.ice + (hasIceCaps ? 0.25 : 0))
+```
+
+The final local ice response is gated by the canonical cap mask. Polar ice brightens/cools albedo, lowers local roughness modestly and suppresses exposed metal beneath the ice. Equatorial terrain outside the cap is not painted with composition ice, and water remains unchanged.
+
+Characterization: `tests/PlanetCompositionIceSurface.test.ts`.
+
+---
+
 ## Recommended migration order
 
 ### Step 1 — close the existing SurfaceRenderProfile → SurfaceTerrainMaterial gap
@@ -111,8 +136,8 @@ Recommended semantics:
 Use the already-derived influences first:
 
 ```text
-metalInfluence
-iceInfluence
+metalInfluence ✅
+iceInfluence ✅
 waterInfluence
 toxicInfluence
 lavaInfluence
@@ -120,29 +145,15 @@ lavaInfluence
 
 One influence at a time, with characterization tests.
 
-Recommended first value: **`metalInfluence`**.
-
-Why:
-
-- isolated shading responsibility,
-- no collision/climate/geometry effect,
-- easy to characterize via roughness/metalness,
-- directly proves that same-class planets can visually differ by composition,
-- lower risk than water/ice because those overlap explicit surface masks.
-
-### Step 2 — ice composition alignment
-
-Use `iceInfluence` together with the existing canonical `iceCapMask`, without inventing a second polar mask.
-
-### Step 3 — water composition alignment
+### Step 2 — water composition alignment
 
 Keep `hasOcean`/`oceanLevel` authoritative for actual water classification. `waterInfluence` may alter water appearance or moist/coastal material response only.
 
-### Step 4 — volatile/toxic and lava influence alignment
+### Step 3 — volatile/toxic and lava influence alignment
 
 Do not let composition abundance implicitly enable volcanism or toxic atmosphere. These remain definition/class responsibilities; influence only shades already-valid material domains.
 
-### Step 5 — decide explicit semantics for `rock`, `organic`, `gas`
+### Step 4 — decide explicit semantics for `rock`, `organic`, `gas`
 
 Do this only after the existing profile contract is actually consumed.
 
@@ -175,8 +186,8 @@ Material outputs allowed to change:
 ## Phase 5 status
 
 - [x] Composition audit
-- [ ] `metalInfluence` active surface shading
-- [ ] `iceInfluence` active surface shading
+- [x] `metalInfluence` active surface shading
+- [x] `iceInfluence` active surface shading
 - [ ] `waterInfluence` active surface shading
 - [ ] `toxicInfluence` active surface shading
 - [ ] `lavaInfluence` active surface shading
@@ -190,6 +201,6 @@ Material outputs allowed to change:
 
 ## Next step
 
-Wire **only `metalInfluence`** into active Surface shading.
+Wire **only `waterInfluence`** into active Surface shading.
 
-Do not change geometry, resource generation, class resolution, water/ice masks, or other composition keys in the same change.
+Keep `surface.hasOcean` and `surface.oceanLevel` authoritative for actual water classification. Do not create water where the canonical surface domain says there is none.
