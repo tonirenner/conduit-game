@@ -29,7 +29,7 @@ volatiles
 | `rock` | Strong class-resolution input; generated for all classes | Contributes directly to physical density/mass/gravity | Contributes to metal resource score | No canonical geometry control | Not consumed by current surface material except indirectly through `PlanetClass` | No continuous rocky/mineral material influence |
 | `metal` | Strong `metal_rich` classification input | Strong physical density contribution | Direct metal + rare-material resource input | No canonical geometry control | Active Surface shading now derives the same `metalInfluence` semantics as `SurfaceRenderProfile` | Regional/orbit alignment remains later work |
 | `ice` | Strong ice/ice-giant classification input | Density input; climate generation input | Water/fuel/volatile resource input | Canonically affects shared `iceCapMask` extent when `hasIceCaps` is true | Active Surface shading now consumes the shared canonical ice-cap mask plus composition-derived ice influence | Regional/orbit alignment remains later work |
-| `water` | Ocean/terrestrial/classification input | Density + climate humidity input | Direct water resource input | Ocean presence/threshold still belongs to `surface.hasOcean` + `surface.oceanLevel` | `SurfaceRenderProfile.waterInfluence` exists | Surface water rendering mostly follows water classification/flag, not continuous composition abundance |
+| `water` | Ocean/terrestrial/classification input | Density + climate humidity input | Direct water resource input | Ocean presence/threshold still belongs to `surface.hasOcean` + `surface.oceanLevel` | Active Surface water shading now uses continuous water abundance only after canonical water classification | Regional/orbit alignment remains later work |
 | `gas` | Gas/ice-giant classification input | Low-density physical contribution; atmosphere-adjacent generation | Strong fuel/volatile resource input | No solid-surface geometry role intended | Gas giant visuals are currently fixed class profiles | Gas abundance does not continuously alter gas-giant visual profile |
 | `organic` | Carbon-world classification input | Small physical-density contribution | Rare-material/fuel/research input | No geometry role intended | No current surface material influence | Carbon/organic abundance is effectively collapsed to class selection for visuals |
 | `volatiles` | Toxic/ice-giant/atmosphere-potential classification input | Density + climate/storm generation input | Rare/fuel/volatile resource input | No geometry role intended | `SurfaceRenderProfile.toxicInfluence` uses volatiles outside toxic class | Current WebGPU material does not consume this derived influence |
@@ -80,7 +80,7 @@ metalInfluence
 
 from `PlanetDefinition`.
 
-The active WebGPU `SurfaceTerrainMaterial` still receives the full `PlanetDefinition`, but Phase 5 is now migrating those same influence semantics into the active material one value at a time. `metalInfluence` and `iceInfluence` are complete for SurfaceView.
+The active WebGPU `SurfaceTerrainMaterial` still receives the full `PlanetDefinition`, but Phase 5 is now migrating those same influence semantics into the active material one value at a time. `metalInfluence`, `iceInfluence` and `waterInfluence` are complete for SurfaceView.
 
 The long-term RenderProfile cleanup can later centralize the derivation without mixing that architectural refactor into the composition migration.
 
@@ -127,6 +127,28 @@ The final local ice response is gated by the canonical cap mask. Polar ice brigh
 
 Characterization: `tests/PlanetCompositionIceSurface.test.ts`.
 
+### `waterInfluence`
+
+Canonical water classification remains unchanged:
+
+```text
+surface.hasOcean
++ surface.oceanLevel
++ terrain landMask
+→ isWater
+```
+
+Only after `isWater` is true does active Surface shading derive the existing profile semantics:
+
+```text
+toxic class → 0
+otherwise   → clamp(composition.water * (hasOcean ? 1.0 : 0.35))
+```
+
+The value modulates only already-classified water albedo and roughness. Higher water abundance produces a slightly clearer/deeper blue-green response and a calmer/lower-roughness surface. Metalness remains zero. Land material is intentionally unchanged by this step.
+
+Characterization: `tests/PlanetWaterComposition.test.ts`.
+
 ---
 
 ## Recommended migration order
@@ -138,22 +160,18 @@ Use the already-derived influences first:
 ```text
 metalInfluence ✅
 iceInfluence ✅
-waterInfluence
+waterInfluence ✅
 toxicInfluence
 lavaInfluence
 ```
 
 One influence at a time, with characterization tests.
 
-### Step 2 — water composition alignment
-
-Keep `hasOcean`/`oceanLevel` authoritative for actual water classification. `waterInfluence` may alter water appearance or moist/coastal material response only.
-
-### Step 3 — volatile/toxic and lava influence alignment
+### Step 2 — volatile/toxic and lava influence alignment
 
 Do not let composition abundance implicitly enable volcanism or toxic atmosphere. These remain definition/class responsibilities; influence only shades already-valid material domains.
 
-### Step 4 — decide explicit semantics for `rock`, `organic`, `gas`
+### Step 3 — decide explicit semantics for `rock`, `organic`, `gas`
 
 Do this only after the existing profile contract is actually consumed.
 
@@ -188,7 +206,7 @@ Material outputs allowed to change:
 - [x] Composition audit
 - [x] `metalInfluence` active surface shading
 - [x] `iceInfluence` active surface shading
-- [ ] `waterInfluence` active surface shading
+- [x] `waterInfluence` active surface shading
 - [ ] `toxicInfluence` active surface shading
 - [ ] `lavaInfluence` active surface shading
 - [ ] decide `rock` visual semantics
@@ -201,6 +219,6 @@ Material outputs allowed to change:
 
 ## Next step
 
-Wire **only `waterInfluence`** into active Surface shading.
+Wire **only `toxicInfluence`** into active Surface shading.
 
-Keep `surface.hasOcean` and `surface.oceanLevel` authoritative for actual water classification. Do not create water where the canonical surface domain says there is none.
+Keep toxic atmosphere/class semantics authoritative. Volatile abundance may influence the appearance of an already-valid surface material domain, but must not create a toxic atmosphere or change terrain/climate truth by itself.
