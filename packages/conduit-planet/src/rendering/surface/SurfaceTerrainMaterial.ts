@@ -16,6 +16,7 @@ import {
 	wgslFn,
 } from 'three/tsl';
 import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
+import { createSurfaceMaterialSemantics } from '../SurfaceMaterialSemantics';
 import { getPlanetIceCapMask } from '../../terrain/PlanetSurfaceMasks';
 
 const EARTH_RADIUS_METERS = 6_371_000;
@@ -44,6 +45,7 @@ export function evaluateSurfaceTerrainMaterial(
 	input: SurfaceTerrainMaterialInput,
 	targetColor = new THREE.Color(),
 ): SurfaceTerrainMaterialSample {
+	const semantics = createSurfaceMaterialSemantics(definition);
 	const land = THREE.MathUtils.clamp(input.landMask, 0, 1);
 	const mountain = THREE.MathUtils.clamp(input.mountainMask, 0, 1);
 	const erosion = THREE.MathUtils.clamp(input.erosionMask, 0, 1);
@@ -54,7 +56,7 @@ export function evaluateSurfaceTerrainMaterial(
 
 	if (input.isWater) {
 		const shallow = cpuSmoothstep(0.28, 0.72, land);
-		const waterInfluence = getSurfaceWaterInfluence(definition);
+		const waterInfluence = semantics.waterInfluence;
 		const deepColor = new THREE.Color(0x0a2630).lerp(
 			new THREE.Color(0x06283a),
 			waterInfluence * 0.72,
@@ -99,9 +101,8 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xfbfdff), iceBright * 0.42);
 	}
 
-	const rockInfluence = THREE.MathUtils.clamp(definition.composition.rock, 0, 1);
 	const exposedRock = THREE.MathUtils.clamp(
-		rockInfluence * (0.24 + rockMask * 0.76),
+		semantics.rockInfluence * (0.24 + rockMask * 0.76),
 		0,
 		1,
 	);
@@ -109,9 +110,8 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x77736b), exposedRock * 0.14);
 	}
 
-	const organicInfluence = getSurfaceOrganicInfluence(definition);
 	const localOrganic = THREE.MathUtils.clamp(
-		organicInfluence * (0.52 + erosion * 0.26 + river * 0.22),
+		semantics.organicInfluence * (0.52 + erosion * 0.26 + river * 0.22),
 		0,
 		1,
 	);
@@ -119,15 +119,13 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0x16140f), localOrganic * 0.30);
 	}
 
-	const lavaInfluence = getSurfaceLavaInfluence(definition);
-	const localLava = THREE.MathUtils.clamp(lavaInfluence * volcanic, 0, 1);
+	const localLava = THREE.MathUtils.clamp(semantics.lavaInfluence * volcanic, 0, 1);
 	if (localLava > 0.001) {
 		targetColor.lerp(new THREE.Color(0x24130f), localLava * 0.44);
 	}
 
-	const toxicInfluence = getSurfaceToxicInfluence(definition);
 	const localToxic = THREE.MathUtils.clamp(
-		toxicInfluence * (0.42 + erosion * 0.34 + river * 0.24),
+		semantics.toxicInfluence * (0.42 + erosion * 0.34 + river * 0.24),
 		0,
 		1,
 	);
@@ -136,9 +134,8 @@ export function evaluateSurfaceTerrainMaterial(
 	}
 
 	const iceCapMask = getPlanetIceCapMask(definition, input.direction);
-	const iceInfluence = getSurfaceIceInfluence(definition);
 	const localIce = THREE.MathUtils.clamp(
-		iceCapMask * iceInfluence,
+		iceCapMask * semantics.iceInfluence,
 		0,
 		1,
 	);
@@ -146,9 +143,8 @@ export function evaluateSurfaceTerrainMaterial(
 		targetColor.lerp(new THREE.Color(0xe8f7fb), localIce * 0.78);
 	}
 
-	const metalInfluence = getSurfaceMetalInfluence(definition);
 	const exposedMetal = THREE.MathUtils.clamp(
-		metalInfluence *
+		semantics.metalInfluence *
 		(0.34 + rockMask * 0.66) *
 		(1 - localIce * 0.92) *
 		(1 - localLava * 0.75),
@@ -487,52 +483,6 @@ function getClassMaterial(planetClass: PlanetClass): ClassMaterial {
 		case 'ocean': return material(0x1f6a46, 0x8ca05a, 0x4d6f52, 0x5a5548, 0.78, 0.0, 0.22);
 		default: return material(0x625548, 0xa48e73, 0x786858, 0x51483f, 0.84, 0.0, 0.10);
 	}
-}
-
-function getSurfaceMetalInfluence(definition: PlanetDefinition): number {
-	return definition.class === 'metal_rich'
-		? 1
-		: THREE.MathUtils.clamp(definition.composition.metal, 0, 1);
-}
-
-function getSurfaceIceInfluence(definition: PlanetDefinition): number {
-	if (definition.class === 'ice') return 1;
-
-	return THREE.MathUtils.clamp(
-		definition.composition.ice +
-		(definition.surface.hasIceCaps ? 0.25 : 0),
-		0,
-		1,
-	);
-}
-
-function getSurfaceWaterInfluence(definition: PlanetDefinition): number {
-	if (definition.class === 'toxic') return 0;
-
-	return THREE.MathUtils.clamp(
-		definition.composition.water *
-		(definition.surface.hasOcean ? 1 : 0.35),
-		0,
-		1,
-	);
-}
-
-function getSurfaceToxicInfluence(definition: PlanetDefinition): number {
-	return definition.class === 'toxic'
-		? 1
-		: THREE.MathUtils.clamp(definition.composition.volatiles, 0, 1);
-}
-
-function getSurfaceLavaInfluence(definition: PlanetDefinition): number {
-	return definition.class === 'lava' || definition.surface.hasVolcanism
-		? 1
-		: 0;
-}
-
-function getSurfaceOrganicInfluence(definition: PlanetDefinition): number {
-	return definition.class === 'carbon'
-		? THREE.MathUtils.clamp(definition.composition.organic, 0, 1)
-		: 0;
 }
 
 function material(
