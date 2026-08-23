@@ -165,6 +165,8 @@ export class Planet {
 				                                       : 'gas_giant',
 			                                       radius,
 			                                       seed: this.definition?.seed ?? 1,
+			                                       gasInfluence:
+				                                       this.definition?.composition.gas ?? 1,
 			                                       rendererMode: this.rendererMode,
 			                                       enableCloudParticles:
 			                                       this.features.gasCloudParticles,
@@ -1183,7 +1185,6 @@ export class Planet {
 				if (object) {
 					object.visible = visibility.surface;
 				}
-			}
 		}
 
 		if (visibility.atmosphere !== undefined) {
@@ -1194,7 +1195,6 @@ export class Planet {
 				if (object) {
 					object.visible = visibility.atmosphere;
 				}
-			}
 		}
 
 		if (visibility.clouds !== undefined) {
@@ -1205,7 +1205,6 @@ export class Planet {
 				if (object) {
 					object.visible = visibility.clouds;
 				}
-			}
 		}
 
 		if (visibility.gasLayer !== undefined && this.gasGiantLayer) {
