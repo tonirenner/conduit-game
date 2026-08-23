@@ -18,5 +18,6 @@ export {
 	type PlanetRenderFeatures,
 } from './PlanetRenderFeatures';
 export * from './PlanetRenderProfile';
+export * from './SurfaceMaterialSemantics';
 export * from './SurfaceRenderProfile';
 export * from './TerrainRenderProfile';
