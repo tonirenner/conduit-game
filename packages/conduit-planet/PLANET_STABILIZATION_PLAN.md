@@ -1,473 +1,200 @@
 # Conduit Planet – Stabilization & Migration Plan
 
-> Internal working document for cleanup, migration, stabilization and progress tracking of `packages/conduit-planet`.
+> Main working document for cleanup, migration and stabilization of `packages/conduit-planet`.
 >
-> **Core rule:** No meaningful `PlanetDefinition` value or established behavior may be removed simply because the new renderer does not consume it yet. Existing/legacy implementations are treated as reference material until their responsibilities have been migrated or consciously retired.
+> **Core rule:** no meaningful `PlanetDefinition` value or useful established behavior is removed merely because the current renderer does not consume it yet. Migrate, preserve as domain-only, or explicitly retire.
 
 ---
 
-## 1. Goal
-
-The package is currently in a successful transition from several older planet rendering generations toward a clear purpose-built architecture:
+## 1. Current target architecture
 
 ```text
 PlanetDefinition
     ↓
 PlanetGeneration
     ↓
-derived profiles
-    ├─ TerrainProfile
-    ├─ SurfaceProfile
-    ├─ ClimateProfile
-    ├─ AtmosphereProfile
-    └─ CloudProfile
+derived render configuration
+    ├─ PlanetRenderProfile
+    ├─ SurfaceRenderProfile
+    └─ SurfaceMaterialSemantics
     ↓
-canonical systems
+canonical domain systems
     ├─ PlanetTerrainSampler
     ├─ Climate / Biome / Weather
-    └─ Material Evaluation
+    └─ shared masks / material inputs
     ↓
-renderers
+scale-specific renderers
     ├─ OrbitView
     ├─ RegionalView
     └─ SurfaceView
 ```
 
-The stabilization work must:
+Ownership principle:
 
-1. preserve the current working visual baseline,
-2. preserve all useful domain/definition values,
-3. migrate useful behavior from legacy code before deletion,
-4. remove superseded render paths only after reference checks,
-5. consolidate duplicated definitions/profiles,
-6. add regression coverage,
-7. only then continue with larger geometry features such as adaptive tessellation/subdivision.
+```text
+Definition = domain truth
+Profile / MaterialSemantics = derived render configuration
+Canonical sampler/domain functions = physical/climate truth
+Renderer = representation-specific consumer
+```
+
+Do not create competing terrain, climate, composition or planet-definition models inside renderers.
 
 ---
 
 ## 2. Hard migration rules
 
-### 2.1 Definition is truth
+### Definition is truth
 
-`PlanetDefinition` is the domain truth. Renderers may derive values from it, but must not create a competing planet definition.
+A renderer may derive values from `PlanetDefinition`, but may not invent a second authoritative interpretation.
 
-```text
-Definition
-    ↓
-Derived Render/Profile Values
-    ↓
-Renderer
-```
+### No silent definition loss
 
-### 2.2 No silent definition loss
-
-A definition/profile value that is currently unused is **not** considered dead by default.
-
-Before removing any value:
+Before removing a value or behavior:
 
 ```text
-What does this value represent?
-        ↓
-Was it used by an older implementation?
-        ↓
-Does that behavior still make sense?
-        ├─ YES → migrate it first
-        └─ NO  → explicitly document retirement
+What does it represent?
+→ where was it used?
+→ is the behavior still wanted?
+   ├─ yes: migrate first
+   └─ no: explicitly document retirement
 ```
 
-### 2.3 Cleanup commits and feature commits stay separate
+### Cleanup and feature work stay separable
 
-Do not mix:
+Avoid mixing unrelated:
 
-- cleanup/deletion,
+- deletion/cleanup,
 - visual tuning,
 - terrain generation changes,
 - camera changes,
-- new tessellation/subdivision work.
+- new adaptive geometry.
 
-This keeps regressions attributable.
-
-### 2.4 Delete only after migration/reference check
-
-Before deleting a file/module:
-
-```text
-What could this file do?
-        ↓
-Does the new system provide the same useful responsibility?
-        ├─ YES → deletion candidate
-        └─ NO
-            ↓
-Is the responsibility still wanted?
-            ├─ YES → migrate first
-            └─ NO  → explicitly retire
-```
-
-### 2.5 WebGPU first, WebGL follows
-
-The active development and stabilization target is **WebGPU first**.
-
-Rules:
-
-- New planet architecture, rendering features, material migration and stabilization are implemented and validated on the WebGPU path first.
-- WebGL compatibility is preserved where practical during migration, but WebGL parity must **not block** progress of the modern WebGPU architecture.
-- Legacy WebGL implementations remain valuable as behavioral/reference material until equivalent useful behavior has been migrated.
-- Do not design new abstractions around limitations of the old WebGL renderer if that would compromise the WebGPU target architecture.
-- Once the WebGPU planet stack is stable, WebGL is reviewed and brought forward deliberately as a follow-up compatibility/fallback pass.
-- A missing WebGL implementation is not by itself a reason to keep obsolete WebGPU-era legacy architecture alive.
+### WebGPU first
 
 Priority:
 
 ```text
 1. WebGPU correctness
 2. WebGPU architecture/stability
-3. WebGPU visual parity / definition coverage
-4. WebGPU performance
-5. WebGL follow-up / parity where still required
+3. definition/material coverage
+4. performance
+5. WebGL follow-up
 ```
+
+WebGL may remain fallback/reference behavior, but must not force duplicate domain logic into the modern path.
 
 ---
 
-## 3. Current known-good baseline
+## 3. Current view baseline
 
-This baseline should be treated as frozen while cleanup/stabilization is performed.
+### OrbitView
 
-### View architecture
+- [x] fixed instanced terrain for modern WebGPU solid planets,
+- [x] pre-baked terrain LUT,
+- [x] bounded global complexity,
+- [x] classic CubeSphere hidden/frozen on the modern path.
 
-- [x] OrbitView uses fixed instanced terrain.
-- [x] Orbit terrain uses a pre-baked 3D terrain LUT.
-- [x] RegionalView uses curved regional geometry.
-- [x] SurfaceView uses local tangent clipmap terrain.
-- [x] Orbit → Regional handoff is stable.
-- [x] Regional → Surface handoff is stable.
-- [x] Return Surface → Regional → Orbit is supported.
-- [x] Camera ownership/handoff works between OrbitControls and non-orbit free-look.
+### RegionalView
 
-### Atmosphere
+- [x] active `CurvedRegionalTileTerrain`,
+- [x] canonical `PlanetTerrainSampler` geometry,
+- [x] uniform edge resolution per build to avoid T-junctions,
+- [x] curved regional backdrop during approach.
 
-- [x] Current WebGPU atmosphere uses the screen-space/post-process source architecture.
-- [x] Atmosphere remains attached per planet instance through metadata/source state.
-- [x] Previous shell-based atmosphere experiments are not the target architecture.
+### SurfaceView
 
-### Terrain
+- [x] active `SurfaceClipmapTerrain`,
+- [x] local tangent/reference-frame rendering,
+- [x] fixed reusable clipmap rings,
+- [x] canonical physical terrain samples,
+- [x] fragment-side material detail,
+- [x] material roughness / metalness / micro-normal / cavity-AO.
 
-- [x] `PlanetTerrainSampler` is the canonical near/regional surface sampler.
-- [x] Geometry relief is separated from canonical biome thresholds.
-- [x] Regional geometry seam/T-junction issue was fixed by safe uniform tile resolution per altitude band.
-- [x] Surface clipmap has a local additional near-detail ring.
-- [x] Surface material does not own physical displacement/collision truth.
+### Transition status
 
-### Surface material phases
+```text
+Orbit → Regional
+  lifecycle: stable
+  geometry: stable
+  visual handoff: accepted
 
-- [x] Phase 1 – material-dependent Roughness.
-- [x] Phase 2 – fragment-side material/texturing infrastructure.
-- [x] Phase 2 – Lava baseline complete.
-- [x] Phase 3 – material-dependent Micro-Normals.
-- [x] Phase 4 – local Cavity/AO layered with global GTAO.
+Regional → Surface
+  lifecycle: working
+  camera continuity: working
+  physical terrain identity: shared
+  visual/material continuity: OPEN
+```
 
-### Lava baseline
+The Regional → Surface discontinuity is documented in:
 
-- [x] dark basalt crust dominates,
-- [x] fragment-side cracks,
-- [x] localized emissive crack cores,
-- [x] sparse hotspots,
-- [x] physically scaled detail frequencies,
-- [x] rough basalt,
-- [x] micro-normal response,
-- [x] local cavity/AO.
+`PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
 
-**Do not casually retune this baseline during cleanup.**
+Do not mark this handoff visually stable until the material/ownership pop is removed.
 
 ---
 
-## 4. Current target architecture
+## 4. Atmosphere baseline
 
-### New active core – protect first
+- [x] WebGPU atmosphere uses the screen-space/post-process source architecture,
+- [x] atmosphere is independent from terrain-view ownership,
+- [x] per-planet metadata/source state remains intact,
+- [x] previous shell experiments are not the target architecture.
 
-These modules represent the current target direction and should not be removed as part of early cleanup:
-
-```text
-src/view/PlanetViewRuntime.ts
-src/view/PlanetViewTransition.ts
-
-src/rendering/orbit/InstancedOrbitTerrain.ts
-src/rendering/orbit/OrbitTerrainVolume.ts
-
-src/rendering/regional/CurvedRegionalTileTerrain.ts
-
-src/rendering/surface/SurfaceClipmapTerrain.ts
-src/rendering/surface/SurfaceTerrainMaterial.ts
-
-src/near-view/PlanetTerrainSampler.ts
-src/near-view/PlanetElevationProfile.ts
-
-src/terrain/TerrainGeometryRelief.ts
-src/terrain/TerrainGeometryUtils.ts
-src/terrain/noise.ts
-```
-
-### Shared systems that remain valid
-
-- planet definition/model,
-- generation,
-- composition,
-- resources,
-- climate concepts,
-- weather concepts,
-- atmosphere profiles,
-- cloud profiles,
-- rings,
-- moons,
-- gas/ice giant rendering.
-
-The issue is generally not that these concepts are obsolete; several are simply not fully wired into the new surface architecture yet.
+Protect atmosphere/camera reconstruction during unrelated terrain/material cleanup.
 
 ---
 
-## 5. Known legacy / transitional areas
+## 5. Canonical terrain status
 
-### 5.1 `Planet.ts`
+`PlanetTerrainSampler` is the authoritative physical near/regional surface sampler.
 
-Current responsibility is too broad. It still owns/constructs several older rendering paths while also owning valid shared layers.
+Completed definition migration:
 
-Responsibilities include:
+- [x] `surface.oceanLevel`,
+- [x] `surface.terrainRoughness`,
+- [x] `surface.hasTectonics`,
+- [x] `surface.hasVolcanism`,
+- [x] `surface.hasIceCaps`,
+- [x] shared canonical volcanic mask,
+- [x] shared canonical ice-cap mask,
+- [x] geometry-only relief remains separated from climate/biome thresholds.
 
-- classic CubeSphere terrain,
-- old surface runtime material,
-- planet body/depth body,
-- atmosphere,
-- clouds,
-- rings,
-- moons,
-- gas giants,
-- toxic haze,
-- old `NearSurfaceTerrainLayer`.
-
-For WebGPU solid-surface planets, `PlanetViewRuntime` currently creates `Planet`, then hides/freezes parts of the classic surface stack and renders the new Orbit/Regional/Surface representations instead.
-
-**Status:** transitional, runtime-reachable, do not delete.
-
-Desired future split:
-
-```text
-Planet
-├─ definition/profile
-├─ PlanetLayers
-│  ├─ Atmosphere
-│  ├─ Clouds
-│  ├─ Rings
-│  ├─ Moons
-│  └─ Haze
-└─ renderer
-   ├─ SolidSurfacePlanetRenderer
-   │  ├─ Orbit
-   │  ├─ Regional
-   │  └─ Surface
-   └─ GasGiantRenderer
-```
-
-### 5.2 `NearSurfaceTerrainLayer.ts`
-
-This is an older second near-surface terrain system with its own:
-
-- tangent patch,
-- geometry,
-- colors,
-- direct terrain sampling,
-- rebuild lifecycle.
-
-The new `PlanetViewRuntime` explicitly disables this feature for its modern path.
-
-However, `DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain` is still enabled by default for standalone legacy `Planet` usage.
-
-**Status:** strong retirement candidate, but only after external/runtime references are checked and feature default/API is migrated.
-
-### 5.3 Old regional prototype chain
-
-```text
-GpuRegionalSurfaceTerrain
-    ↓
-HydraulicRegionalSurfaceTerrain
-    ↓
-RegionalSurfaceHandoffTerrain
-```
-
-The active runtime uses `CurvedRegionalTileTerrain` instead.
-
-Useful behavior contained in the old chain must be reviewed before deletion, especially:
-
-- hydraulic erosion,
-- derived normal rebuilding,
-- AO/cavity map derivation,
-- handoff/edge feathering ideas.
-
-**Status:** renderer chain likely superseded; algorithms may still be valuable.
-
-### 5.4 Classic CubeSphere stack
-
-Includes approximately:
-
-```text
-CubeSphere
-TerrainPatch
-AsyncTerrainPatch
-TerrainSource
-CachedTerrainSource
-TerrainHeightCache
-TerrainWorkerPool
-TerrainWorkerProtocol
-LOD balancing
-classic horizon/frustum patch logic
-```
-
-The modern WebGPU surface planet no longer uses this as the visible renderer, but `Planet.ts`, WebGL fallback behavior and public exports still make it runtime/API reachable.
-
-**Status:** legacy but not yet safely removable. WebGL compatibility is a later follow-up and must not block consolidation of the WebGPU target architecture.
-
-### 5.5 Old surface materials
-
-```text
-PlanetSurfaceMaterial.ts
-PlanetSurfaceNodeMaterial.ts
-PlanetSurfaceMaterialFactory.ts
-PlanetOrbitSurfaceNodeMaterial.ts
-```
-
-These contain significant established behavior and must be mined before removal.
-
-The modern SurfaceView now has its own `SurfaceTerrainMaterial`, but the old material system is still useful as a behavioral reference for:
-
-- palettes,
-- class visual behavior,
-- water/coast logic,
-- lava,
-- ice,
-- atmosphere interactions,
-- material response,
-- raymarch concepts,
-- profile usage.
-
-**Status:** migrate/reference first, then deprecate. WebGPU migration takes precedence; WebGL material parity follows after the modern path is stable.
-
-### 5.6 Old atmosphere experiment
-
-`OpenWorldsAtmosphereLayer.ts` represents a previous physical shell/raymarch approach.
-
-The active WebGPU architecture uses `WebGPUAtmosphereLayer` as a source for the screen-space atmosphere pass.
-
-**Status:** likely early deletion candidate after repository-wide import/export confirmation.
+Physical displacement/collision truth must remain outside surface materials.
 
 ---
 
-## 6. Definition values – preservation and migration matrix
+## 6. Climate / biome / weather status
 
-This section is intentionally conservative. Values marked `TODO` are **integration work**, not deletion candidates.
+Phase 4 canonical migration is complete for:
 
-### 6.1 Physical definition
+- [x] climate seed,
+- [x] temperature,
+- [x] humidity,
+- [x] aridity,
+- [x] biome seed,
+- [x] weather seed,
+- [x] wind strength,
+- [x] storm activity,
+- [x] seasonality,
+- [x] cloud persistence.
 
-```text
-physical.radius
-physical.mass
-physical.gravity
-physical.density
-physical.rotationSpeed
-physical.axialTilt
-```
+`ashLoad` is intentionally excluded from the general climate migration and remains a later volcanic/atmospheric/material integration concern.
 
-Status:
+Current integration gaps:
 
-- `radius`: actively relevant to rendering/physical scale.
-- remaining physical values: preserve as domain values even where visual renderer does not yet consume them.
+- [ ] compose seasonality + cloud persistence into one canonical live weather evaluation,
+- [ ] wire that composition into an active production weather/cloud consumer,
+- [ ] decide how `physical.axialTilt` affects seasonal forcing,
+- [ ] connect `ashLoad` deliberately to volcanic/atmospheric visuals.
 
-Potential future uses:
+The canonical simulation clock is documented in `docs/SIMULATION_TIME.md`.
 
-- gravity for vehicle/player physics,
-- rotation speed for day/night/weather/cloud movement,
-- axial tilt for climate/seasonality/lighting,
-- density/mass for gameplay/system simulation.
+---
 
-### 6.2 Orbit definition
+## 7. Composition status – Phase 5 complete
 
-```text
-semiMajorAxis
-eccentricity
-orbitalPeriod
-starIrradiance
-temperature
-```
-
-Preserve all. They belong to planet/system simulation and climate generation even if the current isolated planet renderer does not directly consume every value.
-
-### 6.3 Atmosphere definition
-
-```text
-type
-density
-pressure
-cloudCoverage
-haze
-color
-```
-
-Mostly active through atmosphere/cloud profiles.
-
-TODO:
-
-- audit `pressure` usage,
-- ensure type/pressure can influence future scattering/weather where appropriate.
-
-### 6.4 Surface definition
-
-```text
-hasSolidSurface
-hasOcean
-hasIceCaps
-hasVolcanism
-hasTectonics
-terrainRoughness
-mountainScale
-oceanLevel
-```
-
-Known status:
-
-- `hasSolidSurface`: active.
-- `hasOcean`: active.
-- `mountainScale`: active through elevation/profile logic.
-- `terrainRoughness`: generated/profiled, but not yet consistently consumed by the new Surface material/geometry stack.
-- `oceanLevel`: currently not the canonical water threshold in `PlanetTerrainSampler`.
-- `hasTectonics`: not meaningfully connected to new geometry/material stack yet.
-- `hasVolcanism`: partly reflected by class/profile behavior, not fully connected to new terrain generation.
-- `hasIceCaps`: not yet fully integrated in the new material/climate surface path.
-
-**All must be preserved and intentionally integrated.**
-
-### 6.5 Climate definition
-
-```text
-seed
-biomeSeed
-weatherSeed
-
-temperature01
-humidity
-aridity
-windStrength
-stormActivity
-seasonality
-cloudPersistence
-ashLoad
-```
-
-Generated climate values are useful and already influence some cloud behavior.
-
-Known gap:
-
-The canonical `PlanetTerrainSampler` currently calls procedural `getClimateSample()` without the generated `PlanetClimateDefinition`. Therefore the new terrain biome sampling does not yet fully reflect the generated planet climate values/seeds.
-
-**Migration target:** climate sampling must accept the planet climate definition and biome seed while preserving deterministic spatial behavior.
-
-### 6.6 Composition
+Canonical composition keys:
 
 ```text
 rock
@@ -479,540 +206,333 @@ organic
 volatiles
 ```
 
-Preserve all.
+All are preserved as domain truth and now have explicit visual semantics where appropriate.
 
-Future/desired renderer influences:
+### Solid-surface material semantics
 
-- metal → mineral/material metalness and visual veins,
-- ice → ice/snow probability/coverage,
-- water → ocean/humidity/coast behavior,
-- organic → vegetation potential,
-- volatiles → atmosphere/cloud/weather/volcanic potential,
-- rock → rock/base terrain material weighting,
-- gas → gas giant / atmosphere/system identity.
+- [x] metal → exposed metalness / color / roughness response,
+- [x] ice → canonical ice-cap material response,
+- [x] water → material variation only after canonical water classification,
+- [x] volatiles/toxic → restrained toxic/mineral surface response,
+- [x] lava/volcanism → canonical volcanic-mask response outside full Lava worlds,
+- [x] rock → mineral/rock base-material weighting,
+- [x] organic → intentionally restricted carbon-world material semantics.
 
-Planet class should not be the only visual consequence of composition.
+### Giant semantics
 
-### 6.7 Resources
+- [x] gas → continuous Gas/Ice Giant visual density influence.
 
-Resource profiles are gameplay/domain data. Preserve independently of renderer cleanup.
-
-### 6.8 Rings and moons
-
-Preserve definitions and rendering behavior.
-
-Audit inconsistency:
-
-`Planet.ts` currently probes `(definition.render as any)?.moonSeed`, while `PlanetRenderSeeds` does not define `moonSeed`.
-
-TODO:
-
-- determine intended moon seeding contract,
-- remove `as any` workaround after contract is explicit.
-
-### 6.9 Render seeds
-
-```text
-paletteSeed
-terrainSeed
-cloudSeed
-atmosphereSeed
-ringSeed
-climateSeed
-biomeSeed
-weatherSeed
-```
-
-Known:
-
-- `terrainSeed`: actively central.
-- `ringSeed`: used.
-
-Audit/integration required:
-
-- `paletteSeed`,
-- `cloudSeed`,
-- `atmosphereSeed`,
-- `climateSeed`,
-- `biomeSeed`,
-- `weatherSeed`.
-
-Unused currently does not mean unwanted.
+Detailed audit: `PLANET_PHASE5_COMPOSITION_AUDIT.md`.
 
 ---
 
-## 7. Profile consolidation
+## 8. Profile/material-semantics consolidation – Phase 6 active
 
-### `PlanetRenderProfile`
+This is the current active phase.
 
-Audit every field for actual consumption:
+### Completed
 
-```text
-rendererKind
+- [x] introduced canonical `SurfaceMaterialSemantics`,
+- [x] `SurfaceRenderProfile` derives composition influences from the shared semantics,
+- [x] active `SurfaceTerrainMaterial` uses the same shared semantics,
+- [x] exported shared semantics through the rendering boundary,
+- [x] added regression coverage for profile/semantics consistency.
 
-enableTerrain
-enableOcean
-enableClouds
-enableAtmosphere
-enableRings
+This removes the previous duplicate independent calculations for water/ice/lava/toxic/metal/rock/organic influence.
 
-surfacePalette
-atmospherePalette
-cloudPalette
-
-terrainRoughness
-mountainScale
-oceanLevel
-cloudCoverage
-atmosphereDensity
-
-climateTemperature
-climateHumidity
-climateAridity
-climateWindStrength
-climateStormActivity
-climateCloudPersistence
-climateAshLoad
-```
-
-Known issues to resolve:
-
-- `enableRings` vs direct `definition.rings.enabled` checks,
-- duplicate palette resolution between profile layers,
-- `cloudPalette` generation vs actual cloud consumption,
-- profile values that are calculated but bypassed by newer renderers.
-
-### `SurfaceRenderProfile`
-
-Contains valuable already-derived values:
+### Current target
 
 ```text
-waterInfluence
-iceInfluence
-lavaInfluence
-toxicInfluence
-metalInfluence
-
-terrainRoughness
-mountainScale
-oceanLevel
-
-climateTemperature
-climateHumidity
-climateAridity
-climateWindStrength
-climateStormActivity
-climateCloudPersistence
-climateAshLoad
-
-raymarchOcclusionStrength
+PlanetDefinition
+    ↓
+SurfaceMaterialSemantics
+    ├─ SurfaceRenderProfile
+    ├─ SurfaceView broad material evaluation
+    └─ RegionalView broad material evaluation   ← next
 ```
 
-The modern `SurfaceClipmapTerrain` / `SurfaceTerrainMaterial` path currently receives `PlanetDefinition` directly rather than consistently consuming this profile.
+Regional does **not** need Surface microdetail. It does need matching broad color/material identity in the overlap band.
 
-**Do not delete the profile values until their useful semantics have been migrated.**
+### Remaining Phase 6 work
 
-Desired principle:
-
-```text
-Definition = truth
-Profile    = derived rendering configuration
-Renderer   = consumer
-```
-
-Avoid duplicate independent values in Definition, Profile and Shader.
+- [ ] align `CurvedRegionalTileTerrain` broad material evaluation with canonical Surface material semantics,
+- [ ] remove duplicate palette resolution where the same meaning is represented more than once,
+- [ ] audit `PlanetRenderProfile.enableRings` vs direct definition checks,
+- [ ] audit actual `cloudPalette` consumption,
+- [ ] remove remaining `as any` profile/seed probes where contracts can be made explicit,
+- [ ] preserve renderer-specific values only when they are genuinely representation-specific.
 
 ---
 
-## 8. Material migration plan
+## 9. Regional → Surface handoff repair
 
-Compare old and new surface materials behavior-by-behavior.
+This follows the broad material-semantics alignment, not before it.
 
-### Matrix to complete
+Current runtime behavior:
 
-- [ ] Base color / palette behavior
-- [ ] Planet class mapping
-- [ ] Composition influence
-- [ ] Climate influence
-- [ ] Biome influence
-- [ ] Water
-- [ ] Ocean level
-- [ ] Coastline/shelf/islands
-- [ ] Ice
-- [ ] Snow
-- [ ] Desert
-- [ ] Rocky
-- [ ] Barren
-- [ ] Terrestrial
-- [ ] Ocean
-- [ ] Toxic
-- [ ] Carbon
-- [ ] Metal-rich
-- [x] Lava baseline
-- [x] Roughness architecture
-- [x] Metalness channel architecture
-- [x] Emissive channel architecture
-- [x] Micro-Normals architecture
-- [x] local Cavity/AO architecture
-- [ ] Tectonic visual influence
-- [ ] Volcanism influence outside forced Lava class
-- [ ] Environment/reflection behavior
-- [ ] Old raymarch-specific behavior: classify as migrate/obsolete
+- Surface fades in through `regionalSurfaceStartMeters` → `regionalSurfaceEndMeters`,
+- Regional remains fully opaque while Surface is only a finite local patch,
+- Regional is hidden when Surface reaches the depth-ownership threshold,
+- current threshold is effectively a final ownership cut around `surfaceWeight >= 0.985`.
 
-Rule: old shader/material files remain reference sources until this matrix is closed.
-
----
-
-## 9. Terrain migration plan
-
-Make `PlanetTerrainSampler` the canonical physical terrain API for landable solid planets.
-
-Desired responsibility:
+Observed problem:
 
 ```text
-PlanetTerrainSampler
-├─ canonical terrain noise
-├─ geometry relief
-├─ physical elevation
-├─ land/water decision
-├─ normals
-├─ climate sampling
-├─ biome sampling
-└─ stable masks for render/gameplay consumers
+Regional broad/simple material
+        ↓
+Surface richer/different material
+        ↓
+visible material/renderer pop
+        + final ownership cut
 ```
 
-### TODO
+Fix order:
 
-- [ ] integrate `surface.oceanLevel` instead of relying on a fixed land-mask threshold alone,
-- [ ] define how `terrainRoughness` affects geometry vs material,
-- [ ] connect `hasTectonics` to canonical terrain/relief semantics,
-- [ ] connect `hasVolcanism` to canonical terrain/relief/material semantics,
-- [ ] connect `hasIceCaps` to climate/material masks,
-- [ ] preserve Geometry-only relief separation from biome thresholds unless consciously changed,
-- [ ] ensure Orbit/Regional/Surface all converge on the same physical height contract.
+1. [ ] make Regional use canonical broad material semantics,
+2. [ ] compare representative classes/seeds in overlap,
+3. [ ] redesign final opacity/depth ownership so Regional can release without a visible pop or dark horizon,
+4. [ ] validate descent and ascent,
+5. [ ] only then retune altitude bands if needed.
+
+Do not attempt to hide the problem only by widening the blend range.
 
 ---
 
-## 10. Climate / biome migration
+## 10. Transitional / legacy areas
 
-Current issue:
+### `Planet.ts`
 
-`PlanetDefinition.climate` is richly generated, but the procedural `getClimateSample()` used by the canonical terrain sampler does not yet consume the generated planet climate definition/seeds.
+Still owns too much:
 
-Desired API shape (conceptual):
+- classic CubeSphere surface stack,
+- old surface runtime material,
+- planet body/depth body,
+- atmosphere,
+- clouds,
+- rings,
+- moons,
+- giant rendering,
+- toxic haze,
+- old near-surface layer.
+
+For modern WebGPU solid planets, `PlanetViewRuntime` constructs `Planet`, then hides/freezes obsolete surface pieces while using the new Orbit/Regional/Surface renderers.
+
+**Status:** runtime-reachable and transitional; do not delete yet.
+
+### `NearSurfaceTerrainLayer.ts`
+
+Older independent tangent terrain path.
+
+**Status:** retirement candidate after API/default/reference audit.
+
+### Old regional prototype chain
 
 ```text
-getClimateSample(
-    direction,
-    terrainSample,
-    planetClimateDefinition,
-    biomeSeed
-)
+GpuRegionalSurfaceTerrain
+→ HydraulicRegionalSurfaceTerrain
+→ RegionalSurfaceHandoffTerrain
 ```
 
-Required properties:
+Not active. Mine useful erosion/normal/AO/handoff algorithms before deletion.
 
-- deterministic,
-- same planet seed → same result,
-- climate controls global tendencies,
-- spatial noise adds local variation,
-- altitude and latitude remain meaningful,
-- coastline/ocean remain meaningful,
-- geometry-only detail must not accidentally shift biome classification.
+### Classic CubeSphere stack
 
-### TODO
+Still reachable through legacy/WebGL/public API paths.
 
-- [ ] connect base temperature,
-- [ ] connect humidity,
-- [ ] connect aridity,
-- [ ] connect seasonality where relevant,
-- [ ] connect biome seed,
-- [ ] ensure two planets of same class but different climate/seed can look materially different.
+**Status:** isolate/retire later; must not block modern WebGPU architecture.
+
+### Old surface materials
+
+Still useful as behavioral/reference material until migration matrix and fallback ownership are closed.
+
+### `OpenWorldsAtmosphereLayer.ts`
+
+Likely obsolete experiment; remove only after import/export/runtime confirmation.
 
 ---
 
-## 11. Weather migration
+## 11. Known definition fields still needing explicit integration decisions
 
-`Weather.ts` already provides useful concepts:
-
-- pressure,
-- low/high pressure,
-- wind bands,
-- wind strength,
-- storm potential,
-- cloud boost,
-- swirl.
-
-Desired model:
+### Physical
 
 ```text
-Planet climate = global tendencies
-Weather seed   = spatial identity
-Time           = temporal evolution
-Weather sample = local current state
+mass
+gravity
+density
+rotationSpeed
+axialTilt
 ```
 
-### TODO
+Preserve. `rotationSpeed` and `axialTilt` have obvious future runtime uses; mass/gravity/density are gameplay/simulation values even if nonvisual.
 
-- [ ] connect `weatherSeed`,
-- [ ] connect generated wind/storm climate strengths,
-- [ ] determine cloud integration path,
-- [ ] preserve deterministic behavior for fixed seed + time.
+### Orbit
+
+```text
+semiMajorAxis
+eccentricity
+orbitalPeriod
+starIrradiance
+temperature
+```
+
+Preserve. `orbitalPeriod` is already used by the season-cycle foundation.
+
+### Atmosphere
+
+`pressure` still needs explicit runtime/scattering/weather ownership.
+
+### Render seeds
+
+Audit remaining consumption for palette/cloud/atmosphere seeds and remove compatibility probes only after explicit ownership exists.
+
+### Rings/moons
+
+Resolve the legacy undeclared `render.moonSeed` probe before cleanup.
 
 ---
 
-## 12. Cleanup execution order
-
-All phases below are executed **WebGPU-first**. WebGL adaptation/parity is a later follow-up unless a change would unnecessarily destroy an existing fallback contract.
+## 12. Stabilization phase status
 
 ### Phase 0 – Baseline freeze
 
-- [x] establish known-good visual/runtime baseline,
-- [x] do not mix feature changes into cleanup.
+- [x] complete.
 
-### Phase 1 – Complete definition usage matrix
+### Phase 1 – Definition usage audit
 
-- [ ] audit every `PlanetDefinition` field repo-wide,
-- [ ] document old consumer,
-- [ ] document current consumer,
-- [ ] assign new target consumer,
-- [ ] mark integrate / preserve-domain-only / intentionally retire.
+- [x] sufficiently complete to drive migration.
+- [ ] continue updating the matrix when later consumers are discovered.
 
-### Phase 2 – Complete old → new material migration matrix
+### Phase 2 – Old → new material migration audit
 
-- [ ] compare old WebGL surface material as behavioral/reference source,
-- [ ] compare old WebGPU node surface material,
-- [ ] compare old orbit material,
-- [ ] transfer missing useful semantics into the new WebGPU material system first,
-- [ ] record WebGL parity work separately for the later compatibility pass.
+- [x] behavioral comparison established.
+- [ ] keep old material files until remaining useful responsibilities are classified/migrated.
 
-### Phase 3 – Integrate terrain definition values
+### Phase 3 – Terrain definition migration
 
-- [ ] ocean level,
-- [ ] terrain roughness,
-- [ ] tectonics,
-- [ ] volcanism,
-- [ ] ice caps.
+- [x] complete.
 
-### Phase 4 – Integrate Climate/Biome/Weather
+### Phase 4 – Climate / Biome / Weather definition migration
 
-- [ ] generated climate → terrain climate sampling,
-- [ ] biome seed,
-- [ ] weather seed,
-- [ ] preserve climate/cloud behavior.
+- [x] complete for the planned definition semantics.
+- [ ] end-to-end live weather composition remains later integration work.
 
-### Phase 5 – Integrate composition
+### Phase 5 – Composition migration
 
-- [ ] material influence,
-- [ ] climate influence where meaningful,
-- [ ] avoid class-only visual identity.
+- [x] complete.
 
-### Phase 6 – Consolidate profiles
+### Phase 6 – Profile/material-semantics consolidation
 
-- [ ] remove duplicate calculations only after new consumers are wired,
-- [ ] make profiles clearly derived configuration,
-- [ ] eliminate `as any` profile/seed probes where possible.
+- [x] shared Surface material semantics foundation,
+- [ ] Regional broad material alignment,
+- [ ] remaining profile duplicate cleanup.
 
-### Phase 7 – Entangle less in `Planet.ts`
+### Phase 7 – Reduce `Planet.ts` entanglement
 
-- [ ] separate shared planet layers from classic surface renderer,
-- [ ] let modern `PlanetViewRuntime` avoid constructing hidden legacy surface geometry/material where possible,
-- [ ] preserve enough separation that WebGL can be brought forward later without constraining the WebGPU design,
-- [ ] keep gas giant behavior intact.
+- [ ] pending.
 
 ### Phase 8 – Retire `NearSurfaceTerrainLayer`
 
-- [ ] verify external references,
-- [ ] change/deprecate feature default/API,
-- [ ] test standalone Planet usage,
-- [ ] remove only when SurfaceClipmap covers responsibility.
+- [ ] pending.
 
 ### Phase 9 – Retire old regional renderer chain
 
-- [ ] extract useful erosion/normal/AO algorithms,
-- [ ] confirm no active imports/exports,
-- [ ] remove renderer prototypes.
+- [ ] pending after useful algorithm extraction.
 
-### Phase 10 – Retire superseded atmosphere prototype(s)
+### Phase 10 – Retire obsolete atmosphere prototypes
 
-- [ ] confirm no runtime/import/public API use,
-- [ ] remove only obsolete shell implementation(s),
-- [ ] preserve atmosphere profile logic still used by current post-process source.
+- [ ] pending.
 
-### Phase 11 – Retire old surface materials
+### Phase 11 – Retire superseded old surface materials
 
-Only after material migration matrix is complete and `Planet.ts` no longer constructs them for the modern WebGPU path.
-
-- [ ] deprecate public exports where appropriate,
-- [ ] search external package/game usage,
-- [ ] preserve old WebGL implementation as fallback/reference only as long as needed,
-- [ ] do **not** require WebGL feature parity before completing the WebGPU migration,
-- [ ] remove in small commits.
+- [ ] pending after fallback/reference responsibilities close.
 
 ### Phase 12 – Isolate/retire CubeSphere legacy
 
-- [ ] determine remaining non-WebGPU/public API requirements,
-- [ ] determine which pieces are needed only for later WebGL fallback work,
-- [ ] verify diagnostics/tests/users,
-- [ ] optionally move WebGL/legacy pieces to a clear fallback area first,
-- [ ] remove WebGPU-obsolete responsibilities once the modern path fully owns them.
+- [ ] pending.
 
 ### Phase 13 – Public API cleanup
 
-- [ ] internal usage removed first,
-- [ ] deprecate exports,
-- [ ] repo-wide usage search,
-- [ ] remove exports,
-- [ ] remove files later.
+- [ ] pending.
 
 ### Phase 14 – Regression suite
 
-Add tests/smoke checks for:
+Current coverage already exists for many migrated terrain/climate/composition semantics, but the broader runtime matrix remains open:
 
-- [ ] deterministic planet generation,
-- [ ] deterministic terrain samples,
-- [ ] deterministic climate/biome samples,
-- [ ] weather determinism,
 - [ ] Orbit/Regional/Surface height continuity,
-- [ ] all solid planet classes,
+- [ ] Regional/Surface broad material continuity,
+- [ ] all solid classes through full descent/ascent,
 - [ ] gas/ice giants,
-- [ ] atmosphere on/off,
-- [ ] clouds on/off,
-- [ ] rings/moons,
-- [ ] Orbit → Regional → Surface,
-- [ ] Surface → Regional → Orbit,
+- [ ] atmosphere/cloud/ring/moon combinations,
 - [ ] multiple planet instances.
 
 ### Phase 15 – Performance stabilization
 
-Track separately by view:
-
-```text
-Orbit
-Regional
-Surface
-```
-
-Measure:
-
-- CPU frame time,
-- GPU frame time,
-- draw calls,
-- vertex/index count,
-- textures/memory,
-- terrain samples/rebuilds,
-- shader cost,
-- allocations/rebuild churn.
+- [ ] pending formal per-view measurements.
 
 ### Phase 16 – Adaptive geometry / tessellation-like refinement
 
-Only after stabilization.
+- [ ] only after stabilization.
 
-Goal:
-
-```text
-SurfaceClipmap
-    ↓
-camera position + view direction
-    ↓
-small local high-detail region
-    ↓
-adaptive subdivision / GPU-compute refinement if worthwhile
-```
-
-The existing extra near-detail clipmap ring is an LOD refinement experiment, **not** true tessellation.
+The extra Surface clipmap near-detail ring is LOD refinement, not true tessellation.
 
 ### Phase 17 – WebGL follow-up
 
-After the WebGPU target stack is stable:
-
-- [ ] decide whether WebGL remains a supported fallback and at what quality tier,
-- [ ] map the finalized WebGPU definition/profile semantics onto WebGL,
-- [ ] restore/implement practical visual parity where required,
-- [ ] avoid reintroducing duplicate domain logic,
-- [ ] keep WebGL renderer-specific compromises isolated from canonical terrain/domain systems,
-- [ ] add WebGL-specific regression coverage only for the support level we actually intend to maintain.
+- [ ] after modern WebGPU stack is stable.
 
 ---
 
-## 13. Early deletion candidates – NOT yet approved
+## 13. Current known inconsistencies
 
-These are candidates, not permission to delete.
-
-### Likely superseded
-
-- `OpenWorldsAtmosphereLayer.ts`
-- `rendering/regional/GpuRegionalSurfaceTerrain.ts`
-- `rendering/regional/HydraulicRegionalSurfaceTerrain.ts`
-- `rendering/regional/RegionalSurfaceHandoffTerrain.ts`
-
-Before deletion:
-
-- repo-wide import check,
-- public export check,
-- useful algorithm extraction,
-- runtime smoke test.
-
-### Later candidates
-
-- `NearSurfaceTerrainLayer.ts`
-- `PlanetOrbitSurfaceNodeMaterial.ts`
-- classic CubeSphere stack,
-- old surface materials.
-
-These require deeper migration first.
+- [ ] Regional broad material semantics still differ from Surface,
+- [ ] Regional → Surface final ownership uses a visible hard threshold strategy,
+- [ ] `Planet.ts` still creates hidden legacy surface infrastructure on modern WebGPU solid planets,
+- [ ] `DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain` legacy behavior still needs retirement review,
+- [ ] undeclared `render.moonSeed` probe,
+- [ ] `enableRings` vs direct definition checks,
+- [ ] duplicate palette/profile responsibilities still need final cleanup,
+- [ ] live seasonality + cloud persistence are not yet composed through one proven production weather consumer,
+- [ ] `physical.rotationSpeed` is not yet the canonical planet rotation driver,
+- [ ] `physical.axialTilt` is not yet part of seasonal forcing,
+- [ ] atmosphere pressure ownership remains incomplete,
+- [ ] WebGL compatibility must remain a later isolated follow-up.
 
 ---
 
-## 14. Known inconsistencies / audit list
+## 14. CI policy
 
-- [ ] `DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain === true` while modern `PlanetViewRuntime` explicitly disables it.
-- [ ] `Planet.ts` still constructs classic terrain/material for modern WebGPU solid planets, then runtime hides/freezes it.
-- [ ] `Planet.ts` probes an undeclared `render.moonSeed` via `as any`.
-- [ ] `PlanetRenderProfile.enableRings` vs direct `definition.rings.enabled` usage.
-- [ ] `surfacePalette` resolved in more than one place.
-- [ ] `cloudPalette` exists but requires actual consumer audit.
-- [ ] `surface.oceanLevel` is not yet the canonical Surface water threshold.
-- [ ] generated climate values are not fully consumed by `PlanetTerrainSampler` climate/biome sampling.
-- [ ] climate/biome/weather seeds need a complete usage audit.
-- [ ] `SurfaceRenderProfile` contains useful derived influences that modern SurfaceView does not yet consistently consume.
-- [ ] old regional hydraulic erosion belongs conceptually to terrain generation, not necessarily to a renderer subclass.
-- [ ] WebGL parity must be separated from WebGPU stabilization work so it does not force legacy architecture into the modern path.
+Planet CI is pinned to a known Bun version rather than `latest` after Bun 1.4.0 produced a runner segmentation fault (`exit 139`) during package tests.
 
----
+A Bun runtime crash is infrastructure/tooling failure, not a test assertion failure. Still distinguish:
 
-## 15. Progress log
+```text
+verified CI result
+vs
+no failure mail / operational signal
+vs
+connector returns no statuses
+```
 
-### 2026-08-16 – Initial stabilization audit
-
-- [x] Reviewed package architecture around current Orbit/Regional/Surface runtime.
-- [x] Identified modern active core.
-- [x] Identified classic CubeSphere/Planet surface stack as transitional legacy.
-- [x] Identified old `NearSurfaceTerrainLayer` as competing near-surface implementation.
-- [x] Identified old Regional GPU → Hydraulic → Handoff prototype chain.
-- [x] Identified older OpenWorlds atmosphere shell as superseded candidate.
-- [x] Identified definition/profile values that currently appear under-consumed by the modern renderer.
-- [x] Established rule that unused definitions must be integrated or explicitly retired, never silently deleted.
-- [x] Established **WebGPU-first** migration/stabilization policy; WebGL follows after the modern stack is stable.
-- [x] Added this document as the persistent migration/progress reference.
-
-### Current next action
-
-**Phase 1: build the complete field-by-field `PlanetDefinition` usage/migration matrix before any cleanup deletion.**
-
-No cleanup deletion should begin until that matrix is sufficiently complete to identify behavior that must be migrated first.
+Do not claim CI green unless a successful check/result is actually visible.
 
 ---
 
-## 16. Working note for future sessions
+## 15. Current next action
 
-When continuing work on `conduit-planet`:
+**Phase 6: make `CurvedRegionalTileTerrain` consume the shared broad Surface material semantics without adding Surface microdetail.**
+
+After that, repair the Regional → Surface opacity/depth ownership transition documented in `PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
+
+---
+
+## 16. Working rule for future sessions
+
+When continuing planet work:
 
 1. read this file first,
-2. update the Progress Log after meaningful migration/cleanup steps,
-3. mark checklist items rather than relying only on chat history,
-4. keep current known-good visual baseline stable during cleanup,
-5. do not remove definition values just because they are not currently consumed,
-6. use old implementations as migration references before deletion,
-7. prefer one narrowly scoped cleanup/migration change at a time,
-8. work **WebGPU first**; treat WebGL parity as a deliberate later compatibility pass rather than a blocker for the target architecture.
+2. read `docs/planet-view-architecture.md` for current renderer ownership,
+3. update status/docs after meaningful migration steps,
+4. preserve the accepted atmosphere/camera baseline unless directly relevant,
+5. make one narrowly scoped migration at a time,
+6. do not delete behavior before migration/reference review,
+7. keep WebGPU first and WebGL follow-up isolated,
+8. distinguish domain truth from derived render semantics and representation-specific detail.
