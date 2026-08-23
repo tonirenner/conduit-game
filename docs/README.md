@@ -16,21 +16,19 @@ The package-local working plan remains the main migration tracker:
 
 - `packages/conduit-planet/PLANET_STABILIZATION_PLAN.md`
 
-## Current project summaries
+## Current project summary
 
-These are useful summaries, but may lag behind the package-local stabilization plan during active refactors:
+- `chatgpt-current-state.md` – compact handoff/current-state summary.
 
-- `chatgpt-current-state.md`
-- `current-game-architecture.md`
-
-If either conflicts with the stabilization plan or current source code, prefer the stabilization plan and source code.
+If this summary conflicts with the stabilization plan or current source code, prefer the stabilization plan and source code.
 
 ## Historical / implementation record
 
 These preserve earlier decisions and experiments. They are reference material, not the current planet-rendering contract:
 
-- `planet-system-roadmap.md`
-- `implementation-notes.md`
+- `current-game-architecture.md` – captures an older pre-settings/persistence architecture state.
+- `planet-system-roadmap.md` – older roadmap built around the previous CubeSphere-centric planet plan.
+- `implementation-notes.md` – dated implementation log.
 
 In particular, older references to a single CubeSphere refining all the way to the ground, `RegionalSurfaceHandoffTerrain`, `LocalSurfaceTerrain`, or the previous Regional GPU/Hydraulic/Handoff chain describe superseded architecture.
 
