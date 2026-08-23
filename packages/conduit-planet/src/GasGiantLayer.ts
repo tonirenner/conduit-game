@@ -10,6 +10,7 @@ export type GasGiantLayerOptions = {
 	kind: GasGiantLayerKind;
 	radius: number;
 	seed: number;
+	gasInfluence?: number;
 	enableCloudParticles?: boolean;
 	rendererMode?: 'webgl' | 'webgpu';
 };
@@ -59,7 +60,10 @@ export class GasGiantLayer {
 	constructor(
 		private readonly options: GasGiantLayerOptions,
 	) {
-		this.profile = getGasGiantVisualProfile(options.kind);
+		this.profile = getGasGiantVisualProfile(
+			options.kind,
+			options.gasInfluence ?? 1,
+		);
 		this.rng = createMulberry32(
 			options.seed ^
 			(options.kind === 'ice_giant' ? 0x71ce : 0x9a5a),
