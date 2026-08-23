@@ -1,357 +1,278 @@
 # Current State Summary for ChatGPT
 
-## Project Context
+> Compact handoff document. Prefer current source code and the authoritative documents linked below over older implementation notes.
 
-Three.js/WebGPU prototype is being moved toward a persistent singleplayer game foundation with optional future PvE/PvP lobby architecture. Current work focuses on stabilization, settings, persistence foundations, Feature Lab test scenes, asset inspection, combat VFX, engine VFX, and restrained post-processing.
+## Documentation authority
 
-## Startup Flow
+Read in this order for current planet work:
 
-- `/` starts the normal game directly.
-- `/?view=planet` starts the planet/debug viewer.
-- `/?view=test` starts the Feature Lab.
-- Direct Feature Lab scene startup works, for example:
-  - `/?view=test&scene=ship-model-viewer`
-  - `/?view=test&scene=combat-turret-tracking`
-  - `/?view=test&scene=ship-engine-vfx`
+1. `packages/conduit-planet/PLANET_STABILIZATION_PLAN.md`
+2. `docs/planet-view-architecture.md`
+3. `docs/planet-rendering-target-architecture.md`
+4. package-local phase/audit documents relevant to the active task
+5. `docs/SIMULATION_TIME.md` / `docs/climate-system-review.md` when time/climate is involved
 
-## Settings / Persistence
+`docs/planet-system-roadmap.md` and `docs/implementation-notes.md` are historical reference material, not the current renderer contract.
 
-- Added central settings store in `src/game/settings/GameSettings.ts`.
-- Settings UI is top-right via `src/game/ui/SettingsMenu.ts`.
-- Settings use localStorage.
-- Added dummy local player/profile persistence:
-  - `src/game/domain/PlayerProfile.ts`
-  - `src/game/persistence/PlayerRepository.ts`
-  - `src/game/persistence/SingleplayerBootstrap.ts`
-- Singleplayer bootstrap creates five persistent owned systems.
+## Project shape
 
-## Feature Lab
+The application is a Three.js/Bun/TypeScript game prototype with reusable workspace packages:
 
-Feature Lab foundation exists under `src/game/dev/`.
+```text
+Game / application
+├─ @conduit/web3d
+└─ @conduit/planet
+```
 
-Registered scenes:
+`@conduit/web3d` owns reusable generic Three/WebGPU infrastructure such as renderer, post-processing, environment, lighting, assets and debug helpers.
 
-- Model Viewer
-- Turret Tracking
-- Engine VFX
-- Ship vs Ship Combat
-- Planet LOD
-- PostProcessing
+`@conduit/planet` owns planet domain/generation/climate/terrain/rendering responsibilities.
 
-The lab uses isolated in-memory state and should not write to persistent singleplayer saves.
+WebGPU is the active planet stabilization target. WebGL is a later compatibility/fallback pass and must not constrain the modern architecture.
 
-## Fleet Move Commands
+## Startup / development surfaces
 
-Files:
+The normal game starts from `/`.
 
-- `src/game/rendering/GamePrototypeScene.ts`
-- `src/game/simulation/FleetSimulation.ts`
+Useful development views include:
 
-Current behavior:
+- `?view=planet` – planet/debug viewer,
+- `?view=test` – Feature Lab,
+- direct Feature Lab scene selection through `?view=test&scene=...`.
 
-- Right-click in SystemView creates the Homeworld-style move draft again.
-- Mouse wheel changes draft height.
-- Enter confirms the draft and issues the move command.
-- Fleet move commands clear stale per-ship order overrides for the ships in that fleet.
-- This fixes cases where Home Fleet showed a fleet move order but some/all ships ignored it because older individual ship overrides still existed.
+Feature Lab is for isolated testing and should not become a competing production renderer architecture.
 
-## Model Viewer
+## Game-side architecture
 
-File: `src/game/dev/scenes/ships/ShipModelTestScene.ts`
+The game keeps simulation/domain state separate from Three.js render objects as the target rule:
 
-The Model Viewer can inspect:
+```text
+Domain / persistent state
+→ simulation
+→ render synchronization / VFX / UI
+```
 
-- Real assets:
-  - `/models/frigate.glb`
-  - `/models/orbital_hanger.glb`
-  - `/models/capital_ship.obj` + `.mtl`
-- Dummy ships:
-  - frigate, carrier, fighter, constructor, scout
-- Dummy stations:
-  - shipyard, shipyard_small, shipyard_large, refinery, research, headquarters
+`GamePrototypeScene` remains a large orchestration point and is still a candidate for incremental separation rather than a large rewrite.
 
-It normalizes scale, centers models, shows bounding box, counts meshes/triangles/nodes, and labels interesting nodes like turret, muzzle, launcher, engine, spawn, dock, rally.
+Singleplayer settings/profile/persistence foundations exist; renderer and post-processing settings are centrally managed rather than being only ad-hoc URL state.
 
-Important orientation detail:
+## Conduit Web3D
 
-- `frigate.glb` is already correct.
-- `capital_ship.obj` needs per-asset orientation correction in the viewer:
-  - `rotation.x = Math.PI * 0.5`
-  - `mirrorZ = true`
+`packages/conduit-web3d` is the reusable technical layer between the game and Three.js.
 
-## Dummy Models
+Important rule:
 
-File: `src/game/rendering/DummyAssetFactory.ts`
+```text
+Game → @conduit/web3d → three
+```
 
-- Dummy ship front was changed from a four-sided cone/pyramid to a short tapered bow mesh.
-- This affects all dummy ship fallback models.
-- Real GLB/OBJ assets should still be exclusive when present; dummy meshes are fallback/debug only.
+`@conduit/web3d` should not depend on gameplay/domain modules or `@conduit/planet`.
 
-## Combat VFX
+The package includes reusable renderer/post-processing/environment/lighting/assets/material/debug helpers. Keep gameplay-specific ship behavior, combat state, production rules and asset-specific game semantics outside it.
 
-File: `src/game/rendering/CombatVfxSystem.ts`
+## Planet target architecture
 
-- Combat VFX now differentiates beam weapons and launcher weapons.
-- `laser` and `railgun` use yaw turret tracking and beam/line effects.
-- `missile` and `rocket` use launcher muzzle nodes and do not rotate yaw turrets.
-- In the normal game, Combat VFX no longer rotates the whole ship toward targets; movement/render sync owns ship orientation, Combat VFX only aims turret nodes.
-- Frigate GLB muzzle names like `turret_01_muzzle_left` / `turret_01_muzzle_right` are recognized as beam origins.
-- Supported launcher node names include:
-  - `launcher_muzzle`
-  - `rocket_muzzle`
-  - `launcher_01_muzzle`
-  - `rocket_muzzle_01`
-  - `missile_muzzle_01`
-  - `rocket_launcher_01`
+Solid planets use three scale-specific representations:
 
-Weapon mapping in `src/game/simulation/FleetSimulation.ts`:
+```text
+PlanetDefinition
+    ↓
+canonical terrain/climate/material semantics
+    ├─ OrbitView
+    ├─ RegionalView
+    └─ SurfaceView
+```
 
-- carrier -> `missile`
-- frigate -> `railgun`
-- fighter/scout/constructor -> `laser`
+### OrbitView
 
-Ship vs Ship Combat test currently uses Carrier vs Frigate so both missile and railgun VFX are visible.
+Active modern WebGPU path:
 
-## Engine VFX
+```text
+InstancedOrbitTerrain
++ OrbitTerrainVolume
+```
 
-File: `src/game/rendering/EngineVfxSystem.ts`
+The classic CubeSphere surface stack remains transitional/legacy and is hidden/frozen for modern WebGPU solid planets.
 
-- Engine VFX prefers real engine nodes and now recognizes names like `engine_01`, `engine_main_01`, and `Engine_-1.65`.
-- Fallback engine points are only used when no engine nodes exist.
-- Frigate GLB engine VFX now uses the real `engine_main_01` node instead of the old bounds fallback.
-- Engine plume direction is derived away from the local ship/model center, so Frigate exhaust at negative local Z emits backward instead of into the hull.
-- Engine anchors use the outer side of an engine mesh/node bounding box, not only the node origin.
-- Existing fallback VFX can be replaced when a higher-quality async real model/node layout becomes available.
-- Plumes were changed to textured planes instead of visible cone shapes.
-- Effects were tuned more subtle.
+### RegionalView
 
-## PostProcessing
+Active implementation:
 
-File: `packages/conduit-web3d/src/postprocessing/PostProcessingPipeline.ts`
+```text
+CurvedRegionalTileTerrain
+```
 
-- Fixed Three r185 SSR `float(null)` crash by using SSR options object with concrete nodes.
-- GTAO, SSR, Bloom, and exposure were tuned down.
-- SSR material assumptions changed from mirror-like to rough/subtle:
-  - lower metalness
-  - higher roughness
-  - higher SSR resolution scale to reduce blocky plane reflections
-- Latest tuning lowered High/Ultra SSR opacity and distance again, and tightened Bloom thresholds/strength.
-- Bloom is intended only for bright emissive details, not large glow fields.
-- PostProcessing is now exported as `@conduit/web3d/postprocessing`.
-- `src/main.ts` and `src/game/settings/GameSettings.ts` import the pipeline/types from Conduit instead of the old app-local path.
-- `PostProcessingPipeline.updateOptions()` can now live-update exposure and rebuild the WebGPU pipeline for enabled/quality/GTAO/SSR/Bloom changes.
-- Feature Lab context now exposes the active PostProcessingPipeline to test scenes.
-- Normal game Settings now live-apply PostFX quality/GTAO/SSR/Bloom through the active pipeline; only renderer changes still require reload.
+It provides curved approach terrain from canonical `PlanetTerrainSampler` samples.
 
-PostFX test scene:
+### SurfaceView
 
-- `src/game/dev/scenes/rendering/PostFxTestScene.ts`
-- PostFX test scene now has live controls for PostFX enabled, quality, GTAO, SSR, Bloom, exposure, and emissive strength.
-- Emissive and lighting defaults were reduced after visual inspection.
+Active implementation:
 
-## Planet LOD Scene
+```text
+SurfaceClipmapTerrain
++ SurfaceTerrainMaterial
+```
 
-File: `src/game/dev/scenes/planets/PlanetLodTestScene.ts`
+It provides local tangent/meter-space clipmap rendering with material-dependent roughness, metalness, micro-normal and cavity/AO detail.
 
-The Planet LOD scene has a planet class dropdown covering all current `PlanetClass` values:
+Physical terrain displacement/collision truth does not belong to the material.
 
-- barren
-- rocky
-- terrestrial
-- ocean
-- desert
-- ice
-- lava
-- toxic
-- carbon
-- metal_rich
-- gas_giant
-- ice_giant
+## Planet handoff status
 
-Planet LOD now displays scale diagnostics:
+```text
+Orbit → Regional
+  accepted/stable
 
-- real physical radius in km
-- lab render radius and km per render unit
-- SystemView/game render radius and km per render unit
-- visual compression multiplier versus raw `1 render unit = 1 km`
+Regional → Surface
+  lifecycle/camera continuity: working
+  canonical terrain identity: shared
+  visual/material continuity: open
+```
 
-The shared SystemView planet radius formula lives in `src/game/spatial/SpatialRenderScale.ts`.
+The visible Regional → Surface material/renderer pop is documented in:
 
-## Game Scale Diagnostics
+`packages/conduit-planet/PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
 
-Files:
+Current runtime keeps Regional as the curved backdrop while Surface fades in, then releases Regional at a high Surface ownership threshold. The material mismatch plus final ownership cut is visually noticeable.
 
-- `src/game/spatial/SpatialRenderScale.ts`
-- `src/game/rendering/GamePrototypeScene.ts`
+Do not fix this only by widening the transition band.
 
-SystemView keeps simulation values physical but renders planets with a compressed/cinematic scale.
+## Canonical planet data rules
 
-Current HUD behavior:
+```text
+PlanetDefinition = domain truth
+Derived profiles / SurfaceMaterialSemantics = render configuration
+PlanetTerrainSampler = physical terrain truth
+Climate / Biome / Weather modules = climate/weather truth
+Renderers = consumers
+```
 
-- In SystemView, HUD shows `scale | system 1u=1km`.
-- It also shows the first planet's real radius, current rendered radius, km per render unit, and compression multiplier.
-- Planet render radius is calculated centrally via `getSystemPlanetRenderRadius()`.
+No renderer should independently recreate composition, climate or physical terrain semantics.
 
-## SystemView Planet Quality Alignment
+## Terrain migration status
 
-Files:
+Canonical migration is complete for the planned Phase 3 surface-definition values:
 
-- `src/game/rendering/GamePrototypeScene.ts`
-- `packages/conduit-planet/src/PlanetSurfaceMaterial.ts`
-- `packages/conduit-planet/src/PlanetSurfaceNodeMaterial.ts`
-
-Current planet alignment work:
-
-- SystemView no longer applies the previous aggressive solid-planet brightness/procedural-strength override.
-- SystemView planet render tuning is closer to PlanetViewer defaults, with only restrained per-class adjustments.
-- SystemView idle cloud raymarch budget now matches the default PlanetViewer budget.
-- Ocean island/coast masks were tightened in both WebGL and WebGPU materials:
-  - reduced terrain-height influence on `oceanIslandMask`
-  - narrower island transition thresholds
-  - narrower/weaker shelf tint
-
-Known remaining difference:
-
-- PlanetViewer can use baked terrain textures; SystemView still uses the procedural/live material path.
-
-## Gas / Ice Giant Rendering
-
-Files:
-
-- `packages/conduit-planet/src/GasGiantLayer.ts`
-- `packages/conduit-planet/src/Planet.ts`
-- `src/game/rendering/GamePrototypeScene.ts`
-- `src/game/dev/scenes/planets/PlanetLodTestScene.ts`
-
-Current giant rendering work:
-
-- Gas/Ice Giants no longer get the generic solid-planet AtmosphereLayer on top of their dedicated `GasGiantLayer` atmosphere.
-- SystemView and Planet LOD now enable giant cloud particles for `gas_giant` and `ice_giant`.
-- `GasGiantLayer` has denser cloud shells, stronger shell opacity, stronger atmospheric shell opacity, and more particle veil density.
-- `GasGiantLayer` now uses horizontally seamless FBM for turbulent bands/cloud alpha so equirectangular textures wrap cleanly.
-- Final body/cloud textures get a small horizontal seam blend after Canvas strokes, reducing visible left/right texture discontinuities.
-- Giant cloud particles now fade down with camera distance relative to planet radius, so close views keep depth while far views avoid noisy bright particle speckles.
-- The current volumetric look is still an approximation: layered transparent shells plus particle veil. A true volume-cloud gas giant would need a later raymarch/3D texture path.
-
-## Planet WebGL/WebGPU Alignment
-
-Files:
-
-- `packages/conduit-planet/src/Planet.ts`
-- `packages/conduit-planet/src/rendering/PlanetRenderProfile.ts`
-- `packages/conduit-planet/src/AtmosphereLayer.ts`
-- `packages/conduit-planet/src/WebGPUAtmosphereLayer.ts`
-
-Current alignment work:
-
-- WebGL and WebGPU planets now use the same default ambient/exposure tuning.
-- Atmosphere color and semantic atmosphere palette are passed to both WebGL and WebGPU atmosphere layers.
-- Lava planets force the `lava` atmosphere palette and a red atmosphere tint.
-- WebGL/WebGPU lava atmosphere alpha, scattering and opacity factors were aligned.
-- Ocean land/water transitions were sharpened in both surface paths by narrowing shelf/coast/island masks and reducing the bright cyan shelf tint.
-
-## Climate System
-
-Review file: `docs/climate-system-review.md`
-
-Current climate work:
-
-- Global climate is generated in `PlanetGenerator.ts`.
-- Local biome/weather sampling exists in `Climate.ts` and `Weather.ts`.
-- Cloud layers now receive global climate values from `PlanetRenderProfile`:
-  - cloud persistence
-  - storm activity
-  - wind strength
-  - ash load
-- WebGL and WebGPU cloud profile calculations now use the same effective coverage/density/alpha logic.
-- Planet LOD scene displays generated climate values for the selected planet class/seed.
-
-Known limitation:
-
-- Local biome sampling is still not fully planet-specific; `getClimateSample()` should later accept a shared `ClimateProfile`.
-
-## Known Open Visual Issues / Next Work
-
-- Initial `@conduit/web3d` workspace package exists under `packages/conduit-web3d`.
-- The complete planet subsystem now lives in the `@conduit/planet` workspace package with explicit model, generation, climate, terrain, rendering, and diagnostics subpaths.
-- App, system, persistence, and Feature Lab consumers import planet APIs from the package instead of `src/planet`.
-- The generic canvas star background is exported from `@conduit/web3d/environment`; the app-specific climate debug canvas remains under `src/debug`.
-- First extracted Conduit modules:
-  - `assets/AssetLoaders`
-  - `renderer/RendererFactory`
-  - `renderer/RenderQuality`
-  - `debug/DebugPrimitives`
-  - `materials/MaterialAdjustmentProfile`
-  - `materials/MaterialSnapshot`
-  - `environment/DynamicEnvironmentProbe`
-  - `environment/ExrEnvironmentLoader`
-  - `camera/CameraFraming`
-- Old local re-export shims for `RendererFactory`, `RenderQuality`, `DebugPrimitives`, and `DynamicEnvironmentProbe` were removed after all app imports moved to `@conduit/web3d`.
-- GamePrototypeScene, ShipModelTestScene and StudioLightingTestScene now use Conduit GLTF/OBJ/MTL asset loaders.
-- Shared Conduit helpers now cover generic UV2 fallback, material traversal for material arrays, and object normalization used by both Game and Feature Lab model views.
-- Conduit assets now also include `ModelPreparation` and `NodeDiscovery` helpers:
-  - `prepareModelForRuntime()` handles UV2 fallback, optional geometry/material cloning, shadow/frustum flags, bounds recompute, and optional material snapshots.
-  - `findNamedNodes()` / `findNodesByKind()` centralize technical node patterns for engine, turret yaw, muzzle, launcher muzzle, spawn, dock, and rally nodes.
-- Ship Model Viewer, Engine VFX test, Studio Lighting, EngineVfxSystem, and CombatVfxSystem now use the shared Conduit asset/node helpers where applicable.
-- Combat now has a game-side `WeaponMountLayout` layer:
-  - derives yaw turrets, weapon muzzles, and launcher muzzles from Conduit node discovery.
-  - `CombatVfxSystem` uses shared yaw-aim and weapon-origin helpers.
-  - `TurretTrackingTestScene` reports the same layout counts and debug muzzle line from the same origin selection used by game combat.
-  - Railgun/Laser use yaw turrets; Missile/Rocket use launcher muzzle without yaw.
-- Asset-specific orientation/scale profiles, gameplay nodes, engine FX logic, turret behavior, combat state, and production rules remain in the Game.
-- Frigate GLB import now keeps exported normals/tangents instead of recomputing vertex normals in the Game loader.
-- Frigate instance material cloning no longer forces the old `envMapIntensity` `1.45`; it applies the shared Frigate material lighting profile.
-- Frigate Game rendering and Studio Lighting now share `FRIGATE_MATERIAL_LIGHTING_PROFILE` in `src/game/rendering/ShipMaterialLightingProfile.ts`.
-- Game dynamic environment probe now uses `GAME_ENVIRONMENT_PROBE_PROFILE`:
-  - environmentIntensity `1.15`
-  - HDR peak intensity scale `0.32`
-  - HDR peak size scale `1.7`
-  - HDR peak opacity scale `0.72`
-- Feature Lab now has `rendering-studio-lighting` / `Studio Lighting` for Frigate GLB material tuning against `/models/warm_studio_hangar_4k.exr`.
-- Conduit Web3D now owns reusable Environment/Lighting primitives:
-  - `SceneEnvironmentManager` for EXR loading, scene environment/background, environment rotation, intensity, tone mapping exposure, snapshot/restore, and disposal.
-  - `StudioLightingRig` for generic Key/Fill studio lights and angle-based direction setup.
-  - `StudioLightingTestScene` now uses these Conduit components instead of local environment/light wiring.
-- StarEngine/Star Citizen references were cleaned up in `D:/_repositories/webgl/starcitizen.md` and translated into `docs/planet-rendering-target-architecture.md`.
-- First Planet target pass:
-  - Planet LOD scene now reports renderer mode, renderer kind, feature flags, palettes, terrain/ocean/atmosphere/cloud profile values.
-  - WebGL and WebGPU ocean masks use tighter coast/island thresholds to reduce frayed Ocean land transitions.
-  - Lava atmosphere profile is redder/stronger across WebGL and WebGPU atmosphere layers.
-  - Gas/Ice Giant cloud particles fade earlier and harder with distance so far views are less point-heavy.
-- WebGL PlanetSurfaceMaterial now receives and renders class palettes for Desert, Ice, Lava, Metallic, Rocky, and Barren instead of falling back to the generic terrestrial look. Ocean/Toxic/Carbon were already wired.
-- WebGL PlanetSurfaceMaterial also applies profile-driven terrain ocean bias, height scale, and mountain scale, so Ocean planets reduce continent generation structurally instead of only recoloring large landmasses.
-- WebGPU Barren palette was adjusted toward the accepted WebGL Barren look: drier brown/gray base, brighter highlands, less generic landMask darkening.
-- WebGPU Terrestrial/Earthlike palette was adjusted toward the accepted WebGL look: darker oceans, muted green land, slightly softer coast transition, less saturated bright land.
-- WebGPU Rocky palette was adjusted toward the accepted WebGL look: neutral gray-brown rock, brighter relief edges, less sandy warmth.
-- WebGPU Carbon palette was adjusted toward the accepted WebGL look: darker graphite base, muted brown detail, reduced bright ridge veins and weaker environment reflection.
-- WebGPU Metal-Rich palette was adjusted toward the accepted WebGL look: darker cool ore base, muted gray highlights, reduced chrome-like specular and weaker environment peaks.
-- WebGPU Rocky, Carbon, and Metal-Rich now have extra matte fill/visibility lift in their type lighting blocks so they do not collapse into near-black compared to WebGL.
-- WebGPU solid dry classes now also get a stronger post-type visibility floor and brighter night-base albedo for Rocky/Barren/Carbon/Metal-Rich/Desert, so shadowed surfaces remain readable instead of near-black.
-- `packages/conduit-planet/src/rendering/PlanetClassVisualProfile.ts` now centralizes class visual lighting values. WebGPU dry-class type lighting and visibility floor read these uniforms from the shared profile; WebGL also reads the shared profile for direct-light/ambient profile input.
-- Latest WebGPU readability pass only changed `PlanetClassVisualProfile`: Rocky was lifted slightly, Metal-Rich got more matte shadow/fill visibility, and Carbon got the strongest fill/ambient lift because it was still collapsing to black in the comparison screenshots.
-- Follow-up Metal-Rich pass: `metallic` profile now has stronger night/fill/visibility compensation and weaker environment peak/reflection, targeting readable matte ore instead of a bright top with a nearly black lower hemisphere.
-- Second Metal-Rich pass: `metallic` was lifted again after the WebGPU screenshot still showed near-black lower/terminator patches. The class now prioritizes neutral matte readability over shiny high-contrast metal.
-- WebGL Lava was adjusted toward the WebGPU look: dark red basalt crust, subtle diffuse red glow, strongly reduced yellow/white hotspots, and weaker post-lighting emission.
-- Studio Lighting `Blender Match` preset:
-  - roughnessMultiplier `1.14`
-  - metalnessMultiplier `1.0`
-  - environmentIntensity `1.35`
-  - envMapIntensity `0.95`
-  - normalScale `1.0`
-  - aoMapIntensity `1.0`
-  - exposure `1.03`
-  - GTAO on, SSR off, Bloom on
-  - warm key light at `1.6`, weak cool fill light at `0.85`
-  - includes `Floor Visible` and `Model Y Offset` controls for framing/material inspection
-- Continue checking model forward consistency across real assets and dummy assets.
-- Added direct `Weapon Fire` Feature Lab scene for Laser, Railgun, Missile, and Rocket. It fires through production `CombatVfxSystem`, uses `WeaponMountLayout` for origin/yaw decisions, and reports origin/yaw details.
-- Remaining direct weapon test work:
-  - Multi-turret test
-- Add launcher nodes to real assets later.
-- Improve actual ship GLB node conventions:
-  - `turret_01_yaw`
-  - `muzzle_01`
-  - `engine_01`
-  - `launcher_01_muzzle`
-- SSR on flat planes is improved but should still be visually reviewed in browser.
-- Build/tests were intentionally not run recently per user request.
+- ocean level,
+- terrain roughness,
+- tectonics,
+- volcanism,
+- ice caps.
+
+Shared volcanic and ice-cap masks are used instead of renderer-local equivalents.
+
+## Climate / weather status
+
+Phase 4 definition migration is complete for:
+
+- climate seed,
+- temperature,
+- humidity,
+- aridity,
+- biome seed,
+- weather seed,
+- wind strength,
+- storm activity,
+- seasonality,
+- cloud persistence.
+
+`ashLoad` remains a deliberate later volcanic/atmospheric/material integration concern.
+
+Remaining runtime integration issue: seasonality and cloud persistence exist as canonical layers, but one composed production weather path applying both everywhere is still open.
+
+## Simulation time
+
+Canonical simulation epoch:
+
+```text
+3030-01-01T00:00:00.000Z
+```
+
+`SimulationClock` is the shared time authority foundation. `PlanetSeasonCycle` derives planet orbital/season phase from the generated orbital period.
+
+Do not create renderer-local simulation clocks for weather/seasons/orbits/day-night.
+
+Current gaps include save/load restoration of elapsed simulation time, canonical use of planet `rotationSpeed`, and `axialTilt` participation in season forcing.
+
+## Composition status
+
+Phase 5 is complete.
+
+Explicit semantics now exist for all composition keys:
+
+```text
+rock
+metal
+ice
+water
+gas
+organic
+volatiles
+```
+
+Solid-surface composition affects broad material identity without changing physical terrain ownership. `composition.gas` is wired into the dedicated Gas/Ice Giant visual path.
+
+## Current active phase
+
+**Phase 6 – profile/material-semantics consolidation.**
+
+Completed:
+
+- shared `SurfaceMaterialSemantics`,
+- `SurfaceRenderProfile` uses it,
+- active Surface material uses it,
+- regression coverage for semantic/profile consistency.
+
+Next:
+
+```text
+SurfaceMaterialSemantics
+→ CurvedRegionalTileTerrain broad material evaluation
+```
+
+Regional should match Surface broad color/material identity while remaining simpler and omitting Surface microdetail.
+
+After that, repair the Regional → Surface depth/opacity ownership transition.
+
+## Atmosphere
+
+Current WebGPU atmosphere uses the screen-space/post-process source architecture.
+
+This is a protected known-good area. Do not casually modify atmosphere/camera reconstruction while working on terrain/material cleanup.
+
+## Legacy / cleanup constraints
+
+Do not delete these blindly:
+
+- `Planet.ts` – still transitional and runtime-reachable,
+- classic CubeSphere stack – legacy/fallback/public API responsibilities remain,
+- `NearSurfaceTerrainLayer` – retirement candidate after reference/API review,
+- old Regional GPU/Hydraulic/Handoff chain – mine useful algorithms first,
+- old surface materials – still behavioral/fallback reference,
+- old atmosphere experiments – verify imports/exports before removal.
+
+Cleanup is migration, not deletion-first.
+
+## CI
+
+Planet CI is pinned to Bun 1.3.14 after Bun 1.4.0 crashed the GitHub runner test process with a segmentation fault / exit 139.
+
+Distinguish:
+
+```text
+actual successful CI result
+vs
+no failure mail
+vs
+connector returning no status entries
+```
+
+Do not claim verified green without a visible successful check.
+
+## Current next action
+
+1. align Regional broad material semantics with `SurfaceMaterialSemantics`,
+2. regression-check representative planet classes,
+3. repair Regional → Surface opacity/depth ownership,
+4. continue Phase 6 profile cleanup,
+5. only then proceed into `Planet.ts` disentangling/legacy retirement.
