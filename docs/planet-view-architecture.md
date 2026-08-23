@@ -1,152 +1,220 @@
 # Planet View Architecture
 
-## Decision
+## Status
 
-The planet renderer is no longer one geometry system that is refined from system scale down to the ground.
+This document describes the **current active planet view architecture**.
 
-A planet is rendered through three purpose-built views that share the same deterministic planet data:
-
-```text
-PlanetDefinition / terrain seed / climate / biome
-                |
-                +--> OrbitView
-                +--> RegionalView
-                +--> SurfaceView
-```
-
-The player sees one continuous planet. Internally the renderer switches representation.
-
-## Why
-
-The Planet LOD experiments established several useful boundaries:
-
-- Reducing hundreds of patch draws to a handful of instanced draws is useful, but does not remove the close-range frame-time collapse by itself.
-- Simplifying the terrain shader, disabling atmosphere, disabling height displacement and limiting rendered instances does not recover the close-range frame time reliably.
-- The global CubeSphere remains a good orbital representation but becomes the wrong data structure when it is forced to manage very dense near-surface LOD.
-- The correct optimization is therefore to stop refining the global planet and hand the camera to a renderer designed for the current scale.
-
-## Shared Source Of Truth
-
-All views must derive terrain identity from the same data:
+The renderer no longer refines one global geometry system from orbit all the way to the ground. Solid planets use three purpose-built representations that share the same deterministic planet data:
 
 ```text
 PlanetDefinition
-  -> render.terrainSeed
-  -> PlanetTerrainSampler
-  -> climate / biome / land mask / elevation profile
+    ↓
+PlanetTerrainSampler / derived render semantics
+    ├─ OrbitView
+    ├─ RegionalView
+    └─ SurfaceView
 ```
 
-A view may change geometry, material detail, coordinate frame, caches and GPU representation. It must not invent a second planet.
+The player should see one continuous planet even though geometry, coordinate frame and material detail change internally.
 
-A mountain visible in orbit must remain the same mountain in RegionalView and SurfaceView.
+## Shared source of truth
 
-## Views
+All views must preserve the same macro planet identity:
+
+```text
+PlanetDefinition
+  → terrain / climate / composition semantics
+  → PlanetTerrainSampler
+  → elevation / masks / climate / biome
+```
+
+A view may change geometry density, coordinate frame, caches and shader detail. It must not invent a second terrain, composition or climate model.
+
+A mountain, coastline or volcanic region must remain the same feature when ownership moves between views.
+
+## Active views
 
 ### OrbitView
 
+Active implementation:
+
+```text
+InstancedOrbitTerrain
++ OrbitTerrainVolume
+```
+
 Purpose:
 
-- whole-planet silhouette
-- system and orbit gameplay
-- clouds, atmosphere, rings, moons
-- low-frequency terrain identity
+- whole-planet silhouette,
+- system/orbit gameplay,
+- low-frequency terrain identity,
+- bounded and predictable rendering cost.
 
-Technique:
+The modern WebGPU solid-surface path uses fixed instanced terrain with a pre-baked terrain LUT. The classic `CubeSphere` stack is retained only as transitional/legacy infrastructure and is hidden/frozen for this path.
 
-- global CubeSphere
-- deliberately bounded LOD
-- no attempt to reach meter-scale terrain
-- orbit terrain stops refining once the RegionalView overlap is reached
-
-The orbit renderer may stay alive for atmosphere/cloud continuity after its solid surface has handed off.
+Atmosphere, clouds, rings and moons are independent layers and may remain active across terrain ownership changes.
 
 ### RegionalView
 
+Active implementation:
+
+```text
+CurvedRegionalTileTerrain
+```
+
 Purpose:
 
-- approach to a selected part of the planet
-- preserve orbital macro terrain while introducing stronger local relief
-- bridge global curvature to local surface rendering
+- approach scale,
+- preserve global curvature,
+- bridge orbital terrain to local SurfaceView,
+- sample canonical physical terrain directly.
 
 Technique:
 
-- one camera-facing curved regional patch
-- deterministic `PlanetTerrainSampler`
-- height/color/normal/AO textures
-- optional deterministic hydraulic meso erosion
-- geometry edge morph back to the global sphere during OrbitView overlap
+- curved camera-local regional cap,
+- canonical `PlanetTerrainSampler` elevation,
+- fixed tile layout merged into one geometry/draw path,
+- altitude-driven uniform edge resolution to avoid T-junctions.
 
-RegionalView is not the final ground renderer. It is a transition-scale renderer.
+RegionalView is not the final ground renderer.
+
+Important current limitation: Regional broad material/color semantics are still simpler than SurfaceView. This is an active consolidation task because differing material semantics are currently visible during Regional → Surface transition.
 
 ### SurfaceView
 
-Purpose:
-
-- RTS ground gameplay
-- units, buildings, resource sites and local terrain
-- stable meter-space simulation/rendering
-
-Technique target:
-
-- local tangent/reference frame
-- `1 unit = 1 meter`
-- floating origin
-- fixed reusable GPU grid / clipmap rings
-- camera movement changes clipmap origin and data, not the global planet quadtree
-- CPU `PlanetTerrainSampler` remains the gameplay/picking truth
-
-The first implementation may use a fixed local tangent grid as a visual handoff scaffold. It must preserve this API boundary so it can be replaced by GPU clipmap rings without changing the view controller.
-
-## Transition Policy
-
-Transitions use overlap bands, never one exact altitude switch.
-
-Initial tuning values:
+Active implementation:
 
 ```text
-Orbit -> Regional
-  preload regional:     9,750 km
-  blend start:          9,000 km
-  blend complete:       7,500 km
-  release regional up: 10,000 km
-
-Regional -> Surface
-  preload surface:      1,250 km
-  blend start:          1,000 km
-  blend complete:         250 km
-  release surface up:   1,500 km
+SurfaceClipmapTerrain
++ SurfaceTerrainMaterial
 ```
 
-The exact numbers are tuning values, not architecture.
+Purpose:
 
-### Stability rules
+- local ground gameplay,
+- meter-space terrain representation,
+- units/buildings/resources,
+- high local material detail without refining the whole planet.
 
-1. Preload the incoming view before it receives visible weight.
-2. Keep the outgoing view alive until the incoming view fully covers it.
-3. Use smoothstep weights inside an overlap band.
-4. Use different enter/release thresholds (hysteresis) so camera jitter cannot create/destroy a view every frame.
-5. Anchor RegionalView and SurfaceView from the same normalized planet direction as the camera.
-6. Never reset camera target or orientation during a view switch.
-7. Do not rebuild a view merely because its blend weight changed.
-8. Orbit LOD is clamped to the handoff scale once RegionalView takes over.
+Technique:
 
-## Ownership
+- local tangent/reference frame,
+- fixed reusable clipmap rings,
+- canonical `PlanetTerrainSampler` for physical terrain samples,
+- representation-specific fragment microdetail,
+- material-dependent roughness, metalness, micro-normal and cavity/AO.
 
-The view controller owns lifecycle and transitions:
+Surface material detail is visual. Terrain displacement/collision authority remains outside the material.
+
+## Material semantics
+
+Current ownership principle:
+
+```text
+PlanetDefinition
+    ↓
+SurfaceMaterialSemantics / SurfaceRenderProfile
+    ↓
+renderer material evaluation
+```
+
+Composition values must not be independently reinterpreted in each renderer.
+
+The active Surface renderer and `SurfaceRenderProfile` now share canonical composition-derived semantics for:
+
+- water,
+- ice,
+- lava/volcanism,
+- toxic/volatiles,
+- metal,
+- rock,
+- organic/carbon.
+
+RegionalView is the next consumer to be aligned to the same broad semantics. Microdetail does not need to match RegionalView; broad color/material identity does.
+
+## Transition policy
+
+Transitions use preload + overlap + hysteresis. They are not one exact altitude switch.
+
+Current tuning:
+
+```text
+Orbit → Regional
+  preload regional:       9,750 km
+  visible blend start:    9,000 km
+  visible blend complete: 7,500 km
+  release regional up:   10,000 km
+
+Regional → Surface
+  preload surface:          140 km
+  visible blend start:       90 km
+  visible blend complete:    20 km
+  release surface up:       220 km
+```
+
+These values are tuning parameters, not architecture.
+
+### Current transition status
+
+```text
+Orbit → Regional
+  geometry continuity: good
+  visual handoff: stable
+
+Regional → Surface
+  lifecycle/camera continuity: working
+  geometry identity: shared canonical terrain
+  visual/material continuity: NOT yet accepted
+```
+
+The known Regional → Surface problem is documented in:
+
+```text
+packages/conduit-planet/PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md
+```
+
+The current runtime keeps Regional fully opaque while Surface fades in, then hides Regional once Surface reaches a depth-ownership threshold. That avoids exposing the finite Surface patch/horizon, but the remaining material mismatch plus final ownership cut is visible as a renderer/material pop.
+
+Do not solve this only by widening the blend band. First align broad material semantics; then improve ownership/fade behavior.
+
+## Stability rules
+
+1. Preload an incoming view before it receives visible weight.
+2. Keep the outgoing representation available until the incoming view can cover the visible scene.
+3. Use hysteresis for renderer lifecycle.
+4. Never reset camera orientation/target merely because view ownership changes.
+5. RegionalView and SurfaceView anchor from the same normalized camera/planet direction.
+6. Blend weights alone should not force geometry rebuilds.
+7. Orbit terrain cost remains bounded; do not restore planet-wide near-surface refinement.
+8. All views converge on canonical physical terrain identity.
+9. Broad material identity should converge across overlapping views.
+10. Representation-specific microdetail may appear progressively with proximity.
+
+## Runtime ownership
 
 ```text
 PlanetViewRuntime
-  OrbitView       -> production Planet
-  RegionalView    -> RegionalSurfaceHandoffTerrain
-  SurfaceView     -> local tangent terrain / later clipmap
+  ├─ OrbitView    → InstancedOrbitTerrain (WebGPU solid planets)
+  ├─ RegionalView → CurvedRegionalTileTerrain
+  └─ SurfaceView  → SurfaceClipmapTerrain
 ```
 
-The Feature Lab should test this production-like runtime rather than maintaining a second collection of renderer experiments.
+`Planet.ts` remains transitional because it still owns valid shared layers and legacy surface infrastructure. It should not be treated as the final ownership shape for modern solid planets.
 
-## Cleanup Rule
+## Gas and ice giants
 
-The old `PlanetInstancedCubeSphereDebugV*`, batching experiments and performance-isolation UI are diagnostic history, not the target architecture.
+Gas and ice giants do not instantiate RegionalView/SurfaceView terrain. They remain dedicated giant-renderer paths unless a future atmospheric/deep-cloud gameplay view is deliberately introduced.
 
-Once the new view runtime is wired into Planet LOD and builds cleanly, those files should be removed instead of kept as alternate production paths.
+## Cleanup rule
 
-The useful lessons remain in this document; the experimental code does not.
+Old renderer experiments remain useful only as migration/reference sources. In particular, the previous regional chain:
+
+```text
+GpuRegionalSurfaceTerrain
+→ HydraulicRegionalSurfaceTerrain
+→ RegionalSurfaceHandoffTerrain
+```
+
+is not the active renderer architecture.
+
+Useful erosion/normal/AO/handoff ideas may be migrated, but the old chain must not return as a competing production path.
