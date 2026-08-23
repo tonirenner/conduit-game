@@ -1,140 +1,241 @@
 # Planet Rendering Target Architecture
 
-The current rendering architecture is defined by `docs/planet-view-architecture.md`.
+This document describes the current rendering target. The concrete view lifecycle and transition rules live in `docs/planet-view-architecture.md`.
 
-The previous plan to refine one CubeSphere continuously from orbit down to the physical surface is retired. Planet rendering is now explicitly scale-specific.
+The previous approach of refining one global CubeSphere from orbit to the physical surface is retired for the modern WebGPU path.
 
 ## Goal
 
-Planets are deterministic, class-driven game objects whose simulation data, orbital rendering, regional terrain, local surface, resources and later POIs come from the same source data.
+Planets are deterministic, class-driven game objects whose simulation data, terrain, climate, composition, resources and visual representations come from the same domain definition.
 
 ```text
 PlanetDefinition
-  -> Climate / Biome / Resource Data
-  -> PlanetTerrainSampler
-  -> OrbitView / RegionalView / SurfaceView
-  -> Game State / Diagnostics
+  ↓
+PlanetGeneration
+  ↓
+derived profiles / material semantics
+  ↓
+canonical terrain / climate / weather systems
+  ↓
+OrbitView / RegionalView / SurfaceView
 ```
 
-The persistent source of truth is the planet definition and deterministic sampling data, never a mesh.
+The persistent source of truth is never a mesh.
 
-## Core Principles
+## Core ownership rules
 
-- Planet classes define identity first; seeds create deterministic variation.
-- Climate, biome, resources and terrain are shared game/render inputs.
-- Different distance scales use different render representations.
-- A view switch may change geometry, coordinate frame, caches and shader detail, but must not change terrain identity.
-- Feature Lab validates the actual view runtime instead of maintaining alternate renderer architectures.
+```text
+PlanetDefinition = domain truth
+Profile / MaterialSemantics = derived render configuration
+Canonical samplers = physical/climate truth
+Renderer = representation-specific consumer
+```
 
-## View Stack
+Consequences:
+
+- Planet class is identity, but not the only visual input.
+- Composition values may continuously affect material identity.
+- Terrain geometry and collision do not belong to surface shaders.
+- Different view scales may add detail, but may not invent different macro terrain.
+- Duplicate independent interpretation of definition values across renderers is a migration bug.
+
+## Active solid-planet stack
 
 ### OrbitView
 
-Use the production `Planet` renderer and global CubeSphere for:
+Active WebGPU implementation:
 
-- full-planet silhouette
-- orbit/system gameplay
-- atmosphere, clouds, rings and moons
-- low-frequency terrain identity
+```text
+InstancedOrbitTerrain
++ OrbitTerrainVolume
+```
 
-Orbit terrain has a bounded useful LOD. Once RegionalView owns the visible ground, CubeSphere LOD stops refining.
+Responsibilities:
+
+- whole-planet silhouette,
+- system/orbit gameplay,
+- stable low-frequency terrain identity,
+- bounded geometry/draw cost.
+
+The classic `CubeSphere` stack remains transitional for legacy/fallback paths, but is hidden/frozen on the modern WebGPU solid-planet runtime.
 
 ### RegionalView
 
-Use `RegionalSurfaceHandoffTerrain` for the approach scale:
+Active implementation:
 
-- curved camera-local planet patch
-- shared `PlanetTerrainSampler`
-- regional height/color/normal/AO
-- deterministic hydraulic meso erosion where appropriate
-- edge morph into the orbital sphere during overlap
+```text
+CurvedRegionalTileTerrain
+```
 
-RegionalView exists to bridge scales. It is not the final ground renderer.
+Responsibilities:
+
+- preserve curvature during approach,
+- show canonical regional relief,
+- bridge global and local coordinate/render scales,
+- provide a complete curved backdrop until SurfaceView can own the visible ground.
+
+Regional geometry samples `PlanetTerrainSampler` directly.
+
+Current limitation: broad material semantics are still simpler than SurfaceView. Aligning Regional to the shared material semantics is active work and is required before the Regional → Surface handoff can be considered visually stable.
 
 ### SurfaceView
 
-Use a local tangent/reference frame for ground gameplay:
-
-- meter-space simulation/rendering
-- floating origin
-- units, buildings and resource sites
-- fixed reusable GPU terrain grids
-- ultimately clipmap rings rather than a planet-wide quadtree
-
-`LocalSurfaceTerrain` is the first stable handoff scaffold. The target implementation is a GPU clipmap that can replace it behind the same view boundary.
-
-## Continuous Handoff
-
-The current initial transition bands are:
+Active implementation:
 
 ```text
-Orbit -> Regional: 9,000 km -> 7,500 km
-Regional -> Surface: 1,000 km -> 250 km
+SurfaceClipmapTerrain
++ SurfaceTerrainMaterial
 ```
 
-Incoming views preload before the visible blend starts. Lifecycle uses hysteresis so camera jitter does not repeatedly create and destroy renderers.
+Responsibilities:
 
-The controller never changes camera target/orientation during a handoff. Incoming and outgoing views overlap and use smooth weights.
+- local meter-space ground rendering,
+- fixed reusable clipmap geometry,
+- canonical physical terrain sampling,
+- high-frequency material detail,
+- roughness / metalness / micro-normal / cavity-AO response.
 
-## Shared Surface Contract
+The material may create visual microdetail, but not physical displacement truth.
+
+## Shared material contract
+
+Composition/material semantics are being consolidated so overlapping views describe the same broad surface before representation-specific detail is added.
+
+Current canonical composition-derived material semantics cover:
+
+```text
+water
+ice
+lava / volcanism
+toxic / volatiles
+metal
+rock
+organic / carbon
+```
+
+`SurfaceRenderProfile` and active Surface material evaluation now derive those values through the shared `SurfaceMaterialSemantics` layer instead of independently reimplementing them.
+
+Next target:
+
+```text
+SurfaceMaterialSemantics
+  ├─ SurfaceView broad material evaluation
+  └─ RegionalView broad material evaluation
+```
+
+Regional does not need Surface microdetail. It does need matching large-scale color/material identity inside the overlap band.
+
+## Shared terrain contract
 
 ```text
 PlanetDefinition
-  -> render.terrainSeed
-  -> PlanetTerrainSampler
-  -> elevation / land-water / climate / biome / normal
+  → PlanetTerrainSampler
+  → physical elevation
+  → land/water classification
+  → canonical masks
+  → climate/biome samples
 ```
 
-All views must sample the same macro terrain. Regional and Surface may add representation-specific detail, but they must preserve the same large terrain features.
+Current canonical terrain responsibilities include the migrated surface values for ocean level, terrain roughness, tectonics, volcanism and ice-cap masks.
 
-CPU `PlanetTerrainSampler` remains authoritative for gameplay queries and deterministic reconstruction. GPU detail is visual acceleration, not a second simulation world.
+Orbit may use baked/approximated data for performance, but that data must represent the same deterministic planet identity rather than a different terrain model.
+
+## Climate and weather
+
+Generated climate definition values are canonical domain inputs, not renderer-local tuning constants.
+
+Phase 4 established canonical handling for:
+
+- climate seed,
+- temperature,
+- humidity,
+- aridity,
+- biome seed,
+- weather seed,
+- wind strength,
+- storm activity,
+- seasonality,
+- cloud persistence.
+
+`ashLoad` remains a later volcanic/atmospheric visual-material concern rather than general climate migration.
+
+The simulation clock is the shared source for future/live time-dependent weather, seasons, rotation and orbital cycles. Renderer animation time must not become a competing simulation clock.
+
+## Gas and ice giants
+
+Gas and ice giants use the dedicated `GasGiantLayer` path rather than solid-surface terrain views.
+
+`composition.gas` now influences the giant visual profile continuously while preserving giant class and geometry ownership.
+
+A future atmospheric/deep-cloud gameplay view would be a deliberate fourth representation, not SurfaceView terrain applied to a giant.
 
 ## Atmosphere
 
-Atmosphere is conceptually independent from terrain view ownership.
+Atmosphere ownership is independent of terrain-view ownership.
 
-OrbitView may keep atmosphere/cloud layers alive after the solid CubeSphere surface has handed off. Later near-atmosphere work should add altitude-aware Rayleigh/Mie scattering without forcing the orbital terrain representation to remain active.
+The current WebGPU target is the screen-space/post-process atmosphere source architecture. Previous physical shell experiments are reference/history, not the target production architecture.
 
-## Planet Classes
+Protect atmosphere/camera reconstruction while working on terrain transitions unless the task directly requires atmosphere changes.
 
-Solid-surface classes use all three views.
+## Current handoff status
 
-Gas and ice giants remain OrbitView-only unless a dedicated atmospheric/deep-cloud view is introduced later. They do not instantiate RegionalView or SurfaceView terrain.
+```text
+Orbit → Regional
+  accepted/stable
 
-## WebGL / WebGPU
+Regional → Surface
+  lifecycle works
+  camera continuity works
+  canonical terrain identity is shared
+  visual/material continuity is still open
+```
 
-Both backends share:
+The current Regional → Surface discontinuity is documented in:
 
-- `PlanetDefinition`
-- terrain seed and sampling
-- climate/biome data
-- class visual profiles
-- transition policy
+`packages/conduit-planet/PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
 
-Backend-specific shader/material implementations may differ. View ownership and terrain identity do not.
+The correct fix order is:
 
-## Performance Lessons Locked Into The Design
+1. consolidate shared broad material semantics,
+2. make Regional consume them,
+3. then improve the depth/opacity ownership transition,
+4. validate the same approach/return path across representative planet classes.
 
-The Planet LOD experiments established that:
+Do not hide a material mismatch merely by widening the transition band.
 
-- many draw calls are undesirable, but reducing the CubeSphere to a handful of instanced draws did not by itself solve near-surface frame time;
-- disabling atmosphere, displacement and complex terrain shading did not remove the close-range collapse;
-- limiting rendered patch instances did not scale frame time enough to justify pushing the global CubeSphere farther;
-- continuing to refine and manage the planet-wide terrain hierarchy at close range is the wrong architecture.
+## WebGPU / WebGL policy
 
-Therefore the optimization boundary is the view handoff itself.
+WebGPU is the active stabilization target.
 
-## Cleanup
+Priority:
 
-The historical `PlanetInstancedCubeSphereDebugV*`, BatchedMesh experiments, performance-isolation harness and macro-height debug volume are not part of the target renderer and should not return as alternate production paths.
+```text
+1. WebGPU correctness
+2. WebGPU architecture/stability
+3. definition/material coverage
+4. performance
+5. WebGL follow-up
+```
 
-Useful diagnostics should measure the three production views and their handoff state directly.
+WebGL remains useful as fallback/reference behavior, but must not force duplicate domain logic or constrain the modern architecture.
 
-## Next Work
+## Performance boundary
 
-1. Validate Orbit -> Regional handoff across solid planet classes and seeds.
-2. Validate Regional -> Surface handoff and camera continuity.
-3. Replace `LocalSurfaceTerrain` internals with fixed GPU clipmap rings while keeping its external view contract.
-4. Add local meter-space reference/floating-origin integration for gameplay objects.
-5. Add the richer altitude-aware atmosphere transition independently of terrain LOD.
-6. Move the proven Regional/Surface implementations from Feature Lab ownership into the `conduit-planet` package once their contracts stop changing.
+The earlier LOD experiments established a durable design constraint: close-range performance is not solved by refining and optimizing the entire global CubeSphere harder.
+
+Therefore:
+
+- Orbit has bounded global complexity.
+- Regional owns curved approach terrain.
+- Surface owns dense local terrain.
+- adaptive/tessellation-like refinement, if added later, belongs inside the local Surface strategy rather than reopening planet-wide near-surface refinement.
+
+## Next work
+
+Immediate order:
+
+1. finish profile/material-semantics consolidation,
+2. align Regional broad material evaluation with Surface,
+3. repair Regional → Surface visual ownership/fade,
+4. continue `Planet.ts` disentangling and legacy retirement according to `packages/conduit-planet/PLANET_STABILIZATION_PLAN.md`,
+5. add broader regression/performance coverage before adaptive geometry work.
