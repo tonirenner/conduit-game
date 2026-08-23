@@ -4,6 +4,7 @@ import type {
 } from '@conduit/planet';
 
 import type { PlanetRenderProfile } from '@conduit/planet';
+import { createSurfaceMaterialSemantics } from './SurfaceMaterialSemantics';
 
 export type SurfacePaletteKind =
 	| 'barren'
@@ -37,6 +38,8 @@ export type SurfaceRenderProfile = {
 	lavaInfluence: number;
 	toxicInfluence: number;
 	metalInfluence: number;
+	rockInfluence: number;
+	organicInfluence: number;
 
 	climateTemperature: number;
 	climateHumidity: number;
@@ -54,43 +57,14 @@ export function createSurfaceRenderProfile(
 	renderProfile: PlanetRenderProfile,
 ): SurfaceRenderProfile {
 	const planetClass = planet.class;
-
-	const hasSolidSurface = planet.surface.hasSolidSurface;
-
-	const waterInfluence =
-		      planetClass === 'toxic'
-		      ? 0.0
-		      : planet.composition.water *
-		        (planet.surface.hasOcean ? 1.0 : 0.35);
-
-	const iceInfluence =
-		      planet.class === 'ice'
-		      ? 1.0
-		      : planet.composition.ice +
-		        (planet.surface.hasIceCaps ? 0.25 : 0.0);
-
-	const lavaInfluence =
-		      planetClass === 'lava' || planet.surface.hasVolcanism
-		      ? 1.0
-		      : 0.0;
-
-	const toxicInfluence =
-		      planetClass === 'toxic'
-		      ? 1.0
-		      : planet.composition.volatiles;
-
-	const metalInfluence =
-		      planetClass === 'metal_rich'
-		      ? 1.0
-		      : planet.composition.metal;
-
+	const materialSemantics = createSurfaceMaterialSemantics(planet);
 	const climateShadowBoost =
-		      planet.climate.aridity * 0.05 +
-		      planet.climate.ashLoad * 0.12 +
-		      planet.climate.stormActivity * 0.04;
+		planet.climate.aridity * 0.05 +
+		planet.climate.ashLoad * 0.12 +
+		planet.climate.stormActivity * 0.04;
 
 	return {
-		enabled: hasSolidSurface,
+		enabled: planet.surface.hasSolidSurface,
 
 		palette: resolveSurfacePalette(planetClass),
 
@@ -103,11 +77,7 @@ export function createSurfaceRenderProfile(
 		mountainScale: renderProfile.mountainScale,
 		terrainRoughness: renderProfile.terrainRoughness,
 
-		waterInfluence,
-		iceInfluence: Math.min(1, iceInfluence),
-		lavaInfluence,
-		toxicInfluence: Math.min(1, toxicInfluence),
-		metalInfluence: Math.min(1, metalInfluence),
+		...materialSemantics,
 
 		climateTemperature: planet.climate.temperature01,
 		climateHumidity: planet.climate.humidity,
