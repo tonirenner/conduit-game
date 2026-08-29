@@ -59,7 +59,11 @@ export class CurvedRegionalTileTerrain {
 		this.setOpacity(0);
 	}
 
-	update(cameraRenderPosition: THREE.Vector3, opacity: number): void {
+	update(
+		cameraRenderPosition: THREE.Vector3,
+		opacity: number,
+		allowDepthOwnership = true,
+	): void {
 		const direction = cameraRenderPosition.clone().normalize();
 		const extent = this.getPatchExtent(cameraRenderPosition);
 		const nextLodProfileKey = this.getLodProfileKey(cameraRenderPosition);
@@ -79,7 +83,7 @@ export class CurvedRegionalTileTerrain {
 			this.rebuild(cameraRenderPosition);
 		}
 
-		this.setOpacity(opacity);
+		this.setOpacity(opacity, allowDepthOwnership);
 	}
 
 	dispose(): void {
@@ -89,9 +93,9 @@ export class CurvedRegionalTileTerrain {
 		this.mesh = null;
 	}
 
-	private setOpacity(value: number): void {
+	private setOpacity(value: number, allowDepthOwnership = true): void {
 		const opacity = THREE.MathUtils.clamp(value, 0, 1);
-		const ownsDepth = opacity > 0.96;
+		const ownsDepth = allowDepthOwnership && opacity > 0.96;
 		this.material.opacity = opacity;
 		// During Orbit -> Regional handoff the two terrain representations are
 		// intentionally almost co-planar. Testing the transparent RegionalView
@@ -99,6 +103,9 @@ export class CurvedRegionalTileTerrain {
 		// pattern as fragments alternately win and lose the depth test. While the
 		// RegionalView is blending, render it as the overlay it conceptually is.
 		// Once it owns the view, restore normal depth behaviour for terrain.
+		// During Regional -> Surface release, runtime can explicitly prevent
+		// Regional from owning depth so the Surface clipmap can take over locally
+		// while Regional still fills any area outside the local footprint.
 		this.material.depthTest = ownsDepth;
 		this.material.depthWrite = ownsDepth;
 		this.group.visible = opacity > 0.001;
