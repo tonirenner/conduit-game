@@ -9,13 +9,11 @@ import { SurfaceClipmapTerrain } from '../rendering/surface/SurfaceClipmapTerrai
 import {
 	PLANET_VIEW_BANDS,
 	getPlanetViewWeights,
+	getRegionalSurfaceRelease,
 	shouldHaveRegionalView,
 	shouldHaveSurfaceView,
 	type PlanetViewPhase,
 } from './PlanetViewTransition';
-
-const SURFACE_DEPTH_OWNERSHIP_WEIGHT = 0.985;
-const SURFACE_HORIZON_COVERAGE_MARGIN = 1.15;
 
 type TerrainRuntime = THREE.Object3D & {
 	updateLOD?: (cameraPosition: THREE.Vector3) => void;
@@ -164,24 +162,17 @@ export class PlanetViewRuntime {
 		}
 
 		const surfaceStatsBeforeUpdate = this.surface?.getStats();
-		const surfaceOwnsDepth = Boolean(this.surface) &&
-			weights.surface > SURFACE_DEPTH_OWNERSHIP_WEIGHT;
-		const surfaceCoversHorizon = this.hasSurfaceHorizonCoverage(
+		const release = getRegionalSurfaceRelease(
+			weights.surface,
 			altitudeMeters,
+			this.radiusMeters,
 			surfaceStatsBeforeUpdate?.outerHalfExtentMeters ?? 0,
 		);
 
 		if (this.regional) {
-			let regionalOpacity = weights.surface > 0.001 ? 1 : weights.regional;
-
-			if (surfaceOwnsDepth && surfaceCoversHorizon) {
-				const release = THREE.MathUtils.smoothstep(
-					weights.surface,
-					SURFACE_DEPTH_OWNERSHIP_WEIGHT,
-					1,
-				);
-				regionalOpacity = 1 - release;
-			}
+			const regionalOpacity = weights.surface > 0.001
+				? release.regionalOpacity
+				: weights.regional;
 
 			// Once Surface starts owning depth, Regional becomes a non-depth-writing
 			// backdrop. Surface therefore wins locally without z-fighting, while
@@ -189,7 +180,7 @@ export class PlanetViewRuntime {
 			this.regional.update(
 				cameraRenderPosition,
 				regionalOpacity,
-				!surfaceOwnsDepth,
+				!release.surfaceOwnsDepth,
 			);
 		}
 
@@ -328,22 +319,6 @@ export class PlanetViewRuntime {
 		this.group.remove(this.surface.group);
 		this.surface.dispose();
 		this.surface = null;
-	}
-
-	private hasSurfaceHorizonCoverage(
-		altitudeMeters: number,
-		outerHalfExtentMeters: number,
-	): boolean {
-		if (outerHalfExtentMeters <= 0) return false;
-
-		const radius = Math.max(1, this.radiusMeters);
-		const altitude = Math.max(0, altitudeMeters);
-		const horizonDistance = Math.sqrt(
-			Math.max(0, (radius + altitude) * (radius + altitude) - radius * radius),
-		);
-
-		return outerHalfExtentMeters >=
-			horizonDistance * SURFACE_HORIZON_COVERAGE_MARGIN;
 	}
 
 	private getAltitudeMeters(cameraRenderPosition: THREE.Vector3): number {
