@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import type { PlanetClass, PlanetDefinition } from '@conduit/planet/model';
+import type { PlanetDefinition } from '@conduit/planet/model';
 import { PlanetTerrainSampler } from '@conduit/planet/near-view';
+import { evaluateSurfaceTerrainMaterial } from '../surface/SurfaceTerrainMaterial';
 
 const TILE_COUNT = 5;
 const FAR_TILE_SEGMENTS = 16;
@@ -22,8 +23,10 @@ const MAX_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(2.0);
  * while retaining real geometry LOD as the camera approaches the surface.
  * All tiles are merged into one BufferGeometry / draw call.
  *
- * Material detail is intentionally minimal here. AO/normal/roughness/hydraulic
- * erosion stay out until the geometry and view continuity are proven stable.
+ * Broad material color is evaluated through the same canonical Surface material
+ * evaluator used by SurfaceView. Regional intentionally does not inherit the
+ * fragment-scale micro-normal/cavity detail yet; those remain representation-
+ * specific until the broad Regional -> Surface handoff is visually continuous.
  */
 export class CurvedRegionalTileTerrain {
 	readonly group = new THREE.Group();
@@ -196,6 +199,27 @@ export class CurvedRegionalTileTerrain {
 						sampleDirection(direction, basis, u, v);
 						const sample = this.sampler.sample(direction, false);
 						const radius = this.renderRadius + sample.elevationMeters * renderMetersScale;
+						const slope = THREE.MathUtils.clamp(
+							(1 - THREE.MathUtils.clamp(sample.normal.dot(sample.direction), -1, 1)) * 8,
+							0,
+							1,
+						);
+						const surfaceMaterial = evaluateSurfaceTerrainMaterial(
+							this.definition,
+							{
+								direction: sample.direction,
+								detailOffset: this.sampler.terrainSeedConfig.detailOffset,
+								height: sample.rawTerrain.height,
+								landMask: sample.landMask,
+								mountainMask: sample.rawTerrain.mountainMask,
+								erosionMask: sample.rawTerrain.erosionMask,
+								riverMask: sample.rawTerrain.riverMask,
+								volcanicMask: sample.volcanicMask,
+								isWater: sample.isWater,
+								slope,
+							},
+							color,
+						);
 
 						positions.push(
 							direction.x * radius,
@@ -203,8 +227,11 @@ export class CurvedRegionalTileTerrain {
 							direction.z * radius,
 						);
 						normals.push(direction.x, direction.y, direction.z);
-						resolveTerrainColor(this.definition.class, sample, color);
-						colors.push(color.r, color.g, color.b);
+						colors.push(
+							surfaceMaterial.color.r,
+							surfaceMaterial.color.g,
+							surfaceMaterial.color.b,
+						);
 					}
 				}
 
@@ -243,8 +270,6 @@ type SurfaceBasis = {
 	north: THREE.Vector3;
 };
 
-type SurfaceSample = ReturnType<PlanetTerrainSampler['sample']>;
-
 function createBasis(up: THREE.Vector3): SurfaceBasis {
 	const reference = Math.abs(up.y) < 0.92
 		? new THREE.Vector3(0, 1, 0)
@@ -265,50 +290,4 @@ function sampleDirection(
 		.addScaledVector(basis.east, u)
 		.addScaledVector(basis.north, v)
 		.normalize();
-}
-
-function resolveTerrainColor(
-	planetClass: PlanetClass,
-	sample: SurfaceSample,
-	target: THREE.Color,
-): THREE.Color {
-	if (sample.isWater) return target.setRGB(0.07, 0.20, 0.30);
-
-	const relief = THREE.MathUtils.clamp(sample.rawTerrain.height, 0, 1);
-	const mountain = THREE.MathUtils.clamp(sample.rawTerrain.mountainMask, 0, 1);
-	const erosion = THREE.MathUtils.clamp(sample.rawTerrain.erosionMask, 0, 1);
-	const palette = getPalette(planetClass);
-	const rockBlend = THREE.MathUtils.clamp(mountain * 0.62 + erosion * 0.18, 0, 0.82);
-
-	target.copy(palette.low).lerp(palette.high, relief);
-	target.lerp(palette.rock, rockBlend);
-	return target;
-}
-
-function getPalette(planetClass: PlanetClass): {
-	low: THREE.Color;
-	high: THREE.Color;
-	rock: THREE.Color;
-} {
-	switch (planetClass) {
-		case 'desert': return palette(0x8b5528, 0xd6ad67, 0x714025);
-		case 'ice': return palette(0x678096, 0xd8e3e5, 0x536b7c);
-		case 'lava': return palette(0x2e1712, 0x8d3c1d, 0x1d1412);
-		case 'toxic': return palette(0x4a4d2c, 0x8c9150, 0x3f422d);
-		case 'carbon': return palette(0x242424, 0x55514b, 0x171717);
-		case 'metal_rich': return palette(0x4a4038, 0x8c7864, 0x403831);
-		case 'barren': return palette(0x615446, 0xa28d72, 0x50483f);
-		case 'rocky': return palette(0x51483f, 0x9a8871, 0x433c36);
-		case 'terrestrial': return palette(0x4f5e35, 0x9c9166, 0x595449);
-		case 'ocean': return palette(0x655f46, 0xa79b6f, 0x5a5548);
-		default: return palette(0x625548, 0xa48e73, 0x51483f);
-	}
-}
-
-function palette(low: number, high: number, rock: number) {
-	return {
-		low: new THREE.Color(low),
-		high: new THREE.Color(high),
-		rock: new THREE.Color(rock),
-	};
 }
