@@ -12,6 +12,12 @@ export type PlanetViewWeights = {
 	surface: number;
 };
 
+export type RegionalSurfaceRelease = {
+	regionalOpacity: number;
+	surfaceOwnsDepth: boolean;
+	surfaceCoversHorizon: boolean;
+};
+
 export const PLANET_VIEW_BANDS = {
 	regionalPreloadMeters: 9_750_000,
 	regionalReleaseMeters: 10_000_000,
@@ -19,13 +25,16 @@ export const PLANET_VIEW_BANDS = {
 	orbitRegionalEndMeters: 7_500_000,
 	// Surface is a local tangent view, not another planetary-scale renderer.
 	// Keep Regional responsible for curvature until the camera is genuinely
-	// close to the ground; the 7-ring clipmap can then cover the visible horizon
-	// without stretching a tangent plane across several thousand kilometres.
+	// close to the ground; the current 11-ring clipmap covers +/-2048 km and can
+	// take over the visible horizon near the end of this overlap.
 	surfacePreloadMeters: 140_000,
 	surfaceReleaseMeters: 220_000,
 	regionalSurfaceStartMeters: 90_000,
 	regionalSurfaceEndMeters: 20_000,
 } as const;
+
+export const SURFACE_DEPTH_OWNERSHIP_WEIGHT = 0.985;
+export const SURFACE_HORIZON_COVERAGE_MARGIN = 1.15;
 
 export function getPlanetViewWeights(
 	altitudeMeters: number,
@@ -65,6 +74,41 @@ export function getPlanetViewWeights(
 	return { phase, orbit, regional, surface };
 }
 
+export function getRegionalSurfaceRelease(
+	surfaceWeight: number,
+	altitudeMeters: number,
+	planetRadiusMeters: number,
+	surfaceOuterHalfExtentMeters: number,
+): RegionalSurfaceRelease {
+	const surface = clamp01(surfaceWeight);
+	const surfaceOwnsDepth = surface > SURFACE_DEPTH_OWNERSHIP_WEIGHT;
+	const surfaceCoversHorizon = hasSurfaceHorizonCoverage(
+		altitudeMeters,
+		planetRadiusMeters,
+		surfaceOuterHalfExtentMeters,
+	);
+
+	if (!surfaceOwnsDepth || !surfaceCoversHorizon) {
+		return {
+			regionalOpacity: 1,
+			surfaceOwnsDepth,
+			surfaceCoversHorizon,
+		};
+	}
+
+	const release = ascendingSmoothstep(
+		surface,
+		SURFACE_DEPTH_OWNERSHIP_WEIGHT,
+		1,
+	);
+
+	return {
+		regionalOpacity: 1 - release,
+		surfaceOwnsDepth,
+		surfaceCoversHorizon,
+	};
+}
+
 export function shouldHaveRegionalView(
 	altitudeMeters: number,
 	currentlyActive: boolean,
@@ -87,12 +131,38 @@ export function shouldHaveSurfaceView(
 	);
 }
 
+function hasSurfaceHorizonCoverage(
+	altitudeMeters: number,
+	planetRadiusMeters: number,
+	outerHalfExtentMeters: number,
+): boolean {
+	if (outerHalfExtentMeters <= 0) return false;
+
+	const radius = Math.max(1, planetRadiusMeters);
+	const altitude = Math.max(0, altitudeMeters);
+	const horizonDistance = Math.sqrt(
+		Math.max(0, (radius + altitude) * (radius + altitude) - radius * radius),
+	);
+
+	return outerHalfExtentMeters >=
+		horizonDistance * SURFACE_HORIZON_COVERAGE_MARGIN;
+}
+
 function descendingSmoothstep(
 	value: number,
 	start: number,
 	end: number,
 ): number {
 	const t = clamp01((start - value) / Math.max(1, start - end));
+	return t * t * (3 - 2 * t);
+}
+
+function ascendingSmoothstep(
+	value: number,
+	start: number,
+	end: number,
+): number {
+	const t = clamp01((value - start) / Math.max(1e-6, end - start));
 	return t * t * (3 - 2 * t);
 }
 
