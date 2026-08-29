@@ -15,6 +15,7 @@ import {
 } from './PlanetViewTransition';
 
 const SURFACE_DEPTH_OWNERSHIP_WEIGHT = 0.985;
+const SURFACE_HORIZON_COVERAGE_MARGIN = 1.15;
 
 type TerrainRuntime = THREE.Object3D & {
 	updateLOD?: (cameraPosition: THREE.Vector3) => void;
@@ -162,20 +163,34 @@ export class PlanetViewRuntime {
 			});
 		}
 
+		const surfaceStatsBeforeUpdate = this.surface?.getStats();
+		const surfaceOwnsDepth = Boolean(this.surface) &&
+			weights.surface > SURFACE_DEPTH_OWNERSHIP_WEIGHT;
+		const surfaceCoversHorizon = this.hasSurfaceHorizonCoverage(
+			altitudeMeters,
+			surfaceStatsBeforeUpdate?.outerHalfExtentMeters ?? 0,
+		);
+
 		if (this.regional) {
-			// Surface is a local patch, while Regional still provides the complete
-			// curved planet behind it. Fading Regional globally during the handoff
-			// exposes space outside the Surface footprint as a dark horizon band.
-			// Keep Regional fully opaque until Surface takes depth ownership, then
-			// release it in one step. Orbit -> Regional keeps using the normal weight.
-			if (weights.surface >= SURFACE_DEPTH_OWNERSHIP_WEIGHT) {
-				this.regional.group.visible = false;
-			} else {
-				const regionalOpacity = weights.surface > 0.001
-					? 1
-					: weights.regional;
-				this.regional.update(cameraRenderPosition, regionalOpacity);
+			let regionalOpacity = weights.surface > 0.001 ? 1 : weights.regional;
+
+			if (surfaceOwnsDepth && surfaceCoversHorizon) {
+				const release = THREE.MathUtils.smoothstep(
+					weights.surface,
+					SURFACE_DEPTH_OWNERSHIP_WEIGHT,
+					1,
+				);
+				regionalOpacity = 1 - release;
 			}
+
+			// Once Surface starts owning depth, Regional becomes a non-depth-writing
+			// backdrop. Surface therefore wins locally without z-fighting, while
+			// Regional can still fill any area outside the local clipmap footprint.
+			this.regional.update(
+				cameraRenderPosition,
+				regionalOpacity,
+				!surfaceOwnsDepth,
+			);
 		}
 
 		if (this.surface) this.surface.update(cameraRenderPosition, weights.surface);
@@ -313,6 +328,22 @@ export class PlanetViewRuntime {
 		this.group.remove(this.surface.group);
 		this.surface.dispose();
 		this.surface = null;
+	}
+
+	private hasSurfaceHorizonCoverage(
+		altitudeMeters: number,
+		outerHalfExtentMeters: number,
+	): boolean {
+		if (outerHalfExtentMeters <= 0) return false;
+
+		const radius = Math.max(1, this.radiusMeters);
+		const altitude = Math.max(0, altitudeMeters);
+		const horizonDistance = Math.sqrt(
+			Math.max(0, (radius + altitude) * (radius + altitude) - radius * radius),
+		);
+
+		return outerHalfExtentMeters >=
+			horizonDistance * SURFACE_HORIZON_COVERAGE_MARGIN;
 	}
 
 	private getAltitudeMeters(cameraRenderPosition: THREE.Vector3): number {
