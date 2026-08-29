@@ -1,10 +1,10 @@
 # Conduit Planet – Regional → Surface handoff finding
 
-Status: broad material continuity aligned; ownership transition still open
+Status: material continuity + progressive ownership implemented; visual validation pending
 
-## Symptom
+## Original symptom
 
-The RegionalView → SurfaceView transition is visibly discontinuous in motion.
+The RegionalView → SurfaceView transition was visibly discontinuous in motion.
 
 Observed behaviour from the captured approach video:
 
@@ -13,9 +13,9 @@ Observed behaviour from the captured approach video:
 - During the overlap the two representations did not visually read as the same surface at two LODs.
 - Near the end of the handoff the image changed abruptly instead of completing as a seamless blend.
 
-This is primarily a renderer handoff issue, not a canonical terrain-height mismatch.
+The issue was primarily renderer/material ownership rather than a canonical terrain-height mismatch.
 
-## Progress – broad material identity aligned
+## Implemented repair 1 – shared broad material identity
 
 `CurvedRegionalTileTerrain` no longer owns a separate class-only palette.
 
@@ -41,9 +41,36 @@ This gives Regional the same broad material semantics for:
 
 The material influences themselves are derived through the shared `SurfaceMaterialSemantics` layer, so Regional and Surface no longer independently reinterpret composition/class/surface flags.
 
-### Deliberately still different
+## Implemented repair 2 – progressive depth/visibility ownership
 
-Regional still uses a lightweight `THREE.MeshStandardMaterial` and does not yet copy SurfaceView's expensive near-field detail path.
+The old one-frame Regional hide at `surfaceWeight ~= 0.985` has been removed.
+
+Ownership policy now lives in the pure `getRegionalSurfaceRelease()` transition function.
+
+Policy:
+
+```text
+before Surface depth ownership
+    Regional owns depth normally
+
+Surface owns depth
+    Regional stops depth-writing
+    Surface wins locally without z-fighting
+    Regional remains available as backdrop
+
+Surface footprint safely covers visible horizon
+    Regional opacity releases smoothly to zero
+```
+
+The release is coverage-aware. The current Surface clipmap has 11 rings and an outer half extent of about 2048 km, rather than the older 7-ring assumption that motivated the hard global cut.
+
+A safety margin is applied to the physical horizon-distance check before Regional may fade away.
+
+Characterization: `tests/PlanetRegionalSurfaceRelease.test.ts`.
+
+## Deliberately still different
+
+Regional still uses a lightweight `THREE.MeshStandardMaterial` and does not copy SurfaceView's expensive near-field detail path.
 
 Differences that remain intentionally representation-specific:
 
@@ -53,52 +80,25 @@ Differences that remain intentionally representation-specific:
 - emissive lava crack detail,
 - Surface-specific tangent-space near detail.
 
-These should appear progressively with proximity rather than redefine the broad material identity.
+These should read as increasing detail with proximity, not as a different planetary material.
 
-## Remaining primary cause – Regional is released with a hard visibility switch
-
-`PlanetViewRuntime` intentionally keeps Regional fully opaque during the Regional → Surface overlap:
-
-```ts
-const regionalOpacity = weights.surface > 0.001
-    ? 1
-    : weights.regional;
-```
-
-Then Regional is hidden when Surface reaches the depth-ownership threshold:
-
-```ts
-if (weights.surface >= 0.985) {
-    regional.group.visible = false;
-}
-```
-
-This avoids exposing the finite Surface clipmap horizon while Surface is still only a local patch, but it means the final transition is not a true crossfade.
-
-At `surfaceWeight ~= 0.985`, the complete Regional representation disappears in one frame.
-
-Even after broad albedo alignment, differences in roughness, normals, micro detail, depth ownership, or local geometry density can therefore remain visible as a final pop.
-
-## Secondary contributor – different detail scales
-
-Regional terrain is geometry-first and intentionally restrained in material detail. SurfaceView adds high-frequency fragment detail and local tangent-space shading.
-
-The appearance of:
-
-- micro-normal detail,
-- cavity response,
-- fragment-scale roughness variation,
-- emissive lava detail
-
-must be treated as an LOD/detail transition, not as a second material identity.
-
-## What is NOT the root cause
+## Shared truth
 
 Both Regional and Surface geometry use the canonical `PlanetTerrainSampler`.
 
-The broad material layer now also shares `evaluateSurfaceTerrainMaterial()` and `SurfaceMaterialSemantics`.
+Both now share broad material evaluation through:
 
-Therefore the remaining diagnosis is focused on representation-specific shading/detail and renderer ownership rather than separate terrain or composition models.
+```text
+PlanetDefinition
+    ↓
+SurfaceMaterialSemantics
+    ↓
+evaluateSurfaceTerrainMaterial()
+    ├─ Regional
+    └─ Surface
+```
+
+The remaining differences are representation-specific detail budget and shading technique.
 
 ## Relevant files
 
@@ -109,6 +109,7 @@ packages/conduit-planet/src/rendering/SurfaceMaterialSemantics.ts
 packages/conduit-planet/src/rendering/regional/CurvedRegionalTileTerrain.ts
 packages/conduit-planet/src/rendering/surface/SurfaceClipmapTerrain.ts
 packages/conduit-planet/src/rendering/surface/SurfaceTerrainMaterial.ts
+packages/conduit-planet/tests/PlanetRegionalSurfaceRelease.test.ts
 ```
 
 ## Current handoff band
@@ -121,28 +122,26 @@ surfaceReleaseMeters        = 220_000
 surface depth ownership     = 0.985
 ```
 
-Surface fades in across roughly 90 km → 20 km altitude, while Regional remains fully opaque beneath it until the Surface weight reaches 0.985.
+The depth threshold remains unchanged for this repair. The important change is that reaching it no longer globally removes Regional in one frame.
 
-## Next repair step
+## Next step
 
-Do not widen the transition band as the first response.
+Visual validation with the same approach path that exposed the original issue.
 
-The next step is to inspect the remaining broad shading mismatch between the lightweight Regional material and Surface base material, especially normals / roughness / depth behaviour. After that, replace the hard global Regional visibility release with a progressive or spatial/depth-aware ownership handoff.
+Check specifically for:
 
-Target architecture:
+- remaining broad color pop,
+- final ownership pop,
+- dark horizon band,
+- z-fighting/checker patterns,
+- roughness/normal mismatch that still reads as a material swap,
+- reverse Surface → Regional transition.
 
-```text
-Canonical Surface Material Evaluation
-├─ Orbit: low-frequency / cheap representation
-├─ Regional: shared broad material + medium detail
-└─ Surface: shared broad material + near-field micro detail
-```
+Only after visual validation should the remaining Regional roughness/normal/detail budget be tuned.
 
-The three views should differ in detail frequency and geometry budget, not in the underlying material identity.
+## Safety constraints preserved
 
-## Safety constraints
-
-Do not change as part of this handoff repair unless proven necessary:
+This repair does not intentionally change:
 
 - canonical terrain heights,
 - landing/collision,
