@@ -19,5 +19,6 @@ export {
 } from './PlanetRenderFeatures';
 export * from './PlanetRenderProfile';
 export * from './SurfaceMaterialSemantics';
+export * from './SurfacePalette';
 export * from './SurfaceRenderProfile';
 export * from './TerrainRenderProfile';
