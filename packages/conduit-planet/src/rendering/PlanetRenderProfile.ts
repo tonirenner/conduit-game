@@ -2,6 +2,10 @@ import type {
 	PlanetClass,
 	PlanetDefinition,
 } from '@conduit/planet/model';
+import {
+	resolveSurfacePalette,
+	type SurfacePaletteKind,
+} from './SurfacePalette';
 
 export type PlanetRendererKind =
 	| 'solid_surface'
@@ -17,7 +21,7 @@ export type PlanetRenderProfile = {
 	enableAtmosphere: boolean;
 	enableRings: boolean;
 
-	surfacePalette: string;
+	surfacePalette: SurfacePaletteKind;
 	atmospherePalette: string;
 	cloudPalette: string;
 
@@ -54,7 +58,7 @@ export function createPlanetRenderProfile(
 		enableAtmosphere: planet.atmosphere.type !== 'none',
 		enableRings: planet.rings?.enabled ?? false,
 
-		surfacePalette: getSurfacePalette(planet.class),
+		surfacePalette: resolveSurfacePalette(planet.class),
 		atmospherePalette: getAtmospherePalette(planet.class),
 		cloudPalette: getCloudPalette(planet.class),
 
@@ -84,35 +88,6 @@ function getRendererKind(planetClass: PlanetClass): PlanetRendererKind {
 	}
 
 	return 'solid_surface';
-}
-
-function getSurfacePalette(planetClass: PlanetClass): string {
-	switch (planetClass) {
-		case 'ocean':
-			return 'oceanic';
-		case 'ice':
-		case 'ice_giant':
-			return 'ice';
-		case 'desert':
-			return 'desert';
-		case 'lava':
-			return 'lava';
-		case 'toxic':
-			return 'toxic';
-		case 'gas_giant':
-			return 'gas_bands';
-		case 'metal_rich':
-			return 'metallic';
-		case 'carbon':
-			return 'carbon';
-		case 'terrestrial':
-			return 'earthlike';
-		case 'barren':
-			return 'barren';
-		case 'rocky':
-		default:
-			return 'rocky';
-	}
 }
 
 function getCloudPalette(planetClass: PlanetClass): string {
