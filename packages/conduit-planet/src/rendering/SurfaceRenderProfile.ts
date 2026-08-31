@@ -1,23 +1,7 @@
-import type {
-	PlanetDefinition,
-	PlanetClass,
-} from '@conduit/planet';
-
+import type { PlanetDefinition } from '@conduit/planet';
 import type { PlanetRenderProfile } from '@conduit/planet';
 import { createSurfaceMaterialSemantics } from './SurfaceMaterialSemantics';
-
-export type SurfacePaletteKind =
-	| 'barren'
-	| 'rocky'
-	| 'earthlike'
-	| 'oceanic'
-	| 'ice'
-	| 'desert'
-	| 'lava'
-	| 'toxic'
-	| 'metallic'
-	| 'carbon'
-	| 'gas_bands';
+import type { SurfacePaletteKind } from './SurfacePalette';
 
 export type SurfaceRenderProfile = {
 	enabled: boolean;
@@ -56,19 +40,18 @@ export function createSurfaceRenderProfile(
 	planet: PlanetDefinition,
 	renderProfile: PlanetRenderProfile,
 ): SurfaceRenderProfile {
-	const planetClass = planet.class;
 	const materialSemantics = createSurfaceMaterialSemantics(planet);
 	const climateShadowBoost =
-		planet.climate.aridity * 0.05 +
-		planet.climate.ashLoad * 0.12 +
-		planet.climate.stormActivity * 0.04;
+		renderProfile.climateAridity * 0.05 +
+		renderProfile.climateAshLoad * 0.12 +
+		renderProfile.climateStormActivity * 0.04;
 
 	return {
-		enabled: planet.surface.hasSolidSurface,
+		enabled: renderProfile.enableTerrain,
 
-		palette: resolveSurfacePalette(planetClass),
+		palette: renderProfile.surfacePalette,
 
-		hasOcean: planet.surface.hasOcean,
+		hasOcean: renderProfile.enableOcean,
 		hasIceCaps: planet.surface.hasIceCaps,
 		hasVolcanism: planet.surface.hasVolcanism,
 		hasTectonics: planet.surface.hasTectonics,
@@ -79,13 +62,13 @@ export function createSurfaceRenderProfile(
 
 		...materialSemantics,
 
-		climateTemperature: planet.climate.temperature01,
-		climateHumidity: planet.climate.humidity,
-		climateAridity: planet.climate.aridity,
-		climateWindStrength: planet.climate.windStrength,
-		climateStormActivity: planet.climate.stormActivity,
-		climateCloudPersistence: planet.climate.cloudPersistence,
-		climateAshLoad: planet.climate.ashLoad,
+		climateTemperature: renderProfile.climateTemperature,
+		climateHumidity: renderProfile.climateHumidity,
+		climateAridity: renderProfile.climateAridity,
+		climateWindStrength: renderProfile.climateWindStrength,
+		climateStormActivity: renderProfile.climateStormActivity,
+		climateCloudPersistence: renderProfile.climateCloudPersistence,
+		climateAshLoad: renderProfile.climateAshLoad,
 
 		raymarchOcclusionStrength: Math.max(
 			0.18,
@@ -98,45 +81,4 @@ export function createSurfaceRenderProfile(
 			),
 		),
 	};
-}
-
-function resolveSurfacePalette(
-	planetClass: PlanetClass,
-): SurfacePaletteKind {
-	switch (planetClass) {
-		case 'terrestrial':
-			return 'earthlike';
-
-		case 'ocean':
-			return 'oceanic';
-
-		case 'ice':
-		case 'ice_giant':
-			return 'ice';
-
-		case 'desert':
-			return 'desert';
-
-		case 'lava':
-			return 'lava';
-
-		case 'toxic':
-			return 'toxic';
-
-		case 'metal_rich':
-			return 'metallic';
-
-		case 'carbon':
-			return 'carbon';
-
-		case 'gas_giant':
-			return 'gas_bands';
-
-		case 'barren':
-			return 'barren';
-
-		case 'rocky':
-		default:
-			return 'rocky';
-	}
 }
