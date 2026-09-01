@@ -1,6 +1,6 @@
 # Conduit Planet – Regional → Surface handoff finding
 
-Status: material continuity + progressive ownership implemented; visual validation pending
+Status: material continuity + progressive ownership + legacy depth-occluder fix implemented; visual validation pending
 
 ## Original symptom
 
@@ -68,6 +68,47 @@ A safety margin is applied to the physical horizon-distance check before Regiona
 
 Characterization: `tests/PlanetRegionalSurfaceRelease.test.ts`.
 
+## Implemented repair 3 – disable the legacy depth occluder in the modern view runtime
+
+Visual validation after the progressive ownership change exposed a regular diamond/checker pattern exactly when Surface crossed its depth-ownership threshold.
+
+The important finding was that `PlanetViewRuntime` disabled the legacy `PlanetTerrain` and `PlanetBody` for the modern WebGPU path, but left the invisible `PlanetDepthOccluder` active.
+
+That created this transition:
+
+```text
+Surface weight <= 0.985
+    Surface depth test/write disabled
+    legacy depth occluder has no visible interaction with Surface
+
+Surface weight > 0.985
+    Surface depth test/write enabled
+    Surface suddenly tests against the old spherical depth occluder
+    near/coplanar depth competition can become visible per triangle
+```
+
+The modern view stack already has real depth ownership at every scale:
+
+```text
+OrbitView    -> InstancedOrbitTerrain writes depth
+RegionalView -> CurvedRegionalTileTerrain writes depth while it owns the view
+SurfaceView  -> SurfaceClipmapTerrain writes depth after ownership transfer
+```
+
+Therefore the old `PlanetDepthOccluder` is not required in the modern instanced Orbit/Regional/Surface path.
+
+`PlanetViewRuntime.disableClassicOrbitVisuals()` now disables all three legacy solid-surface objects there:
+
+```text
+PlanetTerrain
+PlanetBody
+PlanetDepthOccluder
+```
+
+Standalone/legacy `Planet` and WebGL behavior are unchanged by this fix.
+
+The Surface clipmap stitching/topology was deliberately not changed because the artifact timing pointed to the depth ownership transition rather than a proven ring-topology defect.
+
 ## Deliberately still different
 
 Regional still uses a lightweight `THREE.MeshStandardMaterial` and does not copy SurfaceView's expensive near-field detail path.
@@ -122,22 +163,22 @@ surfaceReleaseMeters        = 220_000
 surface depth ownership     = 0.985
 ```
 
-The depth threshold remains unchanged for this repair. The important change is that reaching it no longer globally removes Regional in one frame.
+The depth threshold remains unchanged for this repair.
 
 ## Next step
 
-Visual validation with the same approach path that exposed the original issue.
+Visual validation with the same approach path that exposed the checker artifact.
 
 Check specifically for:
 
+- diamond/checker pattern at Surface depth takeover,
 - remaining broad color pop,
 - final ownership pop,
 - dark horizon band,
-- z-fighting/checker patterns,
 - roughness/normal mismatch that still reads as a material swap,
 - reverse Surface → Regional transition.
 
-Only after visual validation should the remaining Regional roughness/normal/detail budget be tuned.
+Only if the checker remains after the legacy depth occluder is gone should the Surface ring overlap/stitch/depth ordering be modified.
 
 ## Safety constraints preserved
 
