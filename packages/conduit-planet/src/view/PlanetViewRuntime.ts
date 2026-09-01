@@ -299,8 +299,11 @@ export class PlanetViewRuntime {
 	private disableClassicOrbitVisuals(): void {
 		const terrain = this.getOrbitTerrain();
 		if (terrain) terrain.visible = false;
-		const body = this.planet.group.getObjectByName('PlanetBody');
-		if (body) body.visible = false;
+
+		for (const name of ['PlanetBody', 'PlanetDepthOccluder']) {
+			const object = this.planet.group.getObjectByName(name);
+			if (object) object.visible = false;
+		}
 	}
 
 	private getOrbitTerrain(): TerrainRuntime | null {
