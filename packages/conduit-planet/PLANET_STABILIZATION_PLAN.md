@@ -63,7 +63,13 @@ What does it represent?
 
 ### Cleanup and feature work stay separable
 
-Avoid mixing unrelated deletion/cleanup, visual tuning, terrain generation changes, camera changes or new adaptive geometry.
+Avoid mixing unrelated:
+
+- deletion/cleanup,
+- visual tuning,
+- terrain generation changes,
+- camera changes,
+- new adaptive geometry.
 
 ### WebGPU first
 
@@ -95,8 +101,8 @@ WebGL may remain fallback/reference behavior, but must not force duplicate domai
 - [x] active `CurvedRegionalTileTerrain`,
 - [x] canonical `PlanetTerrainSampler` geometry,
 - [x] uniform edge resolution per build to avoid T-junctions,
-- [x] shared broad Surface material evaluation,
-- [x] curved regional backdrop during approach.
+- [x] curved regional backdrop during approach,
+- [x] broad material evaluation shared with SurfaceView.
 
 ### SurfaceView
 
@@ -113,7 +119,7 @@ WebGL may remain fallback/reference behavior, but must not force duplicate domai
 Orbit → Regional
   lifecycle: stable
   geometry: stable
-  depth ownership: synchronized
+  depth ownership: stable
   visual handoff: accepted
 
 Regional → Surface
@@ -121,15 +127,22 @@ Regional → Surface
   camera continuity: working
   physical terrain identity: shared
   broad material identity: shared
-  legacy depth-occluder checker artifact: repaired
-  remaining shading/detail transition: minor / tuning only
+  checker/depth artifact: repaired
+  final detail/shading continuity: not yet formally accepted
 ```
 
-Important transition invariant:
+The Regional → Surface work is documented in:
 
-> Two nearly coplanar terrain representations must never own depth at the same time.
+`PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
 
-The Regional → Surface history and repair are documented in `PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
+The important depth rule is now explicit:
+
+```text
+never allow two nearly coplanar terrain representations
+simultaneously to own/write depth during a handoff
+```
+
+Do not disturb the accepted Orbit → Regional ownership behavior during unrelated cleanup.
 
 ---
 
@@ -178,7 +191,7 @@ Phase 4 canonical migration is complete for:
 - [x] seasonality,
 - [x] cloud persistence.
 
-`ashLoad` remains a later volcanic/atmospheric/material integration concern.
+`ashLoad` is intentionally excluded from the general climate migration and remains a later volcanic/atmospheric/material integration concern.
 
 Current integration gaps:
 
@@ -205,7 +218,7 @@ organic
 volatiles
 ```
 
-All are preserved as domain truth and have explicit visual semantics where appropriate.
+All are preserved as domain truth and now have explicit visual semantics where appropriate.
 
 ### Solid-surface material semantics
 
@@ -225,102 +238,106 @@ Detailed audit: `PLANET_PHASE5_COMPOSITION_AUDIT.md`.
 
 ---
 
-## 8. Profile/material-semantics consolidation – Phase 6 active
+## 8. Profile/material-semantics consolidation – Phase 6 complete
+
+Phase 6 is complete.
 
 ### Completed
 
 - [x] canonical `SurfaceMaterialSemantics`,
-- [x] `SurfaceRenderProfile` uses shared composition semantics,
-- [x] active Surface material evaluator uses shared semantics,
-- [x] Regional broad material evaluation uses the same evaluator,
+- [x] `SurfaceRenderProfile` consumes shared composition semantics,
+- [x] active Surface material evaluator consumes the same semantics,
+- [x] Regional broad material evaluation uses the same canonical path,
 - [x] canonical `SurfacePalette` mapping,
-- [x] Surface profile forwards already-derived climate/terrain values from `PlanetRenderProfile`,
-- [x] regression coverage for profile/material consistency,
-- [x] extracted explicit ring/moon runtime seed/enable contracts in `PlanetLayerRuntimeProfile`,
-- [x] resolved moon-system seed semantics without inventing `render.moonSeed`,
-- [x] audited `cloudPalette` and deliberately deferred it because neither cloud renderer exposes a palette contract.
+- [x] duplicate Surface/Planet profile palette derivation removed,
+- [x] climate/surface values forwarded through the profile chain rather than re-derived,
+- [x] ring runtime ownership routed through `PlanetRenderProfile.enableRings`,
+- [x] declared `render.ringSeed` consumed without `as any`,
+- [x] undeclared `render.moonSeed` probe removed,
+- [x] explicit deterministic moon-system seed contract added,
+- [x] regression coverage for profile/material/layer-runtime contracts.
 
-Current derivation chain:
+Canonical chain:
 
 ```text
 PlanetDefinition
     ↓
 PlanetRenderProfile
-    ├─ SurfaceRenderProfile
-    ├─ SurfaceMaterialSemantics
-    └─ layer runtime configuration
-         ├─ rings
-         └─ lightweight moon system
+    ↓
+SurfaceRenderProfile / SurfaceMaterialSemantics / layer runtime profiles
+    ↓
+renderer consumers
 ```
-
-### Remaining Phase 6 work
-
-- [ ] migrate `Planet.ts` ring construction to `getPlanetRingLayerRuntimeProfile()`,
-- [ ] migrate `Planet.ts` moon seed use to `getPlanetMoonSystemSeed()`,
-- [ ] remove the old `ringSeed as any` and undeclared `moonSeed` probe,
-- [ ] perform final `PlanetRenderProfile` direct-definition bypass audit,
-- [ ] mark `cloudPalette` deferred rather than blocking Phase 6,
-- [ ] close Phase 6 if no further duplicate render ownership remains.
 
 Detailed audit: `PLANET_PHASE6_PROFILE_AUDIT.md`.
 
----
+### Explicit deferred item
 
-## 9. View handoff stabilization
+`PlanetRenderProfile.cloudPalette` is retained but currently intentionally unused because neither active cloud renderer exposes a palette contract. Introducing one would be visual feature work, not Phase-6 cleanup.
 
-The major handoff failures found during Phase 6 are repaired:
-
-### Orbit → Regional
-
-The previous diamond/checker artifact occurred when opaque Orbit and nearly opaque Regional both owned depth over nearly coplanar terrain.
-
-Current rule:
-
-```text
-Regional below depth threshold
-→ Orbit owns depth
-→ Regional blends as non-depth overlay
-
-Regional reaches depth threshold
-→ Orbit is removed in the same frame
-→ Regional becomes sole depth owner
-```
-
-This has been visually accepted.
-
-### Regional → Surface
-
-Repairs now include:
-
-- shared broad material evaluation,
-- progressive/coverage-aware Regional release,
-- Surface/Regional depth ownership separation,
-- legacy `PlanetDepthOccluder` disabled on the modern WebGPU view path.
-
-The large checker/depth failure is repaired. Remaining visible difference is representation-specific shading/detail and is no longer a structural blocker for Phase 6.
+It does not block Phase 6 completion.
 
 ---
 
-## 10. Transitional / legacy areas
+## 9. Current active phase – Phase 7: reduce `Planet.ts` entanglement
 
-### `Planet.ts`
+`Planet.ts` remains a transitional god-object and is now the active stabilization target.
 
-Still owns too much:
+It currently owns or constructs:
 
 - classic CubeSphere surface stack,
 - old surface runtime material,
-- planet body/depth body,
+- planet body/depth occluder,
 - atmosphere,
 - clouds,
 - rings,
 - moons,
-- giant rendering,
+- gas/ice giant renderer,
 - toxic haze,
-- old near-surface layer.
+- old near-surface layer,
+- render tuning,
+- legacy/debug statistics.
 
 For modern WebGPU solid planets, `PlanetViewRuntime` constructs `Planet`, then hides/freezes obsolete surface pieces while using the new Orbit/Regional/Surface renderers.
 
-**Status:** runtime-reachable and transitional; do not delete yet.
+### Phase 7 rule
+
+Do **not** start by deleting code from `Planet.ts`.
+
+First map responsibilities and consumers:
+
+```text
+Planet.ts responsibility
+    ↓
+active modern consumer?
+legacy/WebGL consumer?
+public/debug API consumer?
+shared layer ownership?
+    ↓
+extract / preserve / retire later
+```
+
+### Phase 7 first target
+
+Create a responsibility/consumer map for `Planet.ts`, then extract one low-risk coherent responsibility at a time.
+
+Preferred early extraction candidates are renderer-independent layer orchestration or diagnostics, not terrain/camera/atmosphere reconstruction.
+
+### Protect during Phase 7
+
+Do not alter as collateral damage:
+
+- accepted Orbit → Regional handoff,
+- Regional → Surface depth fix,
+- atmosphere reconstruction,
+- canonical terrain sampling,
+- camera/reference-frame logic,
+- ring/moon deterministic behavior,
+- WebGL fallback behavior unless explicitly addressed.
+
+---
+
+## 10. Transitional / legacy areas
 
 ### `NearSurfaceTerrainLayer.ts`
 
@@ -386,11 +403,11 @@ Preserve. `orbitalPeriod` is already used by the season-cycle foundation.
 
 ### Render seeds
 
-`ringSeed` is explicitly owned by the ring renderer contract. Audit remaining palette/cloud/atmosphere seed consumption before cleanup.
+Audit remaining consumption for palette/cloud/atmosphere seeds and remove compatibility probes only after explicit ownership exists.
 
 ### Rings/moons
 
-The lightweight moon renderer keeps its existing deterministic system seed derived from `PlanetDefinition.seed`. Individual `PlanetMoonDefinition.seed` values remain domain truth for a future renderer that consumes actual moon definitions.
+Ring runtime seed/enable ownership is explicit. The current lightweight MoonSystem uses a deterministic system seed derived from `PlanetDefinition.seed`; individual `PlanetMoonDefinition` rendering remains a future renderer migration concern.
 
 ---
 
@@ -416,7 +433,7 @@ The lightweight moon renderer keeps its existing deterministic system seed deriv
 
 ### Phase 4 – Climate / Biome / Weather definition migration
 
-- [x] complete for planned definition semantics.
+- [x] complete for the planned definition semantics.
 - [ ] end-to-end live weather composition remains later integration work.
 
 ### Phase 5 – Composition migration
@@ -425,16 +442,11 @@ The lightweight moon renderer keeps its existing deterministic system seed deriv
 
 ### Phase 6 – Profile/material-semantics consolidation
 
-- [x] shared Surface material semantics foundation,
-- [x] Regional broad material alignment,
-- [x] palette/profile derivation consolidation,
-- [x] layer runtime contracts defined,
-- [ ] narrow `Planet.ts` ring/moon migration,
-- [ ] final duplicate ownership audit.
+- [x] complete.
 
 ### Phase 7 – Reduce `Planet.ts` entanglement
 
-- [ ] pending.
+- [ ] active: responsibility/consumer mapping first.
 
 ### Phase 8 – Retire `NearSurfaceTerrainLayer`
 
@@ -462,7 +474,7 @@ The lightweight moon renderer keeps its existing deterministic system seed deriv
 
 ### Phase 14 – Regression suite
 
-Existing coverage is strong for migrated terrain/climate/composition/profile semantics, but the broader runtime matrix remains open:
+Current coverage already exists for many migrated terrain/climate/composition/profile semantics, but the broader runtime matrix remains open:
 
 - [ ] Orbit/Regional/Surface height continuity,
 - [ ] Regional/Surface broad material continuity characterization,
@@ -487,18 +499,17 @@ The extra Surface clipmap near-detail ring is LOD refinement, not true tessellat
 
 ---
 
-## 13. Current known inconsistencies
+## 13. Current known inconsistencies / deferred work
 
+- [ ] Regional → Surface final detail/shading continuity still needs formal visual acceptance,
 - [ ] `Planet.ts` still creates hidden legacy surface infrastructure on modern WebGPU solid planets,
-- [ ] `Planet.ts` still bypasses the extracted ring runtime profile,
-- [ ] `Planet.ts` still probes undeclared `render.moonSeed`,
 - [ ] `DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain` legacy behavior still needs retirement review,
-- [ ] `cloudPalette` is retained but intentionally unconsumed pending future cloud-visual consolidation,
+- [ ] `cloudPalette` has no active cloud-renderer contract and is explicitly deferred,
 - [ ] live seasonality + cloud persistence are not yet composed through one proven production weather consumer,
 - [ ] `physical.rotationSpeed` is not yet the canonical planet rotation driver,
 - [ ] `physical.axialTilt` is not yet part of seasonal forcing,
 - [ ] atmosphere pressure ownership remains incomplete,
-- [ ] WebGL compatibility remains a later isolated follow-up.
+- [ ] WebGL compatibility must remain a later isolated follow-up.
 
 ---
 
@@ -506,7 +517,7 @@ The extra Surface clipmap near-detail ring is LOD refinement, not true tessellat
 
 Planet CI is pinned to a known Bun version rather than `latest` after Bun 1.4.0 produced a runner segmentation fault (`exit 139`) during package tests.
 
-Distinguish:
+A Bun runtime crash is infrastructure/tooling failure, not a test assertion failure. Still distinguish:
 
 ```text
 verified CI result
@@ -522,9 +533,19 @@ Do not claim CI green unless a successful check/result is actually visible.
 
 ## 15. Current next action
 
-**Phase 6: perform the one narrow `Planet.ts` runtime migration to the already-defined ring/moon layer contracts.**
+**Phase 7: map `Planet.ts` responsibilities and consumers before extracting or deleting anything.**
 
-Do not combine that change with visual tuning or structural splitting of `Planet.ts`.
+The first output should be a concrete responsibility matrix that separates:
+
+```text
+modern WebGPU ownership
+legacy/WebGL ownership
+shared layer ownership
+public/debug API
+retirement candidates
+```
+
+Only then extract one narrow responsibility at a time.
 
 ---
 
@@ -534,10 +555,9 @@ When continuing planet work:
 
 1. read this file first,
 2. read `docs/planet-view-architecture.md` for current renderer ownership,
-3. read `PLANET_PHASE6_PROFILE_AUDIT.md` while Phase 6 is active,
-4. update status/docs after meaningful migration steps,
-5. preserve accepted atmosphere/camera/view-handoff baselines unless directly relevant,
-6. make one narrowly scoped migration at a time,
-7. do not delete behavior before migration/reference review,
-8. keep WebGPU first and WebGL follow-up isolated,
-9. distinguish domain truth from derived render semantics and representation-specific detail.
+3. update status/docs after meaningful migration steps,
+4. preserve the accepted atmosphere/camera baseline unless directly relevant,
+5. make one narrowly scoped migration at a time,
+6. do not delete behavior before migration/reference review,
+7. keep WebGPU first and WebGL follow-up isolated,
+8. distinguish domain truth from derived render semantics and representation-specific detail.
