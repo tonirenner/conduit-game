@@ -1,6 +1,6 @@
 # Conduit Planet – Phase 7 Planet.ts Responsibility Map
 
-Status: active mapping
+Status: active extraction
 
 ## Goal
 
@@ -34,67 +34,70 @@ Repository code search did not return reliable consumer results during this audi
 
 ## Responsibility matrix
 
-| Responsibility | Current owner in `Planet.ts` | Modern WebGPU solid path | Legacy/WebGL relevance | Extraction risk | Phase 7 action |
+| Responsibility | Current owner | Modern WebGPU solid path | Legacy/WebGL relevance | Extraction risk | Phase 7 action |
 | --- | --- | --- | --- | --- | --- |
-| renderer-family routing | constructor / `rendererKind` | yes | yes | high | preserve for now |
-| classic CubeSphere terrain | `planet`, `createPlanet()` | hidden/frozen | active fallback | high | defer to CubeSphere isolation phase |
-| classic surface material | `surfaceMaterial` factory/tuning | hidden as terrain source but still constructed | active | high | defer |
-| planet body/depth occluder | `planetBody`, `depthOccluder` | hidden | legacy support | medium/high | defer until classic stack isolation |
-| WebGL atmosphere | `AtmosphereLayer` | no | yes | high | preserve |
-| WebGPU atmosphere | `WebGPUAtmosphereLayer` | yes | no | high | preserve; atmosphere baseline protected |
-| WebGL clouds | `CloudLayer` | no | yes | medium/high | preserve |
-| WebGPU clouds | `WebGPUCloudLayer` | yes | no | medium/high | preserve |
-| gas/ice giant renderer | `GasGiantLayer` | dedicated giant path | renderer-dependent | high | preserve |
-| rings | `RingSystemLayer` | shared layer | shared | low/medium | good orchestration extraction candidate |
-| moons | `MoonSystemLayer` | shared layer | shared | low/medium | good orchestration extraction candidate |
-| toxic haze | `ToxicHazeLayer` | solid-class special layer | shared | medium | preserve until class-layer extraction |
-| legacy near-surface terrain | `NearSurfaceTerrainLayer` | explicitly disabled by `PlanetViewRuntime` | potentially legacy | medium | Phase 8 retirement target, do not mix now |
-| render feature merging | `features` | yes | yes | low | already delegated to render-profile helper |
-| surface profile derivation | `surfaceProfile` | shared setup | shared | low | already delegated |
-| terrain seed profile | `terrainSeedConfig` | legacy/shared setup | yes | medium | preserve until classic stack extraction |
+| renderer-family routing | `Planet` constructor / `rendererKind` | yes | yes | high | preserve for now |
+| classic CubeSphere terrain | `Planet` | hidden/frozen | active fallback | high | defer to CubeSphere isolation phase |
+| classic surface material | `Planet` | hidden as terrain source but still constructed | active | high | defer |
+| planet body/depth occluder | `Planet` | hidden | legacy support | medium/high | defer until classic stack isolation |
+| WebGL atmosphere | `Planet` / `AtmosphereLayer` | no | yes | high | preserve |
+| WebGPU atmosphere | `Planet` / `WebGPUAtmosphereLayer` | yes | no | high | preserve; atmosphere baseline protected |
+| WebGL clouds | `Planet` / `CloudLayer` | no | yes | medium/high | preserve |
+| WebGPU clouds | `Planet` / `WebGPUCloudLayer` | yes | no | medium/high | preserve |
+| gas/ice giant renderer | `Planet` / `GasGiantLayer` | dedicated giant path | renderer-dependent | high | preserve |
+| rings | `Planet` / `RingSystemLayer` | shared layer | shared | low/medium | good orchestration extraction candidate |
+| moons | `Planet` / `MoonSystemLayer` | shared layer | shared | low/medium | good orchestration extraction candidate |
+| toxic haze | `Planet` / `ToxicHazeLayer` | solid-class special layer | shared | medium | preserve until class-layer extraction |
+| legacy near-surface terrain | `Planet` / `NearSurfaceTerrainLayer` | explicitly disabled by `PlanetViewRuntime` | potentially legacy | medium | Phase 8 retirement target, do not mix now |
+| render feature merging | delegated profile helper | yes | yes | low | already delegated |
+| surface profile derivation | delegated render profile | shared setup | shared | low | already delegated |
+| terrain seed profile | `Planet` | legacy/shared setup | yes | medium | preserve until classic stack extraction |
 | render tuning state | `PlanetRenderTuning` + setters | mostly classic surface stack | yes | medium | separate later if consumer/API review supports |
-| render quality routing | `setRenderQuality()` | shared layer routing | shared | medium | candidate for layer controller, not first extract |
-| sun-direction fanout | `setSunDirection()` | shared | shared | medium | candidate for layer controller |
-| per-frame layer update | `update()` | shared | shared | high | keep until layer controller shape is proven |
-| debug visibility routing | `setDebugLayerVisibility()` | debug/runtime API | shared | low/medium | strong first extraction candidate |
-| definition/debug stats | `getPlanetDefinitionStats()` | diagnostics | diagnostics | low | strongest first extraction candidate |
-| render feature stats | `getRenderFeatureStats()` | diagnostics | diagnostics | low | strong extraction candidate |
-| terrain stats | `getTerrainStats()` | classic terrain diagnostics | diagnostics/legacy | medium | keep tied to classic stack for now |
-| terrain texture stats | `getTerrainTextureStats()` | diagnostics/classic material | diagnostics | low/medium | diagnostic extraction candidate with texture dependency |
-| baked-terrain toggles | `setBakedTerrainEnabled()` | classic material | active legacy | medium | preserve |
-| debug layer object ownership | many private fields | shared | shared | medium | do not expose internals merely to shrink file |
+| render quality routing | `Planet.setRenderQuality()` | shared layer routing | shared | medium | candidate for layer controller |
+| sun-direction fanout | `Planet.setSunDirection()` | shared | shared | medium | candidate for layer controller |
+| per-frame layer update | `Planet.update()` | shared | shared | high | keep until layer controller shape is proven |
+| debug visibility routing | `Planet.setDebugLayerVisibility()` | debug/runtime API | shared | low/medium | later diagnostics/controller candidate |
+| definition/debug stats | `PlanetDiagnostics` + thin `Planet` wrapper | diagnostics | diagnostics | low | **extracted** |
+| render feature stats | `Planet` | diagnostics | diagnostics | low | next diagnostics candidate |
+| terrain stats | `Planet` / CubeSphere | classic terrain diagnostics | diagnostics/legacy | medium | keep tied to classic stack for now |
+| terrain texture stats | `Planet` | diagnostics/classic material | diagnostics | low/medium | next diagnostics candidate |
+| baked-terrain toggles | `Planet` | classic material | active legacy | medium | preserve |
 
-## First extraction choice
+## Completed extraction 1 – definition diagnostics
 
-The safest coherent responsibility is **diagnostics**, not rendering.
+`src/runtime/PlanetDiagnostics.ts` now owns the pure assembly of `PlanetDefinitionStats`.
 
-Candidate extraction boundary:
-
-```text
-PlanetRuntimeDiagnostics
-```
-
-It can own pure assembly/formatting of diagnostic snapshots while `Planet` remains the source of runtime objects/state.
-
-Initial scope should focus on data formatting that does not mutate rendering:
+The public API remains unchanged:
 
 ```text
-getPlanetDefinitionStats()
-getRenderFeatureStats()
-getTerrainTextureStats()   (only if dependency stays simple)
+Planet.getPlanetDefinitionStats()
+        ↓ thin compatibility wrapper
+createPlanetDefinitionStats(...)
 ```
 
-`getTerrainStats()` should remain with the classic CubeSphere owner initially because it directly exposes classic terrain runtime methods and typed LOD state.
+The extraction moved definition/profile/climate/resource/default-value formatting out of the god-object without transferring ownership of any Three.js object or changing renderer behaviour.
 
-## Why diagnostics first
+Regression coverage: `tests/PlanetDiagnostics.test.ts`.
+
+## Why diagnostics remains the active extraction boundary
 
 - no visual output changes,
 - no terrain/camera/atmosphere changes,
 - no lifecycle changes,
 - no ownership transfer of Three.js objects,
-- public `Planet` methods can remain as compatibility wrappers,
-- immediately removes a large block of formatting logic from the god-object,
-- creates a pattern for later extraction without changing API callers.
+- public `Planet` methods remain compatible,
+- creates a safe extraction pattern before moving layer orchestration.
+
+## Next diagnostics extraction
+
+Continue the same pattern with:
+
+```text
+getRenderFeatureStats()
+getTerrainTextureStats()
+```
+
+`getTerrainStats()` remains with the classic CubeSphere owner initially because it directly exposes classic terrain runtime methods and typed LOD state.
 
 ## Second likely extraction
 
@@ -136,6 +139,4 @@ No extraction is allowed to alter those behaviours as collateral cleanup.
 
 ## Next action
 
-Extract diagnostic snapshot assembly behind compatibility-preserving `Planet` methods.
-
-The public methods stay on `Planet`; only implementation responsibility moves.
+Extract render-feature and terrain-texture diagnostic snapshot assembly behind the existing `Planet` compatibility methods.
