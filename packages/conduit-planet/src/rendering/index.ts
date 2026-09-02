@@ -17,6 +17,7 @@ export {
 	type PlanetRaymarchStepProfile,
 	type PlanetRenderFeatures,
 } from './PlanetRenderFeatures';
+export * from './PlanetLayerRuntimeProfile';
 export * from './PlanetRenderProfile';
 export * from './SurfaceMaterialSemantics';
 export * from './SurfacePalette';
