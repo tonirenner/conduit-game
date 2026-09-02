@@ -18,10 +18,13 @@ import {MoonSystemLayer} from './MoonSystemLayer';
 import {ToxicHazeLayer} from './ToxicHazeLayer';
 import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
 import {getPlanetRenderHeightScale} from './near-view/PlanetElevationProfile';
+import {
+	createPlanetDefinitionStats,
+	type PlanetDefinitionStats,
+} from './runtime/PlanetDiagnostics';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
 import type {PlanetDefinition} from '@conduit/planet/model';
-import type {PlanetResourceProfile} from '@conduit/planet/model';
 import type {PlanetRenderProfile} from '@conduit/planet/rendering';
 import {createSurfaceRenderProfile, type SurfaceRenderProfile,} from '@conduit/planet/rendering';
 import {resolveTerrainProfileKind} from '@conduit/planet/rendering';
@@ -947,235 +950,13 @@ export class Planet {
 		};
 	}
 
-	getPlanetDefinitionStats(): {
-		available: boolean;
-		name: string;
-		class: string;
-		rendererKind: string;
-		composition: {
-			rock: number;
-			metal: number;
-			ice: number;
-			water: number;
-			gas: number;
-			organic: number;
-			volatiles: number;
-		};
-		atmosphere: {
-			type: string;
-			cloudCoverage: number;
-			density: number;
-		};
-		resources: {
-			metal: number;
-			rareMaterials: number;
-			fuel: number;
-			water: number;
-			volatiles: number;
-			researchValue: number;
-			extractionDifficulty: number;
-		};
-		rings: boolean;
-		moons: number;
-		terrainSeed: number;
-		climate: {
-			seed: number;
-			biomeSeed: number;
-			weatherSeed: number;
-			temperature01: number;
-			humidity: number;
-			aridity: number;
-			windStrength: number;
-			stormActivity: number;
-			cloudPersistence: number;
-			ashLoad: number;
-		};
-		render: {
-			enableTerrain: boolean;
-			enableOcean: boolean;
-			enableClouds: boolean;
-			enableAtmosphere: boolean;
-			enableRings: boolean;
-			cloudCoverage: number;
-			atmosphereDensity: number;
-			terrainRoughness: number;
-			mountainScale: number;
-			oceanLevel: number;
-		};
-		surfaceProfile: {
-			enabled: boolean;
-			palette: string;
-			hasOcean: boolean;
-			hasIceCaps: boolean;
-			hasVolcanism: boolean;
-			hasTectonics: boolean;
-			waterInfluence: number;
-			iceInfluence: number;
-			lavaInfluence: number;
-			toxicInfluence: number;
-			metalInfluence: number;
-			raymarchOcclusionStrength: number;
-		};
-		nearSurfaceTerrain: {
-			enabled: boolean;
-			visible: boolean;
-			resolution: number;
-			patchSize: number;
-			height: number;
-		};
-	} {
-		if (!this.definition) {
-			return {
-				available: false,
-				name: 'none',
-				class: 'none',
-				rendererKind: 'none',
-				composition: {
-					rock: 0,
-					metal: 0,
-					ice: 0,
-					water: 0,
-					gas: 0,
-					organic: 0,
-					volatiles: 0,
-				},
-				atmosphere: {
-					type: 'none',
-					cloudCoverage: 0,
-					density: 0,
-				},
-				resources: {
-					metal: 0,
-					rareMaterials: 0,
-					fuel: 0,
-					water: 0,
-					volatiles: 0,
-					researchValue: 0,
-					extractionDifficulty: 0,
-				},
-				rings: false,
-				moons: 0,
-				terrainSeed: 0,
-				climate: {
-					seed: 0,
-					biomeSeed: 0,
-					weatherSeed: 0,
-					temperature01: 0,
-					humidity: 0,
-					aridity: 0,
-					windStrength: 0,
-					stormActivity: 0,
-					cloudPersistence: 0,
-					ashLoad: 0,
-				},
-				render: {
-					enableTerrain: false,
-					enableOcean: false,
-					enableClouds: false,
-					enableAtmosphere: false,
-					enableRings: false,
-					cloudCoverage: 0,
-					atmosphereDensity: 0,
-					terrainRoughness: 0,
-					mountainScale: 0,
-					oceanLevel: 0,
-				},
-				surfaceProfile: {
-					enabled: false,
-					palette: 'none',
-					hasOcean: false,
-					hasIceCaps: false,
-					hasVolcanism: false,
-					hasTectonics: false,
-					waterInfluence: 0,
-					iceInfluence: 0,
-					lavaInfluence: 0,
-					toxicInfluence: 0,
-					metalInfluence: 0,
-					raymarchOcclusionStrength: 0,
-				},
-				nearSurfaceTerrain: {
-					enabled: false,
-					visible: false,
-					resolution: 0,
-					patchSize: 0,
-					height: 0,
-				},
-			};
-		}
-
-		return {
-			available: true,
-			name: this.definition.name,
-			class: this.definition.class,
-			rendererKind: this.renderProfile?.rendererKind ?? 'unknown',
-			composition: this.definition.composition,
-			atmosphere: {
-				type: this.definition.atmosphere.type,
-				cloudCoverage: this.definition.atmosphere.cloudCoverage,
-				density: this.definition.atmosphere.density,
-			},
-			resources: getPlanetResourceProfileOrFallback(this.definition),
-			rings: this.definition.rings?.enabled ?? false,
-			moons: this.definition.moons.length,
-			terrainSeed: this.definition.render.terrainSeed,
-			climate: {
-				seed:
-					this.definition.climate?.seed ??
-					this.definition.render.climateSeed ??
-					0,
-				biomeSeed:
-					this.definition.climate?.biomeSeed ??
-					this.definition.render.biomeSeed ??
-					0,
-				weatherSeed:
-					this.definition.climate?.weatherSeed ??
-					this.definition.render.weatherSeed ??
-					0,
-				temperature01: this.definition.climate?.temperature01 ?? 0,
-				humidity: this.definition.climate?.humidity ?? 0,
-				aridity: this.definition.climate?.aridity ?? 0,
-				windStrength: this.definition.climate?.windStrength ?? 0,
-				stormActivity: this.definition.climate?.stormActivity ?? 0,
-				cloudPersistence: this.definition.climate?.cloudPersistence ?? 0,
-				ashLoad: this.definition.climate?.ashLoad ?? 0,
-			},
-			render: {
-				enableTerrain: this.renderProfile?.enableTerrain ?? false,
-				enableOcean: this.renderProfile?.enableOcean ?? false,
-				enableClouds: this.renderProfile?.enableClouds ?? false,
-				enableAtmosphere: this.renderProfile?.enableAtmosphere ?? false,
-				enableRings: this.renderProfile?.enableRings ?? false,
-				cloudCoverage: this.renderProfile?.cloudCoverage ?? 0,
-				atmosphereDensity: this.renderProfile?.atmosphereDensity ?? 0,
-				terrainRoughness: this.renderProfile?.terrainRoughness ?? 0,
-				mountainScale: this.renderProfile?.mountainScale ?? 0,
-				oceanLevel: this.renderProfile?.oceanLevel ?? 0,
-			},
-			surfaceProfile: {
-				enabled: this.surfaceProfile?.enabled ?? false,
-				palette: this.surfaceProfile?.palette ?? 'none',
-				hasOcean: this.surfaceProfile?.hasOcean ?? false,
-				hasIceCaps: this.surfaceProfile?.hasIceCaps ?? false,
-				hasVolcanism: this.surfaceProfile?.hasVolcanism ?? false,
-				hasTectonics: this.surfaceProfile?.hasTectonics ?? false,
-				waterInfluence: this.surfaceProfile?.waterInfluence ?? 0,
-				iceInfluence: this.surfaceProfile?.iceInfluence ?? 0,
-				lavaInfluence: this.surfaceProfile?.lavaInfluence ?? 0,
-				toxicInfluence: this.surfaceProfile?.toxicInfluence ?? 0,
-				metalInfluence: this.surfaceProfile?.metalInfluence ?? 0,
-				raymarchOcclusionStrength:
-					this.surfaceProfile?.raymarchOcclusionStrength ?? 0,
-			},
-			nearSurfaceTerrain:
-				this.nearSurfaceTerrainLayer?.getDebugStats?.() ?? {
-					enabled: false,
-					visible: false,
-					resolution: 0,
-					patchSize: 0,
-					height: 0,
-				},
-		};
+	getPlanetDefinitionStats(): PlanetDefinitionStats {
+		return createPlanetDefinitionStats(
+			this.definition,
+			this.renderProfile,
+			this.surfaceProfile,
+			this.nearSurfaceTerrainLayer?.getDebugStats?.() ?? null,
+		);
 	}
 
 	setDebugLayerVisibility(
@@ -1355,20 +1136,4 @@ export class Planet {
 			horizon: this.planet.getHorizonCullingStats(),
 		};
 	}
-}
-
-function getPlanetResourceProfileOrFallback(
-	definition: PlanetDefinition,
-): PlanetResourceProfile {
-	return (
-		(definition as Partial<PlanetDefinition>).resources ?? {
-			metal: 0,
-			rareMaterials: 0,
-			fuel: 0,
-			water: 0,
-			volatiles: 0,
-			researchValue: 0,
-			extractionDifficulty: 0,
-		}
-	);
 }
