@@ -16,7 +16,8 @@ PlanetGeneration
 derived render configuration
     ├─ PlanetRenderProfile
     ├─ SurfaceRenderProfile
-    └─ SurfaceMaterialSemantics
+    ├─ SurfaceMaterialSemantics
+    └─ layer runtime profiles
     ↓
 canonical domain systems
     ├─ PlanetTerrainSampler
@@ -62,13 +63,7 @@ What does it represent?
 
 ### Cleanup and feature work stay separable
 
-Avoid mixing unrelated:
-
-- deletion/cleanup,
-- visual tuning,
-- terrain generation changes,
-- camera changes,
-- new adaptive geometry.
+Avoid mixing unrelated deletion/cleanup, visual tuning, terrain generation changes, camera changes or new adaptive geometry.
 
 ### WebGPU first
 
@@ -100,6 +95,7 @@ WebGL may remain fallback/reference behavior, but must not force duplicate domai
 - [x] active `CurvedRegionalTileTerrain`,
 - [x] canonical `PlanetTerrainSampler` geometry,
 - [x] uniform edge resolution per build to avoid T-junctions,
+- [x] shared broad Surface material evaluation,
 - [x] curved regional backdrop during approach.
 
 ### SurfaceView
@@ -117,20 +113,23 @@ WebGL may remain fallback/reference behavior, but must not force duplicate domai
 Orbit → Regional
   lifecycle: stable
   geometry: stable
+  depth ownership: synchronized
   visual handoff: accepted
 
 Regional → Surface
   lifecycle: working
   camera continuity: working
   physical terrain identity: shared
-  visual/material continuity: OPEN
+  broad material identity: shared
+  legacy depth-occluder checker artifact: repaired
+  remaining shading/detail transition: minor / tuning only
 ```
 
-The Regional → Surface discontinuity is documented in:
+Important transition invariant:
 
-`PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
+> Two nearly coplanar terrain representations must never own depth at the same time.
 
-Do not mark this handoff visually stable until the material/ownership pop is removed.
+The Regional → Surface history and repair are documented in `PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
 
 ---
 
@@ -179,7 +178,7 @@ Phase 4 canonical migration is complete for:
 - [x] seasonality,
 - [x] cloud persistence.
 
-`ashLoad` is intentionally excluded from the general climate migration and remains a later volcanic/atmospheric/material integration concern.
+`ashLoad` remains a later volcanic/atmospheric/material integration concern.
 
 Current integration gaps:
 
@@ -206,7 +205,7 @@ organic
 volatiles
 ```
 
-All are preserved as domain truth and now have explicit visual semantics where appropriate.
+All are preserved as domain truth and have explicit visual semantics where appropriate.
 
 ### Solid-surface material semantics
 
@@ -228,73 +227,77 @@ Detailed audit: `PLANET_PHASE5_COMPOSITION_AUDIT.md`.
 
 ## 8. Profile/material-semantics consolidation – Phase 6 active
 
-This is the current active phase.
-
 ### Completed
 
-- [x] introduced canonical `SurfaceMaterialSemantics`,
-- [x] `SurfaceRenderProfile` derives composition influences from the shared semantics,
-- [x] active `SurfaceTerrainMaterial` uses the same shared semantics,
-- [x] exported shared semantics through the rendering boundary,
-- [x] added regression coverage for profile/semantics consistency.
+- [x] canonical `SurfaceMaterialSemantics`,
+- [x] `SurfaceRenderProfile` uses shared composition semantics,
+- [x] active Surface material evaluator uses shared semantics,
+- [x] Regional broad material evaluation uses the same evaluator,
+- [x] canonical `SurfacePalette` mapping,
+- [x] Surface profile forwards already-derived climate/terrain values from `PlanetRenderProfile`,
+- [x] regression coverage for profile/material consistency,
+- [x] extracted explicit ring/moon runtime seed/enable contracts in `PlanetLayerRuntimeProfile`,
+- [x] resolved moon-system seed semantics without inventing `render.moonSeed`,
+- [x] audited `cloudPalette` and deliberately deferred it because neither cloud renderer exposes a palette contract.
 
-This removes the previous duplicate independent calculations for water/ice/lava/toxic/metal/rock/organic influence.
-
-### Current target
+Current derivation chain:
 
 ```text
 PlanetDefinition
     ↓
-SurfaceMaterialSemantics
+PlanetRenderProfile
     ├─ SurfaceRenderProfile
-    ├─ SurfaceView broad material evaluation
-    └─ RegionalView broad material evaluation   ← next
+    ├─ SurfaceMaterialSemantics
+    └─ layer runtime configuration
+         ├─ rings
+         └─ lightweight moon system
 ```
-
-Regional does **not** need Surface microdetail. It does need matching broad color/material identity in the overlap band.
 
 ### Remaining Phase 6 work
 
-- [ ] align `CurvedRegionalTileTerrain` broad material evaluation with canonical Surface material semantics,
-- [ ] remove duplicate palette resolution where the same meaning is represented more than once,
-- [ ] audit `PlanetRenderProfile.enableRings` vs direct definition checks,
-- [ ] audit actual `cloudPalette` consumption,
-- [ ] remove remaining `as any` profile/seed probes where contracts can be made explicit,
-- [ ] preserve renderer-specific values only when they are genuinely representation-specific.
+- [ ] migrate `Planet.ts` ring construction to `getPlanetRingLayerRuntimeProfile()`,
+- [ ] migrate `Planet.ts` moon seed use to `getPlanetMoonSystemSeed()`,
+- [ ] remove the old `ringSeed as any` and undeclared `moonSeed` probe,
+- [ ] perform final `PlanetRenderProfile` direct-definition bypass audit,
+- [ ] mark `cloudPalette` deferred rather than blocking Phase 6,
+- [ ] close Phase 6 if no further duplicate render ownership remains.
+
+Detailed audit: `PLANET_PHASE6_PROFILE_AUDIT.md`.
 
 ---
 
-## 9. Regional → Surface handoff repair
+## 9. View handoff stabilization
 
-This follows the broad material-semantics alignment, not before it.
+The major handoff failures found during Phase 6 are repaired:
 
-Current runtime behavior:
+### Orbit → Regional
 
-- Surface fades in through `regionalSurfaceStartMeters` → `regionalSurfaceEndMeters`,
-- Regional remains fully opaque while Surface is only a finite local patch,
-- Regional is hidden when Surface reaches the depth-ownership threshold,
-- current threshold is effectively a final ownership cut around `surfaceWeight >= 0.985`.
+The previous diamond/checker artifact occurred when opaque Orbit and nearly opaque Regional both owned depth over nearly coplanar terrain.
 
-Observed problem:
+Current rule:
 
 ```text
-Regional broad/simple material
-        ↓
-Surface richer/different material
-        ↓
-visible material/renderer pop
-        + final ownership cut
+Regional below depth threshold
+→ Orbit owns depth
+→ Regional blends as non-depth overlay
+
+Regional reaches depth threshold
+→ Orbit is removed in the same frame
+→ Regional becomes sole depth owner
 ```
 
-Fix order:
+This has been visually accepted.
 
-1. [ ] make Regional use canonical broad material semantics,
-2. [ ] compare representative classes/seeds in overlap,
-3. [ ] redesign final opacity/depth ownership so Regional can release without a visible pop or dark horizon,
-4. [ ] validate descent and ascent,
-5. [ ] only then retune altitude bands if needed.
+### Regional → Surface
 
-Do not attempt to hide the problem only by widening the blend range.
+Repairs now include:
+
+- shared broad material evaluation,
+- progressive/coverage-aware Regional release,
+- Surface/Regional depth ownership separation,
+- legacy `PlanetDepthOccluder` disabled on the modern WebGPU view path.
+
+The large checker/depth failure is repaired. Remaining visible difference is representation-specific shading/detail and is no longer a structural blocker for Phase 6.
 
 ---
 
@@ -383,11 +386,11 @@ Preserve. `orbitalPeriod` is already used by the season-cycle foundation.
 
 ### Render seeds
 
-Audit remaining consumption for palette/cloud/atmosphere seeds and remove compatibility probes only after explicit ownership exists.
+`ringSeed` is explicitly owned by the ring renderer contract. Audit remaining palette/cloud/atmosphere seed consumption before cleanup.
 
 ### Rings/moons
 
-Resolve the legacy undeclared `render.moonSeed` probe before cleanup.
+The lightweight moon renderer keeps its existing deterministic system seed derived from `PlanetDefinition.seed`. Individual `PlanetMoonDefinition.seed` values remain domain truth for a future renderer that consumes actual moon definitions.
 
 ---
 
@@ -413,7 +416,7 @@ Resolve the legacy undeclared `render.moonSeed` probe before cleanup.
 
 ### Phase 4 – Climate / Biome / Weather definition migration
 
-- [x] complete for the planned definition semantics.
+- [x] complete for planned definition semantics.
 - [ ] end-to-end live weather composition remains later integration work.
 
 ### Phase 5 – Composition migration
@@ -423,8 +426,11 @@ Resolve the legacy undeclared `render.moonSeed` probe before cleanup.
 ### Phase 6 – Profile/material-semantics consolidation
 
 - [x] shared Surface material semantics foundation,
-- [ ] Regional broad material alignment,
-- [ ] remaining profile duplicate cleanup.
+- [x] Regional broad material alignment,
+- [x] palette/profile derivation consolidation,
+- [x] layer runtime contracts defined,
+- [ ] narrow `Planet.ts` ring/moon migration,
+- [ ] final duplicate ownership audit.
 
 ### Phase 7 – Reduce `Planet.ts` entanglement
 
@@ -456,10 +462,10 @@ Resolve the legacy undeclared `render.moonSeed` probe before cleanup.
 
 ### Phase 14 – Regression suite
 
-Current coverage already exists for many migrated terrain/climate/composition semantics, but the broader runtime matrix remains open:
+Existing coverage is strong for migrated terrain/climate/composition/profile semantics, but the broader runtime matrix remains open:
 
 - [ ] Orbit/Regional/Surface height continuity,
-- [ ] Regional/Surface broad material continuity,
+- [ ] Regional/Surface broad material continuity characterization,
 - [ ] all solid classes through full descent/ascent,
 - [ ] gas/ice giants,
 - [ ] atmosphere/cloud/ring/moon combinations,
@@ -483,18 +489,16 @@ The extra Surface clipmap near-detail ring is LOD refinement, not true tessellat
 
 ## 13. Current known inconsistencies
 
-- [ ] Regional broad material semantics still differ from Surface,
-- [ ] Regional → Surface final ownership uses a visible hard threshold strategy,
 - [ ] `Planet.ts` still creates hidden legacy surface infrastructure on modern WebGPU solid planets,
+- [ ] `Planet.ts` still bypasses the extracted ring runtime profile,
+- [ ] `Planet.ts` still probes undeclared `render.moonSeed`,
 - [ ] `DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain` legacy behavior still needs retirement review,
-- [ ] undeclared `render.moonSeed` probe,
-- [ ] `enableRings` vs direct definition checks,
-- [ ] duplicate palette/profile responsibilities still need final cleanup,
+- [ ] `cloudPalette` is retained but intentionally unconsumed pending future cloud-visual consolidation,
 - [ ] live seasonality + cloud persistence are not yet composed through one proven production weather consumer,
 - [ ] `physical.rotationSpeed` is not yet the canonical planet rotation driver,
 - [ ] `physical.axialTilt` is not yet part of seasonal forcing,
 - [ ] atmosphere pressure ownership remains incomplete,
-- [ ] WebGL compatibility must remain a later isolated follow-up.
+- [ ] WebGL compatibility remains a later isolated follow-up.
 
 ---
 
@@ -502,7 +506,7 @@ The extra Surface clipmap near-detail ring is LOD refinement, not true tessellat
 
 Planet CI is pinned to a known Bun version rather than `latest` after Bun 1.4.0 produced a runner segmentation fault (`exit 139`) during package tests.
 
-A Bun runtime crash is infrastructure/tooling failure, not a test assertion failure. Still distinguish:
+Distinguish:
 
 ```text
 verified CI result
@@ -518,9 +522,9 @@ Do not claim CI green unless a successful check/result is actually visible.
 
 ## 15. Current next action
 
-**Phase 6: make `CurvedRegionalTileTerrain` consume the shared broad Surface material semantics without adding Surface microdetail.**
+**Phase 6: perform the one narrow `Planet.ts` runtime migration to the already-defined ring/moon layer contracts.**
 
-After that, repair the Regional → Surface opacity/depth ownership transition documented in `PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md`.
+Do not combine that change with visual tuning or structural splitting of `Planet.ts`.
 
 ---
 
@@ -530,9 +534,10 @@ When continuing planet work:
 
 1. read this file first,
 2. read `docs/planet-view-architecture.md` for current renderer ownership,
-3. update status/docs after meaningful migration steps,
-4. preserve the accepted atmosphere/camera baseline unless directly relevant,
-5. make one narrowly scoped migration at a time,
-6. do not delete behavior before migration/reference review,
-7. keep WebGPU first and WebGL follow-up isolated,
-8. distinguish domain truth from derived render semantics and representation-specific detail.
+3. read `PLANET_PHASE6_PROFILE_AUDIT.md` while Phase 6 is active,
+4. update status/docs after meaningful migration steps,
+5. preserve accepted atmosphere/camera/view-handoff baselines unless directly relevant,
+6. make one narrowly scoped migration at a time,
+7. do not delete behavior before migration/reference review,
+8. keep WebGPU first and WebGL follow-up isolated,
+9. distinguish domain truth from derived render semantics and representation-specific detail.
