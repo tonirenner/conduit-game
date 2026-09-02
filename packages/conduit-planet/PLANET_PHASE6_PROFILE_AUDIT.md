@@ -22,7 +22,7 @@ Renderer
 
 ### Canonical material semantics
 
-`SurfaceMaterialSemantics` now owns the derived broad solid-surface composition influences:
+`SurfaceMaterialSemantics` owns the derived broad solid-surface composition influences:
 
 - water
 - ice
@@ -32,21 +32,23 @@ Renderer
 - rock
 - organic/carbon
 
-`SurfaceRenderProfile` and the active Surface material evaluator consume the same semantics.
+`SurfaceRenderProfile`, RegionalView and the active Surface material evaluator consume the same semantics.
 
 ### Regional material continuity
 
-`CurvedRegionalTileTerrain` now uses the same broad `evaluateSurfaceTerrainMaterial()` path as SurfaceView. Regional and Surface therefore share the broad material identity while retaining different detail budgets.
+`CurvedRegionalTileTerrain` uses the same broad `evaluateSurfaceTerrainMaterial()` path as SurfaceView. Regional and Surface therefore share broad material identity while retaining different detail budgets.
+
+The Orbit -> Regional depth-ownership handoff has also been visually accepted after synchronizing Orbit removal with Regional depth ownership. The Regional -> Surface checker artifact caused by the legacy depth occluder has been repaired as well.
 
 ### Canonical surface palette mapping
 
-`SurfacePalette.ts` now owns the `PlanetClass -> SurfacePaletteKind` mapping.
+`SurfacePalette.ts` owns the `PlanetClass -> SurfacePaletteKind` mapping.
 
 Both `PlanetRenderProfile` and `SurfaceRenderProfile` use that single mapping. The duplicate palette switch previously inside `SurfaceRenderProfile` has been removed.
 
 ### Surface profile derivation chain
 
-`SurfaceRenderProfile` now forwards these already-derived values from `PlanetRenderProfile` rather than reading them independently from `PlanetDefinition` again:
+`SurfaceRenderProfile` forwards these already-derived values from `PlanetRenderProfile` instead of reading them independently from `PlanetDefinition` again:
 
 - enabled / terrain ownership
 - ocean enabled
@@ -70,83 +72,114 @@ Surface-only domain flags that do not currently exist on `PlanetRenderProfile` r
 
 Regression coverage exists in `tests/PlanetRenderProfileConsolidation.test.ts`.
 
-## Confirmed remaining profile inconsistencies
+### Layer runtime contracts extracted
 
-### `enableRings` is derived but bypassed during construction
+`PlanetLayerRuntimeProfile.ts` now defines the intended runtime contracts for rings and the lightweight moon renderer.
 
-`PlanetRenderProfile.enableRings` exists and diagnostics report it, but `Planet.createRingSystem()` still checks:
-
-```text
-definition.rings.enabled
-```
-
-directly.
-
-Target:
+Rings:
 
 ```text
-renderProfile.enableRings
+enabled = PlanetRenderProfile.enableRings
+          with PlanetDefinition fallback for legacy profile-less construction
+seed    = PlanetDefinition.render.ringSeed
 ```
 
-with a definition fallback only when `Planet` is constructed without a render profile.
+The declared `ringSeed` is therefore the canonical ring renderer seed; no `as any` access is required.
 
-This is a cleanup task, not a visual retune.
-
-### `cloudPalette` has no proven runtime consumer in `Planet`
-
-`PlanetRenderProfile.cloudPalette` is generated, but `Planet.applyRenderProfile()` currently forwards cloud coverage, atmosphere density and climate cloud controls without forwarding `cloudPalette`.
-
-Do not delete the field yet. First decide whether semantic cloud palette remains wanted by the cloud layers. If wanted, wire it deliberately. If not, document retirement before removal.
-
-### `ringSeed` uses an unnecessary `as any`
-
-`PlanetRenderSeeds` officially declares:
+Moon system:
 
 ```text
-ringSeed: number
+seed = (PlanetDefinition.seed ^ 0x4411aa) >>> 0
 ```
 
-`Planet.createRingSystem()` still reads it through `(definition.render as any)?.ringSeed`.
+This deliberately preserves the existing visible deterministic behavior. No new `render.moonSeed` field is introduced. The current `MoonSystemLayer` is a lightweight procedural representation based on moon count rather than a renderer of the individual `PlanetMoonDefinition` entries, so its system-level seed remains an explicit derivation from the planet seed until that renderer is replaced/migrated.
 
-This is safe cleanup when `Planet.ts` is next modified.
+Regression coverage exists in `tests/PlanetLayerRuntimeProfile.test.ts`.
 
-### `moonSeed` is not part of `PlanetRenderSeeds`
+## Confirmed remaining profile work
 
-`Planet.createMoonSystem()` probes `(definition.render as any)?.moonSeed`, but the model does not declare `moonSeed`.
+### Route `Planet.ts` through the extracted layer contracts
 
-This is a real contract mismatch, not merely a typing cleanup.
+`Planet.createRingSystem()` still directly checks `definition.rings.enabled` and reads `ringSeed` through an old `as any` expression.
 
-Before changing it, decide whether moon generation should use:
+`Planet.createMoonSystem()` still probes the undeclared `render.moonSeed` before falling back to the planet-seed derivation.
 
-- the individual `PlanetMoonDefinition.seed` values,
-- a new explicit system-level `moonSeed`, or
-- a deterministic derivation from `PlanetDefinition.seed`.
+The semantic decisions are now resolved; the remaining work is a narrow runtime migration to:
 
-Do not silently add/remove the seed behavior during profile cleanup.
+```text
+getPlanetRingLayerRuntimeProfile(...)
+getPlanetMoonSystemSeed(...)
+```
+
+This should be done in one controlled `Planet.ts` rewrite and must not be combined with visual tuning or structural splitting.
+
+### `cloudPalette` is intentionally not wired during Phase 6
+
+`PlanetRenderProfile.cloudPalette` currently has no runtime consumer in either cloud renderer.
+
+Both `CloudLayer` and `WebGPUCloudLayer` expose the same semantic profile inputs:
+
+- cloud coverage,
+- atmosphere density,
+- cloud persistence,
+- storm activity,
+- wind strength,
+- ash load.
+
+Their visual cloud colors are currently renderer/shader-owned; neither layer has a palette input contract.
+
+Therefore Phase 6 must **not** force `cloudPalette` into the layers merely to make the field appear consumed, because doing so would be a visual redesign rather than profile cleanup.
+
+Current decision:
+
+```text
+cloudPalette = retained but explicitly unused
+```
+
+A later cloud-visual consolidation phase must choose one of two explicit outcomes:
+
+1. introduce a shared semantic cloud-palette contract for both WebGL and WebGPU cloud renderers, or
+2. retire `cloudPalette` from `PlanetRenderProfile` after repository/API compatibility has been checked.
+
+### Remaining PlanetRenderProfile ownership audit
+
+Known actively consumed fields:
+
+- `rendererKind`
+- `enableTerrain`
+- `enableOcean`
+- `enableClouds`
+- `enableAtmosphere`
+- `surfacePalette`
+- `terrainRoughness`
+- `mountainScale`
+- `oceanLevel`
+- `cloudCoverage`
+- `atmosphereDensity`
+- climate temperature/humidity/aridity/wind/storm/cloud-persistence/ash-load through derived consumers
+- `atmospherePalette`
+
+`enableRings` is semantically resolved but awaits the `Planet.ts` runtime migration described above.
+
+`cloudPalette` is the one intentionally retained unconsumed field identified in this audit.
 
 ## Planet.ts safety rule
 
-`Planet.ts` is a large transitional runtime file. Do not combine these profile fixes with structural splitting or visual changes.
+`Planet.ts` is a large transitional runtime file. Do not combine profile fixes with structural splitting or visual changes.
 
 When it is touched:
 
 1. fetch the complete current blob,
-2. make one narrow responsibility change,
-3. validate the edited region afterwards,
-4. keep the Regional -> Surface visual validation baseline unchanged.
-
-## Handoff separation
-
-The Regional -> Surface handoff repair is implemented but still awaits visual acceptance.
-
-Do not tune handoff thresholds, material roughness, normals or micro-detail as part of this profile consolidation until the current handoff build has been visually reviewed.
+2. make the narrow layer-runtime migration only,
+3. validate the edited ring/moon regions afterwards,
+4. preserve the visually accepted view-handoff behavior.
 
 ## Next profile work
 
 Recommended order:
 
-1. safely route ring construction through `renderProfile.enableRings` and remove the unnecessary `ringSeed as any`,
-2. audit whether `cloudPalette` has a desired semantic consumer,
-3. resolve the `moonSeed` contract explicitly,
-4. audit remaining `PlanetRenderProfile` fields for direct-definition bypasses,
-5. only then consider Phase 6 complete.
+1. migrate `Planet.ts` ring/moon construction to `PlanetLayerRuntimeProfile`,
+2. characterize that migration with runtime/config tests where practical,
+3. re-audit `PlanetRenderProfile` after the migration,
+4. mark `cloudPalette` as deferred rather than blocking Phase 6,
+5. close Phase 6 if no further duplicate render ownership remains.
