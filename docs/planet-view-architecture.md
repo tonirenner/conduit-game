@@ -4,7 +4,7 @@
 
 This document describes the **current active planet view architecture**.
 
-The renderer no longer refines one global geometry system from orbit all the way to the ground. Solid planets use three purpose-built representations that share the same deterministic planet data:
+Solid planets use three purpose-built representations that share the same deterministic planet data:
 
 ```text
 PlanetDefinition
@@ -30,8 +30,6 @@ PlanetDefinition
 
 A view may change geometry density, coordinate frame, caches and shader detail. It must not invent a second terrain, composition or climate model.
 
-A mountain, coastline or volcanic region must remain the same feature when ownership moves between views.
-
 ## Active views
 
 ### OrbitView
@@ -52,7 +50,7 @@ Purpose:
 
 The modern WebGPU solid-surface path uses fixed instanced terrain with a pre-baked terrain LUT. The classic `CubeSphere` stack is retained only as transitional/legacy infrastructure and is hidden/frozen for this path.
 
-Atmosphere, clouds, rings and moons are independent layers and may remain active across terrain ownership changes.
+The instanced Orbit surface is opaque and writes depth. Because of that, it must be released before RegionalView starts writing depth.
 
 ### RegionalView
 
@@ -74,11 +72,10 @@ Technique:
 - curved camera-local regional cap,
 - canonical `PlanetTerrainSampler` elevation,
 - fixed tile layout merged into one geometry/draw path,
-- altitude-driven uniform edge resolution to avoid T-junctions.
+- altitude-driven uniform edge resolution to avoid T-junctions,
+- broad surface color through the same `evaluateSurfaceTerrainMaterial()` used by SurfaceView.
 
-RegionalView is not the final ground renderer.
-
-Important current limitation: Regional broad material/color semantics are still simpler than SurfaceView. This is an active consolidation task because differing material semantics are currently visible during Regional → Surface transition.
+Regional intentionally stays cheaper than SurfaceView and does not copy fragment-scale micro normals, cavity AO or other near-field detail.
 
 ### SurfaceView
 
@@ -99,7 +96,7 @@ Purpose:
 Technique:
 
 - local tangent/reference frame,
-- fixed reusable clipmap rings,
+- 11 fixed reusable clipmap rings,
 - canonical `PlanetTerrainSampler` for physical terrain samples,
 - representation-specific fragment microdetail,
 - material-dependent roughness, metalness, micro-normal and cavity/AO.
@@ -120,7 +117,7 @@ renderer material evaluation
 
 Composition values must not be independently reinterpreted in each renderer.
 
-The active Surface renderer and `SurfaceRenderProfile` now share canonical composition-derived semantics for:
+Regional and Surface now share broad material semantics for:
 
 - water,
 - ice,
@@ -130,7 +127,7 @@ The active Surface renderer and `SurfaceRenderProfile` now share canonical compo
 - rock,
 - organic/carbon.
 
-RegionalView is the next consumer to be aligned to the same broad semantics. Microdetail does not need to match RegionalView; broad color/material identity does.
+They may differ in detail frequency and shading cost, but not in underlying broad material identity.
 
 ## Transition policy
 
@@ -154,41 +151,84 @@ Regional → Surface
 
 These values are tuning parameters, not architecture.
 
-### Current transition status
+### Orbit → Regional depth ownership
+
+Orbit is opaque and cannot safely overlap a depth-writing Regional surface when both are nearly coincident.
+
+Policy:
+
+```text
+Regional opacity <= depth threshold
+    Orbit remains visible and owns depth
+    Regional acts as transparent overlay without depth test/write
+
+Regional opacity > depth threshold
+    Orbit is disabled in the same frame
+    Regional becomes the sole terrain depth owner
+```
+
+The Regional threshold is owned by `REGIONAL_DEPTH_OWNERSHIP_OPACITY` in `CurvedRegionalTileTerrain` and reused by `PlanetViewRuntime`. Do not duplicate this threshold independently.
+
+This rule exists specifically to prevent regular triangle/diamond z-fighting during the final Orbit → Regional overlap.
+
+### Regional → Surface depth ownership
+
+Surface uses a separate coverage-aware release policy through `getRegionalSurfaceRelease()`.
+
+Policy:
+
+```text
+before Surface depth ownership
+    Regional owns depth
+
+Surface owns depth
+    Regional stops depth-writing
+    Surface wins locally
+    Regional may remain as backdrop
+
+Surface safely covers the visible horizon
+    Regional opacity releases smoothly to zero
+```
+
+The legacy `PlanetDepthOccluder` is disabled in the modern WebGPU Orbit/Regional/Surface path so it cannot interfere with Surface depth ownership.
+
+## Current transition status
 
 ```text
 Orbit → Regional
-  geometry continuity: good
-  visual handoff: stable
+  geometry continuity: working
+  broad material continuity: working
+  depth ownership: single-owner policy implemented
+  visual validation after latest ownership fix: pending
 
 Regional → Surface
-  lifecycle/camera continuity: working
   geometry identity: shared canonical terrain
-  visual/material continuity: NOT yet accepted
+  broad material continuity: aligned
+  progressive ownership: implemented
+  legacy depth occluder conflict: fixed
+  remaining visual detail/shading acceptance: pending
 ```
 
-The known Regional → Surface problem is documented in:
+The Regional → Surface history and findings are documented in:
 
 ```text
 packages/conduit-planet/PLANET_REGIONAL_SURFACE_HANDOFF_FINDING.md
 ```
 
-The current runtime keeps Regional fully opaque while Surface fades in, then hides Regional once Surface reaches a depth-ownership threshold. That avoids exposing the finite Surface patch/horizon, but the remaining material mismatch plus final ownership cut is visible as a renderer/material pop.
-
-Do not solve this only by widening the blend band. First align broad material semantics; then improve ownership/fade behavior.
-
 ## Stability rules
 
 1. Preload an incoming view before it receives visible weight.
 2. Keep the outgoing representation available until the incoming view can cover the visible scene.
-3. Use hysteresis for renderer lifecycle.
-4. Never reset camera orientation/target merely because view ownership changes.
-5. RegionalView and SurfaceView anchor from the same normalized camera/planet direction.
-6. Blend weights alone should not force geometry rebuilds.
-7. Orbit terrain cost remains bounded; do not restore planet-wide near-surface refinement.
-8. All views converge on canonical physical terrain identity.
-9. Broad material identity should converge across overlapping views.
-10. Representation-specific microdetail may appear progressively with proximity.
+3. **Never allow two nearly coplanar terrain representations to write/test depth as owners at the same time.**
+4. Synchronize outgoing visibility release with incoming depth ownership.
+5. Use hysteresis for renderer lifecycle.
+6. Never reset camera orientation/target merely because view ownership changes.
+7. RegionalView and SurfaceView anchor from the same normalized camera/planet direction.
+8. Blend weights alone should not force geometry rebuilds.
+9. Orbit terrain cost remains bounded; do not restore planet-wide near-surface refinement.
+10. All views converge on canonical physical terrain identity.
+11. Broad material identity should converge across overlapping views.
+12. Representation-specific microdetail may appear progressively with proximity.
 
 ## Runtime ownership
 
