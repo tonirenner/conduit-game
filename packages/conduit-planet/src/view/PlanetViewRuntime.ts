@@ -4,7 +4,10 @@ import type { PlanetDefinition } from '../model';
 import type { PlanetRenderProfile } from '../rendering/PlanetRenderProfile';
 import { getPlanetRadiusMeters } from '../near-view/PlanetPhysicalScale';
 import { InstancedOrbitTerrain } from '../rendering/orbit/InstancedOrbitTerrain';
-import { CurvedRegionalTileTerrain } from '../rendering/regional/CurvedRegionalTileTerrain';
+import {
+	CurvedRegionalTileTerrain,
+	REGIONAL_DEPTH_OWNERSHIP_OPACITY,
+} from '../rendering/regional/CurvedRegionalTileTerrain';
 import { SurfaceClipmapTerrain } from '../rendering/surface/SurfaceClipmapTerrain';
 import {
 	PLANET_VIEW_BANDS,
@@ -152,9 +155,17 @@ export class PlanetViewRuntime {
 		this.planet.update(cameraRenderPosition, dt);
 		this.planet.setRenderQuality('idle');
 
+		const regionalOwnsDepth =
+			weights.surface <= 0.001 &&
+			weights.regional > REGIONAL_DEPTH_OWNERSHIP_OPACITY;
+		const effectiveOrbitWeight = regionalOwnsDepth ? 0 : weights.orbit;
+
 		if (this.orbitSurface) {
 			this.disableClassicOrbitVisuals();
-			this.orbitSurface.update(weights.orbit);
+			// Orbit is opaque and always writes depth. As soon as Regional reaches
+			// its own depth-ownership threshold, remove Orbit in the same frame so
+			// the two almost-coincident terrain representations never both own depth.
+			this.orbitSurface.update(effectiveOrbitWeight);
 		} else {
 			this.planet.setDebugLayerVisibility({
 				surface: !this.surfaceViewsEnabled || weights.orbit > 0.001,
@@ -191,7 +202,7 @@ export class PlanetViewRuntime {
 		this.state = {
 			altitudeMeters,
 			phase: weights.phase,
-			orbitWeight: weights.orbit,
+			orbitWeight: this.orbitSurface ? effectiveOrbitWeight : weights.orbit,
 			regionalWeight: weights.regional,
 			surfaceWeight: weights.surface,
 			regionalActive: Boolean(this.regional),
