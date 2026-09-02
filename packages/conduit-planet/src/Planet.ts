@@ -30,7 +30,12 @@ import {
 	type AtmosphereRenderProfileValues,
 } from '@conduit/planet/rendering';
 
-import {mergePlanetRenderFeatures, type PlanetRenderFeatures,} from '@conduit/planet/rendering';
+import {
+	getPlanetMoonSystemSeed,
+	getPlanetRingLayerRuntimeProfile,
+	mergePlanetRenderFeatures,
+	type PlanetRenderFeatures,
+} from '@conduit/planet/rendering';
 
 export type PlanetRenderQuality = 'moving' | 'idle';
 export type PlanetRendererMode = 'webgl' | 'webgpu';
@@ -626,17 +631,22 @@ export class Planet {
 	}
 
 	private createRingSystem(): void {
-		if (!this.definition?.rings?.enabled) {
+		if (!this.definition) {
 			return;
 		}
 
-		const ringSeed =
-			      (this.definition.render as any)?.ringSeed ??
-			      this.definition.seed;
+		const ringProfile = getPlanetRingLayerRuntimeProfile(
+			this.definition,
+			this.renderProfile,
+		);
+
+		if (!ringProfile.enabled) {
+			return;
+		}
 
 		this.ringSystemLayer = new RingSystemLayer({
 			                                           radius: this.radius,
-			                                           seed: ringSeed,
+			                                           seed: ringProfile.seed,
 			                                           opacity:
 				                                           this.rendererKind === 'solid_surface'
 				                                           ? 0.46
@@ -647,24 +657,19 @@ export class Planet {
 	}
 
 	private createMoonSystem(): void {
-		if (!this.features.moonSystem) {
+		if (!this.features.moonSystem || !this.definition) {
 			return;
 		}
 
-		const moonCount =
-			      this.definition?.moons?.length ?? 0;
+		const moonCount = this.definition.moons.length;
 
 		if (moonCount <= 0) {
 			return;
 		}
 
-		const moonSeed =
-			      (this.definition?.render as any)?.moonSeed ??
-			      (this.definition.seed ^ 0x4411aa);
-
 		this.moonSystemLayer = new MoonSystemLayer({
 			                                           radius: this.radius,
-			                                           seed: moonSeed,
+			                                           seed: getPlanetMoonSystemSeed(this.definition),
 			                                           moonCount,
 			                                           parentKind: this.rendererKind,
 		                                           });
