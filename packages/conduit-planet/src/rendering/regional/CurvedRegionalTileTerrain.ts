@@ -12,6 +12,8 @@ const EXTENT_REBUILD_THRESHOLD = 0.12;
 const MIN_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(0.35);
 const MAX_ANCHOR_STEP_RADIANS = THREE.MathUtils.degToRad(2.0);
 
+export const REGIONAL_DEPTH_OWNERSHIP_OPACITY = 0.96;
+
 /**
  * Geometry-first RegionalView inspired by the OpenWorlds normalized-quad idea.
  *
@@ -95,7 +97,8 @@ export class CurvedRegionalTileTerrain {
 
 	private setOpacity(value: number, allowDepthOwnership = true): void {
 		const opacity = THREE.MathUtils.clamp(value, 0, 1);
-		const ownsDepth = allowDepthOwnership && opacity > 0.96;
+		const ownsDepth =
+			allowDepthOwnership && opacity > REGIONAL_DEPTH_OWNERSHIP_OPACITY;
 		this.material.opacity = opacity;
 		// During Orbit -> Regional handoff the two terrain representations are
 		// intentionally almost co-planar. Testing the transparent RegionalView
