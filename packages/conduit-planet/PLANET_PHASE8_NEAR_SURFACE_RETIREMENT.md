@@ -1,6 +1,6 @@
 # Conduit Planet – Phase 8 NearSurfaceTerrainLayer Retirement
 
-Status: active retirement audit
+Status: isolated legacy compatibility path
 
 ## Finding
 
@@ -8,7 +8,7 @@ Status: active retirement audit
 
 It is not part of the target Orbit → Regional → Surface architecture.
 
-The modern WebGPU `PlanetViewRuntime` already constructs `Planet` with:
+The modern WebGPU `PlanetViewRuntime` constructs `Planet` with:
 
 ```ts
 nearSurfaceTerrain: false
@@ -35,24 +35,60 @@ Confirmed:
 
 - the concrete `NearSurfaceTerrainLayer` class is not exported by the package root,
 - `Planet` is its construction/lifecycle owner,
-- `PlanetRenderFeatures.nearSurfaceTerrain` still exists and currently defaults to `true`,
-- the modern WebGPU `PlanetViewRuntime` explicitly overrides that feature to `false`,
-- diagnostics expose a near-surface status block but can preserve the same public shape with an inactive fallback.
+- `PlanetRenderFeatures.nearSurfaceTerrain` still exists for compatibility,
+- `DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain` is now `false`,
+- the modern WebGPU `PlanetViewRuntime` explicitly keeps the feature disabled,
+- the Planet LOD/approach lab uses `PlanetViewRuntime` and therefore the canonical Surface clipmap,
+- the current production/game `GamePrototypeScene` still constructs `Planet` directly and explicitly sets `nearSurfaceTerrain: true`,
+- diagnostics expose a near-surface status block and can preserve the same public shape after final retirement.
 
-## Retirement strategy
+## Important consumer finding
+
+The actual game is the remaining known intentional consumer of the legacy layer:
+
+```text
+GamePrototypeScene
+    ↓
+new Planet(...)
+    ↓
+nearSurfaceTerrain: true
+    ↓
+NearSurfaceTerrainLayer
+```
+
+This explains why the game still shows the old planet/surface stack while the Planet LOD lab exercises the new view architecture.
+
+The layer must therefore not be deleted before the production planet rollout migrates `GamePrototypeScene` to the new runtime.
+
+## Phase 8 isolation state
+
+Completed:
+
+```text
+[x] canonical modern path already disables the old layer
+[x] package root does not export the concrete layer
+[x] default feature value changed from true to false
+[x] explicit compatibility opt-in remains possible
+[x] regression test covers default-off + explicit opt-in behavior
+[x] remaining game consumer identified
+```
+
+This is sufficient to classify Phase 8 as **isolated**, rather than pretending the implementation is already fully retired.
+
+## Final retirement strategy
 
 Do not remove the public feature field in Phase 8. Public feature cleanup belongs to Phase 13.
 
-Retire in controlled steps:
+Final removal is tied to the production rollout:
 
 ```text
-A. confirm no required legacy/game runtime explicitly depends on nearSurfaceTerrain=true
-B. change DEFAULT_PLANET_RENDER_FEATURES.nearSurfaceTerrain to false
-C. validate legacy/WebGL/debug paths still behave acceptably
+A. migrate GamePrototypeScene planet ownership to PlanetViewRuntime / the production view runtime
+B. remove its explicit nearSurfaceTerrain: true compatibility opt-in
+C. verify game descent/ascent and representative planet classes
 D. remove NearSurfaceTerrainLayer construction/update/disposal from Planet
 E. delete NearSurfaceTerrainLayer.ts
 F. preserve compatibility diagnostics as inactive/zeroed state
-G. retain nearSurfaceTerrain feature field temporarily as deprecated no-op
+G. retain nearSurfaceTerrain feature field temporarily as deprecated no-op if needed
 H. remove/deprecate the public feature field during Phase 13 API cleanup
 ```
 
@@ -74,7 +110,7 @@ Do not migrate the old layer's independent palette or legacy terrain sampling in
 
 ## Useful behavior review
 
-Before deletion, the following ideas were reviewed:
+The following ideas were reviewed before isolation:
 
 - tangent-basis construction: already superseded by canonical local reference-frame/surface systems,
 - regular grid indexing: already shared through `TerrainGeometryUtils`,
@@ -84,6 +120,12 @@ Before deletion, the following ideas were reviewed:
 
 No unique behavior currently requires migration from this layer.
 
-## Phase 8 next action
+## Phase 8 result
 
-Confirm explicit runtime consumers of `nearSurfaceTerrain: true` before flipping the default and removing the implementation.
+For stabilization purposes Phase 8 is **isolated**:
+
+- new/default consumers no longer activate the layer,
+- modern planet-view architecture does not depend on it,
+- only the explicitly identified old game integration keeps it alive until the production rollout.
+
+The actual file deletion happens as part of that game migration, not as an unsafe prerequisite to it.
