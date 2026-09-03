@@ -20,7 +20,11 @@ import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
 import {getPlanetRenderHeightScale} from './near-view/PlanetElevationProfile';
 import {
 	createPlanetDefinitionStats,
+	createPlanetRenderFeatureStats,
+	createPlanetTerrainTextureStats,
 	type PlanetDefinitionStats,
+	type PlanetRenderFeatureStats,
+	type PlanetTerrainTextureStats,
 } from './runtime/PlanetDiagnostics';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
@@ -912,42 +916,11 @@ export class Planet {
 		return this.bakedTerrainEnabled;
 	}
 
-	getTerrainTextureStats(): {
-		available: boolean;
-		enabled: boolean;
-		resolution: number;
-		atlasWidth: number;
-		atlasHeight: number;
-		atlasColumns: number;
-		atlasRows: number;
-	} {
-		if (!this.terrainTextureSet) {
-			return {
-				available: false,
-				enabled: false,
-				resolution: 0,
-				atlasWidth: 0,
-				atlasHeight: 0,
-				atlasColumns: 0,
-				atlasRows: 0,
-			};
-		}
-
-		const texture = this.terrainTextureSet.getDataAtlasTexture();
-		const image   = texture.image as {
-			width?: number;
-			height?: number;
-		};
-
-		return {
-			available: true,
-			enabled: this.bakedTerrainEnabled,
-			resolution: this.terrainTextureSet.options.resolution,
-			atlasWidth: image.width ?? 0,
-			atlasHeight: image.height ?? 0,
-			atlasColumns: this.terrainTextureSet.options.atlasColumns,
-			atlasRows: this.terrainTextureSet.options.atlasRows,
-		};
+	getTerrainTextureStats(): PlanetTerrainTextureStats {
+		return createPlanetTerrainTextureStats(
+			this.terrainTextureSet,
+			this.bakedTerrainEnabled,
+		);
 	}
 
 	getPlanetDefinitionStats(): PlanetDefinitionStats {
@@ -1021,45 +994,34 @@ export class Planet {
 		}
 	}
 
-	getRenderFeatureStats(): {
-		clouds: {
-			raymarched: boolean;
-			steps: number;
-		};
-		atmosphere: {
-			raymarched: boolean;
-			steps: number;
-		};
-		surface: {
-			raymarched: boolean;
-			steps: number;
-		};
-	} {
-		const qualitySteps =
-			      this.currentRenderQuality === 'moving'
-			      ? 'moving'
-			      : 'idle';
+	getRenderFeatureStats(): PlanetRenderFeatureStats {
+		const actualSteps: Partial<{
+			clouds: number;
+			atmosphere: number;
+			surface: number;
+		}> = {};
 
-		return {
-			clouds: {
-				raymarched: this.features.raymarchedClouds,
-				steps:
-					this.webGPUClouds?.getRaymarchSteps() ??
-					this.features.cloudSteps[qualitySteps],
-			},
-			atmosphere: {
-				raymarched: this.features.raymarchedAtmosphere,
-				steps:
-					this.webGPUAtmosphere?.getRaymarchSteps() ??
-					this.features.atmosphereSteps[qualitySteps],
-			},
-			surface: {
-				raymarched: this.features.raymarchedSurface,
-				steps:
-					(this.surfaceMaterial as any)?.getSurfaceRaymarchSteps?.() ??
-					this.features.surfaceSteps[qualitySteps],
-			},
-		};
+		const cloudSteps = this.webGPUClouds?.getRaymarchSteps();
+		if (typeof cloudSteps === 'number') {
+			actualSteps.clouds = cloudSteps;
+		}
+
+		const atmosphereSteps = this.webGPUAtmosphere?.getRaymarchSteps();
+		if (typeof atmosphereSteps === 'number') {
+			actualSteps.atmosphere = atmosphereSteps;
+		}
+
+		const surfaceSteps =
+			(this.surfaceMaterial as any)?.getSurfaceRaymarchSteps?.();
+		if (typeof surfaceSteps === 'number') {
+			actualSteps.surface = surfaceSteps;
+		}
+
+		return createPlanetRenderFeatureStats(
+			this.features,
+			this.currentRenderQuality,
+			actualSteps,
+		);
 	}
 
 	dispose(): void {
