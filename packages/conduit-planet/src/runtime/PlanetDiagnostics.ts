@@ -3,9 +3,11 @@ import type {
 	PlanetResourceProfile,
 } from '@conduit/planet/model';
 import type {
+	PlanetRenderFeatures,
 	PlanetRenderProfile,
 	SurfaceRenderProfile,
 } from '@conduit/planet/rendering';
+import type { TerrainTextureSet } from '../TerrainTextureSet';
 
 export type PlanetNearSurfaceTerrainStats = {
 	enabled: boolean;
@@ -87,6 +89,31 @@ export type PlanetDefinitionStats = {
 	nearSurfaceTerrain: PlanetNearSurfaceTerrainStats;
 };
 
+export type PlanetRenderFeatureStats = {
+	clouds: {
+		raymarched: boolean;
+		steps: number;
+	};
+	atmosphere: {
+		raymarched: boolean;
+		steps: number;
+	};
+	surface: {
+		raymarched: boolean;
+		steps: number;
+	};
+};
+
+export type PlanetTerrainTextureStats = {
+	available: boolean;
+	enabled: boolean;
+	resolution: number;
+	atlasWidth: number;
+	atlasHeight: number;
+	atlasColumns: number;
+	atlasRows: number;
+};
+
 export function createPlanetDefinitionStats(
 	definition: PlanetDefinition | null,
 	renderProfile: PlanetRenderProfile | null,
@@ -151,6 +178,64 @@ export function createPlanetDefinitionStats(
 			raymarchOcclusionStrength: surfaceProfile?.raymarchOcclusionStrength ?? 0,
 		},
 		nearSurfaceTerrain: nearSurfaceTerrain ?? createEmptyNearSurfaceTerrainStats(),
+	};
+}
+
+export function createPlanetRenderFeatureStats(
+	features: PlanetRenderFeatures,
+	quality: 'moving' | 'idle',
+	actualSteps: Partial<{
+		clouds: number;
+		atmosphere: number;
+		surface: number;
+	}> = {},
+): PlanetRenderFeatureStats {
+	return {
+		clouds: {
+			raymarched: features.raymarchedClouds,
+			steps: actualSteps.clouds ?? features.cloudSteps[quality],
+		},
+		atmosphere: {
+			raymarched: features.raymarchedAtmosphere,
+			steps: actualSteps.atmosphere ?? features.atmosphereSteps[quality],
+		},
+		surface: {
+			raymarched: features.raymarchedSurface,
+			steps: actualSteps.surface ?? features.surfaceSteps[quality],
+		},
+	};
+}
+
+export function createPlanetTerrainTextureStats(
+	terrainTextureSet: TerrainTextureSet | null,
+	enabled: boolean,
+): PlanetTerrainTextureStats {
+	if (!terrainTextureSet) {
+		return {
+			available: false,
+			enabled: false,
+			resolution: 0,
+			atlasWidth: 0,
+			atlasHeight: 0,
+			atlasColumns: 0,
+			atlasRows: 0,
+		};
+	}
+
+	const texture = terrainTextureSet.getDataAtlasTexture();
+	const image = texture.image as {
+		width?: number;
+		height?: number;
+	};
+
+	return {
+		available: true,
+		enabled,
+		resolution: terrainTextureSet.options.resolution,
+		atlasWidth: image.width ?? 0,
+		atlasHeight: image.height ?? 0,
+		atlasColumns: terrainTextureSet.options.atlasColumns,
+		atlasRows: terrainTextureSet.options.atlasRows,
 	};
 }
 
