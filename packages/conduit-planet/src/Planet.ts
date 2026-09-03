@@ -13,8 +13,6 @@ import {
 	type PlanetSurfaceRuntimeMaterial,
 } from './materials/PlanetSurfaceMaterialFactory';
 import {GasGiantLayer} from './GasGiantLayer';
-import {RingSystemLayer} from './RingSystemLayer';
-import {MoonSystemLayer} from './MoonSystemLayer';
 import {ToxicHazeLayer} from './ToxicHazeLayer';
 import {NearSurfaceTerrainLayer} from './NearSurfaceTerrainLayer';
 import {getPlanetRenderHeightScale} from './near-view/PlanetElevationProfile';
@@ -26,6 +24,7 @@ import {
 	type PlanetRenderFeatureStats,
 	type PlanetTerrainTextureStats,
 } from './runtime/PlanetDiagnostics';
+import {PlanetOrbitingLayerController} from './runtime/PlanetOrbitingLayerController';
 
 import type {TerrainTextureSet} from './TerrainTextureSet';
 import type {PlanetDefinition} from '@conduit/planet/model';
@@ -38,8 +37,6 @@ import {
 } from '@conduit/planet/rendering';
 
 import {
-	getPlanetMoonSystemSeed,
-	getPlanetRingLayerRuntimeProfile,
 	mergePlanetRenderFeatures,
 	type PlanetRenderFeatures,
 } from '@conduit/planet/rendering';
@@ -92,8 +89,7 @@ export class Planet {
 	private webGPUClouds?: WebGPUCloudLayer;
 	private readonly depthOccluder?: THREE.Mesh;
 	private readonly gasGiantLayer?: GasGiantLayer;
-	private ringSystemLayer?: RingSystemLayer;
-	private moonSystemLayer?: MoonSystemLayer;
+	private orbitingLayerController?: PlanetOrbitingLayerController;
 	private toxicHazeLayer?: ToxicHazeLayer;
 	private nearSurfaceTerrainLayer?: NearSurfaceTerrainLayer;
 
@@ -160,9 +156,7 @@ export class Planet {
 			this.createCloudLayer();
 			this.createAtmosphereLayer();
 			this.createToxicHazeLayer();
-
-			this.createRingSystem();
-			this.createMoonSystem();
+			this.createOrbitingLayers();
 
 			this.applyRenderProfile();
 			this.applyRenderTuning();
@@ -185,9 +179,7 @@ export class Planet {
 		                                       });
 
 		this.group.add(this.gasGiantLayer.group);
-
-		this.createRingSystem();
-		this.createMoonSystem();
+		this.createOrbitingLayers();
 
 		this.applyRenderProfile();
 		this.applyRenderTuning();
@@ -523,8 +515,7 @@ export class Planet {
 		}
 
 		this.gasGiantLayer?.update(deltaSeconds, cameraPosition.length());
-		this.ringSystemLayer?.update(deltaSeconds);
-		this.moonSystemLayer?.update(deltaSeconds);
+		this.orbitingLayerController?.update(deltaSeconds);
 		this.toxicHazeLayer?.update();
 		this.nearSurfaceTerrainLayer?.update(cameraPosition, deltaSeconds);
 
@@ -637,51 +628,15 @@ export class Planet {
 		);
 	}
 
-	private createRingSystem(): void {
-		if (!this.definition) {
-			return;
-		}
-
-		const ringProfile = getPlanetRingLayerRuntimeProfile(
-			this.definition,
-			this.renderProfile,
-		);
-
-		if (!ringProfile.enabled) {
-			return;
-		}
-
-		this.ringSystemLayer = new RingSystemLayer({
-			                                           radius: this.radius,
-			                                           seed: ringProfile.seed,
-			                                           opacity:
-				                                           this.rendererKind === 'solid_surface'
-				                                           ? 0.46
-				                                           : 0.74,
-		                                           });
-
-		this.group.add(this.ringSystemLayer.group);
-	}
-
-	private createMoonSystem(): void {
-		if (!this.features.moonSystem || !this.definition) {
-			return;
-		}
-
-		const moonCount = this.definition.moons.length;
-
-		if (moonCount <= 0) {
-			return;
-		}
-
-		this.moonSystemLayer = new MoonSystemLayer({
-			                                           radius: this.radius,
-			                                           seed: getPlanetMoonSystemSeed(this.definition),
-			                                           moonCount,
-			                                           parentKind: this.rendererKind,
-		                                           });
-
-		this.group.add(this.moonSystemLayer.group);
+	private createOrbitingLayers(): void {
+		this.orbitingLayerController = new PlanetOrbitingLayerController({
+			parent: this.group,
+			radius: this.radius,
+			rendererKind: this.rendererKind,
+			definition: this.definition,
+			renderProfile: this.renderProfile,
+			moonSystemEnabled: this.features.moonSystem,
+		});
 	}
 
 	private createNearSurfaceTerrainLayer(): void {
@@ -973,12 +928,12 @@ export class Planet {
 			this.gasGiantLayer.group.visible = visibility.gasLayer;
 		}
 
-		if (visibility.rings !== undefined && this.ringSystemLayer) {
-			this.ringSystemLayer.group.visible = visibility.rings;
+		if (visibility.rings !== undefined) {
+			this.orbitingLayerController?.setRingVisibility(visibility.rings);
 		}
 
-		if (visibility.moons !== undefined && this.moonSystemLayer) {
-			this.moonSystemLayer.group.visible = visibility.moons;
+		if (visibility.moons !== undefined) {
+			this.orbitingLayerController?.setMoonVisibility(visibility.moons);
 		}
 
 		if (
@@ -1025,7 +980,7 @@ export class Planet {
 	}
 
 	dispose(): void {
-		this.moonSystemLayer?.dispose();
+		this.orbitingLayerController?.dispose();
 		this.toxicHazeLayer?.dispose();
 		this.nearSurfaceTerrainLayer?.dispose();
 
