@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { generatePlanetDefinition } from '../src/generation';
+import { DEFAULT_PLANET_RENDER_FEATURES } from '../src/rendering/PlanetRenderFeatures';
 import { createPlanetRenderProfile } from '../src/rendering/PlanetRenderProfile';
 import { createSurfaceRenderProfile } from '../src/rendering/SurfaceRenderProfile';
-import { createPlanetDefinitionStats } from '../src/runtime/PlanetDiagnostics';
+import type { TerrainTextureSet } from '../src/TerrainTextureSet';
+import {
+	createPlanetDefinitionStats,
+	createPlanetRenderFeatureStats,
+	createPlanetTerrainTextureStats,
+} from '../src/runtime/PlanetDiagnostics';
 
 describe('planet diagnostics', () => {
 	test('preserves the public empty definition stats shape', () => {
@@ -53,5 +59,68 @@ describe('planet diagnostics', () => {
 		expect(stats.surfaceProfile.palette).toBe(surfaceProfile.palette);
 		expect(stats.surfaceProfile.metalInfluence).toBe(surfaceProfile.metalInfluence);
 		expect(stats.nearSurfaceTerrain).toEqual(nearSurface);
+	});
+
+	test('uses actual runtime raymarch steps when available and profile defaults otherwise', () => {
+		const features = {
+			...DEFAULT_PLANET_RENDER_FEATURES,
+			cloudSteps: { moving: 5, idle: 17 },
+			atmosphereSteps: { moving: 4, idle: 13 },
+			surfaceSteps: { moving: 3, idle: 11 },
+		};
+
+		const moving = createPlanetRenderFeatureStats(features, 'moving', {
+			clouds: 7,
+			surface: 9,
+		});
+
+		expect(moving.clouds.steps).toBe(7);
+		expect(moving.atmosphere.steps).toBe(4);
+		expect(moving.surface.steps).toBe(9);
+		expect(moving.clouds.raymarched).toBe(features.raymarchedClouds);
+
+		const idle = createPlanetRenderFeatureStats(features, 'idle');
+
+		expect(idle.clouds.steps).toBe(17);
+		expect(idle.atmosphere.steps).toBe(13);
+		expect(idle.surface.steps).toBe(11);
+	});
+
+	test('preserves terrain texture availability and atlas diagnostics', () => {
+		const unavailable = createPlanetTerrainTextureStats(null, true);
+
+		expect(unavailable).toEqual({
+			available: false,
+			enabled: false,
+			resolution: 0,
+			atlasWidth: 0,
+			atlasHeight: 0,
+			atlasColumns: 0,
+			atlasRows: 0,
+		});
+
+		const textureSet = {
+			options: {
+				resolution: 256,
+				atlasColumns: 3,
+				atlasRows: 2,
+			},
+			getDataAtlasTexture: () => ({
+				image: {
+					width: 768,
+					height: 512,
+				},
+			}),
+		} as unknown as TerrainTextureSet;
+
+		const stats = createPlanetTerrainTextureStats(textureSet, true);
+
+		expect(stats.available).toBe(true);
+		expect(stats.enabled).toBe(true);
+		expect(stats.resolution).toBe(256);
+		expect(stats.atlasWidth).toBe(768);
+		expect(stats.atlasHeight).toBe(512);
+		expect(stats.atlasColumns).toBe(3);
+		expect(stats.atlasRows).toBe(2);
 	});
 });
