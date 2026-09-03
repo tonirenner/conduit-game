@@ -281,30 +281,59 @@ It does not block Phase 6 completion.
 
 ## 9. Current active phase – Phase 7: reduce `Planet.ts` entanglement
 
-`Planet.ts` remains a transitional god-object and is now the active stabilization target.
+`Planet.ts` remains transitional, but the first low-risk responsibilities have now been extracted.
 
-It currently owns or constructs:
+### Completed Phase 7 extractions
+
+#### Runtime diagnostics
+
+`src/runtime/PlanetDiagnostics.ts` owns pure assembly of:
+
+```text
+PlanetDefinitionStats
+PlanetRenderFeatureStats
+PlanetTerrainTextureStats
+```
+
+The existing public `Planet` methods remain thin compatibility wrappers. Live CubeSphere terrain stats remain with `Planet` because they directly expose classic terrain runtime state.
+
+#### Rings and moons
+
+`src/runtime/PlanetOrbitingLayerController.ts` now owns:
+
+```text
+RingSystemLayer construction
+MoonSystemLayer construction
+ring/moon update
+ring/moon debug visibility
+ring/moon disposal
+```
+
+The controller consumes the canonical Phase 6 ring/moon runtime contracts and preserves construction order and deterministic behavior.
+
+`Planet.ts` no longer owns individual `RingSystemLayer` / `MoonSystemLayer` instances.
+
+### Responsibilities intentionally still in `Planet`
 
 - classic CubeSphere surface stack,
 - old surface runtime material,
 - planet body/depth occluder,
 - atmosphere,
 - clouds,
-- rings,
-- moons,
 - gas/ice giant renderer,
 - toxic haze,
 - old near-surface layer,
 - render tuning,
-- legacy/debug statistics.
+- shared quality/sun/update fanout,
+- CubeSphere terrain diagnostics.
 
-For modern WebGPU solid planets, `PlanetViewRuntime` constructs `Planet`, then hides/freezes obsolete surface pieces while using the new Orbit/Regional/Surface renderers.
+For modern WebGPU solid planets, `PlanetViewRuntime` still constructs `Planet`, then hides/freezes obsolete surface pieces while using the new Orbit/Regional/Surface renderers.
 
 ### Phase 7 rule
 
-Do **not** start by deleting code from `Planet.ts`.
+Continue one narrow responsibility at a time. Do not use file size alone as a reason to move ownership.
 
-First map responsibilities and consumers:
+Before each extraction:
 
 ```text
 Planet.ts responsibility
@@ -317,11 +346,19 @@ shared layer ownership?
 extract / preserve / retire later
 ```
 
-### Phase 7 first target
+### Current Phase 7 next audit
 
-Create a responsibility/consumer map for `Planet.ts`, then extract one low-risk coherent responsibility at a time.
+Audit these low/medium-risk fanout responsibilities before moving them:
 
-Preferred early extraction candidates are renderer-independent layer orchestration or diagnostics, not terrain/camera/atmosphere reconstruction.
+```text
+setDebugLayerVisibility()
+setSunDirection()
+setRenderQuality()
+```
+
+Prefer a narrow controller/helper boundary. Do not move the full `Planet.update()` lifecycle yet.
+
+Detailed map: `PLANET_PHASE7_RESPONSIBILITY_MAP.md`.
 
 ### Protect during Phase 7
 
@@ -446,7 +483,11 @@ Ring runtime seed/enable ownership is explicit. The current lightweight MoonSyst
 
 ### Phase 7 – Reduce `Planet.ts` entanglement
 
-- [ ] active: responsibility/consumer mapping first.
+- [x] responsibility/consumer map established,
+- [x] runtime diagnostics extracted,
+- [x] ring/moon orchestration extracted,
+- [ ] shared debug/quality/sun fanout audit active,
+- [ ] remaining medium/high-risk responsibilities deferred until ownership is proven.
 
 ### Phase 8 – Retire `NearSurfaceTerrainLayer`
 
@@ -474,7 +515,7 @@ Ring runtime seed/enable ownership is explicit. The current lightweight MoonSyst
 
 ### Phase 14 – Regression suite
 
-Current coverage already exists for many migrated terrain/climate/composition/profile semantics, but the broader runtime matrix remains open:
+Current coverage already exists for many migrated terrain/climate/composition/profile/runtime semantics, but the broader runtime matrix remains open:
 
 - [ ] Orbit/Regional/Surface height continuity,
 - [ ] Regional/Surface broad material continuity characterization,
@@ -533,19 +574,17 @@ Do not claim CI green unless a successful check/result is actually visible.
 
 ## 15. Current next action
 
-**Phase 7: map `Planet.ts` responsibilities and consumers before extracting or deleting anything.**
+**Phase 7: audit the remaining low/medium-risk shared fanout before another extraction.**
 
-The first output should be a concrete responsibility matrix that separates:
+Current candidates:
 
 ```text
-modern WebGPU ownership
-legacy/WebGL ownership
-shared layer ownership
-public/debug API
-retirement candidates
+setDebugLayerVisibility()
+setSunDirection()
+setRenderQuality()
 ```
 
-Only then extract one narrow responsibility at a time.
+Do not move the full `Planet.update()` lifecycle until more layer ownership is explicitly separated.
 
 ---
 
