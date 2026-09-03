@@ -51,7 +51,7 @@ Repository code search has not been reliable enough to prove absence of external
 | render quality routing | `Planet.setRenderQuality()` | medium | candidate after controller audit |
 | sun-direction fanout | `Planet.setSunDirection()` | medium | candidate after controller audit |
 | per-frame shared update | `Planet.update()` | high | keep until more ownership is extracted |
-| debug visibility routing | `Planet.setDebugLayerVisibility()` | low/medium | partially delegated; later controller candidate |
+| debug visibility routing | `PlanetDebugVisibility` helper + `Planet` wrapper pending | low/medium | helper/test complete; wrapper wiring next controlled rewrite |
 | definition/debug stats | `PlanetDiagnostics` + thin `Planet` wrapper | low | **extracted** |
 | render feature stats | `PlanetDiagnostics` + thin `Planet` wrapper | low | **extracted** |
 | terrain texture stats | `PlanetDiagnostics` + thin `Planet` wrapper | low | **extracted** |
@@ -115,6 +115,26 @@ giant layer → rings/moons
 
 Regression coverage: `tests/PlanetOrbitingLayerController.test.ts`.
 
+## Staged extraction 3 – debug visibility routing
+
+`src/runtime/PlanetDebugVisibility.ts` now owns the pure visibility-routing rules for:
+
+```text
+surface objects
+atmosphere objects
+cloud objects
+gas layer
+ring/moon callbacks
+near-surface terrain
+toxic haze
+```
+
+The helper receives only `Object3D` targets and small callbacks; it does not own or import concrete planet layer classes.
+
+Regression coverage: `tests/PlanetDebugVisibility.test.ts`.
+
+The remaining step is intentionally batched with the next controlled `Planet.ts` rewrite: replace the current method body with a thin compatibility wrapper. This avoids repeated full-file rewrites solely for small fanout changes.
+
 ## Protected visual baseline
 
 Phase 7 must preserve:
@@ -142,12 +162,6 @@ Do not extract or rewrite yet:
 
 ## Next action
 
-Audit the remaining low/medium-risk fanout responsibilities before another extraction:
+Audit `setSunDirection()` and `setRenderQuality()` and decide whether they can share the next controlled `Planet.ts` rewrite with the debug-visibility wrapper.
 
-```text
-setDebugLayerVisibility()
-setSunDirection()
-setRenderQuality()
-```
-
-Prefer another narrow controller boundary over moving the full `Planet.update()` lifecycle at once.
+Do not move the full `Planet.update()` lifecycle yet.
