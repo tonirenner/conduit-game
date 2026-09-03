@@ -8,6 +8,22 @@ const WHEEL_RESPONSE = 0.0018;
 const MIN_ALTITUDE_METERS = 250;
 const MAX_ALTITUDE_METERS = 60_000_000;
 const EXIT_BLEND_SECONDS = 0.45;
+const BASE_TANGENTIAL_SPEED_METERS_PER_SECOND = 450;
+const MAX_TANGENTIAL_SPEED_METERS_PER_SECOND = 120_000;
+const BASE_VERTICAL_SPEED_METERS_PER_SECOND = 350;
+const MAX_VERTICAL_SPEED_METERS_PER_SECOND = 140_000;
+const FAST_MOVE_MULTIPLIER = 4;
+
+const MOVEMENT_KEYS = new Set([
+	'KeyW',
+	'KeyA',
+	'KeyS',
+	'KeyD',
+	'KeyQ',
+	'KeyE',
+	'ShiftLeft',
+	'ShiftRight',
+]);
 
 /**
  * Owns the camera only while the planet view is outside pure orbit.
@@ -15,8 +31,13 @@ const EXIT_BLEND_SECONDS = 0.45;
  * OrbitControls is completely disabled during free-look ownership. Left-drag
  * changes only orientation. The wheel changes radial altitude, so looking away
  * from the planet can never make zoom accidentally fly sideways through the
- * terrain. When pure orbit returns, orientation is blended back toward the
- * planet centre before OrbitControls is re-enabled.
+ * terrain. WASD moves tangentially across the spherical surface, Q/E changes
+ * radial altitude and Shift accelerates both. Tangential movement parallel-
+ * transports the manual orientation over the sphere so the local horizon stays
+ * stable while travelling long distances.
+ *
+ * When pure orbit returns, orientation is blended back toward the planet centre
+ * before OrbitControls is re-enabled.
  *
  * Feature Lab calls OrbitControls.update() globally before scene.update(). That
  * call can still rewrite a camera quaternion even when controls.enabled=false,
@@ -30,13 +51,19 @@ export class PlanetFreeLookCameraController {
 	private readonly radialUp = new THREE.Vector3();
 	private readonly right = new THREE.Vector3();
 	private readonly radialDirection = new THREE.Vector3();
+	private readonly nextRadialDirection = new THREE.Vector3();
+	private readonly forward = new THREE.Vector3();
+	private readonly tangentRight = new THREE.Vector3();
+	private readonly movement = new THREE.Vector3();
 	private readonly manualQuaternion = new THREE.Quaternion();
 	private readonly yawQuaternion = new THREE.Quaternion();
 	private readonly pitchQuaternion = new THREE.Quaternion();
+	private readonly transportQuaternion = new THREE.Quaternion();
 	private readonly exitStartQuaternion = new THREE.Quaternion();
 	private readonly exitTargetQuaternion = new THREE.Quaternion();
 	private readonly lookMatrix = new THREE.Matrix4();
 	private readonly center = new THREE.Vector3();
+	private readonly pressedKeys = new Set<string>();
 
 	private active = false;
 	private exiting = false;
@@ -78,6 +105,22 @@ export class PlanetFreeLookCameraController {
 		this.applyRadialZoom(event.deltaY);
 	};
 
+	private readonly onKeyDown = (event: KeyboardEvent): void => {
+		if (!this.active || this.exiting || !MOVEMENT_KEYS.has(event.code)) return;
+		if (isEditableTarget(event.target)) return;
+		event.preventDefault();
+		this.pressedKeys.add(event.code);
+	};
+
+	private readonly onKeyUp = (event: KeyboardEvent): void => {
+		if (!MOVEMENT_KEYS.has(event.code)) return;
+		this.pressedKeys.delete(event.code);
+	};
+
+	private readonly onWindowBlur = (): void => {
+		this.pressedKeys.clear();
+	};
+
 	constructor(
 		private readonly camera: THREE.PerspectiveCamera,
 		private readonly controls: OrbitControls,
@@ -95,6 +138,9 @@ export class PlanetFreeLookCameraController {
 		element.addEventListener('pointerup', this.onPointerUp, true);
 		element.addEventListener('pointercancel', this.onPointerUp, true);
 		element.addEventListener('wheel', this.onWheel, { capture: true, passive: false });
+		window.addEventListener('keydown', this.onKeyDown);
+		window.addEventListener('keyup', this.onKeyUp);
+		window.addEventListener('blur', this.onWindowBlur);
 	}
 
 	setNonOrbitActive(nonOrbit: boolean): void {
@@ -110,6 +156,7 @@ export class PlanetFreeLookCameraController {
 		if (!this.active) return;
 
 		if (!this.exiting) {
+			this.applyKeyboardMovement(dt);
 			// Restore ownership after FeatureLab's global OrbitControls.update().
 			this.camera.quaternion.copy(this.manualQuaternion).normalize();
 			return;
@@ -139,6 +186,10 @@ export class PlanetFreeLookCameraController {
 		element.removeEventListener('pointerup', this.onPointerUp, true);
 		element.removeEventListener('pointercancel', this.onPointerUp, true);
 		element.removeEventListener('wheel', this.onWheel, true);
+		window.removeEventListener('keydown', this.onKeyDown);
+		window.removeEventListener('keyup', this.onKeyUp);
+		window.removeEventListener('blur', this.onWindowBlur);
+		this.pressedKeys.clear();
 		this.releasePointer();
 		this.exiting = false;
 		this.active = false;
@@ -150,6 +201,7 @@ export class PlanetFreeLookCameraController {
 
 	private beginOwnership(): void {
 		this.releasePointer();
+		this.pressedKeys.clear();
 		this.exiting = false;
 		this.exitElapsed = 0;
 		this.pitch = 0;
@@ -162,6 +214,7 @@ export class PlanetFreeLookCameraController {
 
 	private beginOrbitHandoff(): void {
 		this.releasePointer();
+		this.pressedKeys.clear();
 		this.exiting = true;
 		this.exitElapsed = 0;
 		this.exitStartQuaternion.copy(this.manualQuaternion);
@@ -171,12 +224,129 @@ export class PlanetFreeLookCameraController {
 		this.exiting = false;
 		this.active = false;
 		this.pitch = 0;
+		this.pressedKeys.clear();
 
 		this.controls.target.copy(this.center);
 		this.approachController.setManualViewActive(false);
 		this.controls.enableDamping = this.defaultEnableDamping;
 		this.controls.enabled = this.defaultControlsEnabled;
 		this.controls.update();
+	}
+
+	private applyKeyboardMovement(dt: number): void {
+		const delta = THREE.MathUtils.clamp(dt, 0, 0.1);
+		if (delta <= 0 || this.pressedKeys.size === 0) return;
+
+		const forwardInput =
+			(this.pressedKeys.has('KeyW') ? 1 : 0) -
+			(this.pressedKeys.has('KeyS') ? 1 : 0);
+		const rightInput =
+			(this.pressedKeys.has('KeyD') ? 1 : 0) -
+			(this.pressedKeys.has('KeyA') ? 1 : 0);
+		const verticalInput =
+			(this.pressedKeys.has('KeyE') ? 1 : 0) -
+			(this.pressedKeys.has('KeyQ') ? 1 : 0);
+
+		if (forwardInput === 0 && rightInput === 0 && verticalInput === 0) return;
+
+		const distance = this.camera.position.length();
+		if (distance < 1e-12) return;
+
+		let altitudeMeters = THREE.MathUtils.clamp(
+			(distance - this.renderRadius) / this.renderUnitsPerMeter,
+			MIN_ALTITUDE_METERS,
+			MAX_ALTITUDE_METERS,
+		);
+		const speedMultiplier =
+			this.pressedKeys.has('ShiftLeft') || this.pressedKeys.has('ShiftRight')
+				? FAST_MOVE_MULTIPLIER
+				: 1;
+
+		this.radialDirection.copy(this.camera.position).normalize();
+
+		if (forwardInput !== 0 || rightInput !== 0) {
+			this.forward
+				.set(0, 0, -1)
+				.applyQuaternion(this.manualQuaternion)
+				.addScaledVector(
+					this.radialDirection,
+					-this.forward.dot(this.radialDirection),
+				);
+			if (this.forward.lengthSq() < 1e-10) {
+				this.forward
+					.set(0, 1, 0)
+					.addScaledVector(
+						this.radialDirection,
+						-this.radialDirection.y,
+					);
+			}
+			this.forward.normalize();
+
+			this.tangentRight
+				.set(1, 0, 0)
+				.applyQuaternion(this.manualQuaternion)
+				.addScaledVector(
+					this.radialDirection,
+					-this.tangentRight.dot(this.radialDirection),
+				);
+			if (this.tangentRight.lengthSq() < 1e-10) {
+				this.tangentRight
+					.crossVectors(this.forward, this.radialDirection)
+					.normalize();
+			} else {
+				this.tangentRight.normalize();
+			}
+
+			this.movement
+				.set(0, 0, 0)
+				.addScaledVector(this.forward, forwardInput)
+				.addScaledVector(this.tangentRight, rightInput);
+
+			if (this.movement.lengthSq() > 1e-10) {
+				this.movement.normalize();
+				const tangentialSpeed = THREE.MathUtils.clamp(
+					BASE_TANGENTIAL_SPEED_METERS_PER_SECOND + altitudeMeters * 0.02,
+					BASE_TANGENTIAL_SPEED_METERS_PER_SECOND,
+					MAX_TANGENTIAL_SPEED_METERS_PER_SECOND,
+				) * speedMultiplier;
+				const angularDistance =
+					(tangentialSpeed * delta) /
+					Math.max(1, this.radiusMeters + altitudeMeters);
+
+				this.nextRadialDirection
+					.copy(this.radialDirection)
+					.addScaledVector(this.movement, angularDistance)
+					.normalize();
+
+				this.transportQuaternion.setFromUnitVectors(
+					this.radialDirection,
+					this.nextRadialDirection,
+				);
+				this.manualQuaternion
+					.premultiply(this.transportQuaternion)
+					.normalize();
+				this.radialDirection.copy(this.nextRadialDirection);
+			}
+		}
+
+		if (verticalInput !== 0) {
+			const verticalSpeed = THREE.MathUtils.clamp(
+				BASE_VERTICAL_SPEED_METERS_PER_SECOND + altitudeMeters * 0.025,
+				BASE_VERTICAL_SPEED_METERS_PER_SECOND,
+				MAX_VERTICAL_SPEED_METERS_PER_SECOND,
+			) * speedMultiplier;
+			altitudeMeters = THREE.MathUtils.clamp(
+				altitudeMeters + verticalInput * verticalSpeed * delta,
+				MIN_ALTITUDE_METERS,
+				MAX_ALTITUDE_METERS,
+			);
+		}
+
+		this.camera.position
+			.copy(this.radialDirection)
+			.multiplyScalar(
+				this.renderRadius + altitudeMeters * this.renderUnitsPerMeter,
+			);
 	}
 
 	private applyLookDelta(deltaX: number, deltaY: number): void {
@@ -242,4 +412,14 @@ export class PlanetFreeLookCameraController {
 		this.controls.domElement.releasePointerCapture?.(this.pointerId);
 		this.pointerId = null;
 	}
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	return (
+		target instanceof HTMLInputElement ||
+		target instanceof HTMLTextAreaElement ||
+		target instanceof HTMLSelectElement ||
+		target.isContentEditable
+	);
 }
