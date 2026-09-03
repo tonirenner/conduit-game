@@ -540,7 +540,50 @@ The extra Surface clipmap near-detail ring is LOD refinement, not true tessellat
 
 ---
 
-## 13. Current known inconsistencies / deferred work
+## 13. Production game rollout gate
+
+The modern planet stack must become the default production path **before** the full stabilization roadmap is finished. In particular, production rollout does **not** wait for Phase 16 or Phase 17.
+
+Target rollout point:
+
+```text
+Phase 7 complete
+    ↓
+Phase 8 NearSurface retirement/isolation
+    ↓
+Phase 9 old regional chain retirement/isolation
+    ↓
+first production regression gate
+    ├─ full Orbit → Regional → Surface descent/ascent
+    ├─ representative solid planet classes
+    ├─ gas / ice giants
+    └─ atmosphere / clouds / rings / moons sanity pass
+    ↓
+first production performance gate
+    └─ no obvious per-view regression/blocker
+    ↓
+NEW PLANET STACK = DEFAULT GAME PATH
+legacy stack = fallback/reference only
+```
+
+This is intentionally an **early subset of Phase 14 + Phase 15**, not a requirement to finish those phases completely.
+
+Production gate requirements:
+
+- [ ] Phase 7 complete,
+- [ ] Phase 8 complete or legacy NearSurface path explicitly isolated from the modern game path,
+- [ ] Phase 9 complete or old regional renderer chain explicitly isolated,
+- [ ] full modern descent/ascent smoke/regression pass,
+- [ ] representative planet-family smoke pass,
+- [ ] first performance sanity pass,
+- [ ] switch the game from the current old planet path to the modern stack by default,
+- [ ] retain the old stack only as an explicit fallback/reference during later stabilization.
+
+Later cleanup, public API reduction, complete regression coverage, adaptive geometry and WebGL follow-up must not unnecessarily delay this production switch.
+
+---
+
+## 14. Current known inconsistencies / deferred work
 
 - [ ] Regional → Surface final detail/shading continuity still needs formal visual acceptance,
 - [ ] `Planet.ts` still creates hidden legacy surface infrastructure on modern WebGPU solid planets,
@@ -554,7 +597,7 @@ The extra Surface clipmap near-detail ring is LOD refinement, not true tessellat
 
 ---
 
-## 14. CI policy
+## 15. CI policy
 
 Planet CI is pinned to a known Bun version rather than `latest` after Bun 1.4.0 produced a runner segmentation fault (`exit 139`) during package tests.
 
@@ -572,7 +615,7 @@ Do not claim CI green unless a successful check/result is actually visible.
 
 ---
 
-## 15. Current next action
+## 16. Current next action
 
 **Phase 7: audit the remaining low/medium-risk shared fanout before another extraction.**
 
@@ -588,7 +631,7 @@ Do not move the full `Planet.update()` lifecycle until more layer ownership is e
 
 ---
 
-## 16. Working rule for future sessions
+## 17. Working rule for future sessions
 
 When continuing planet work:
 
