@@ -21,7 +21,10 @@ export const DEFAULT_PLANET_RENDER_FEATURES: PlanetRenderFeatures = {
 	raymarchedAtmosphere: true,
 	raymarchedSurface: true,
 	moonSystem: true,
-	nearSurfaceTerrain: true,
+	// Legacy tangent-patch renderer. The canonical modern near-surface path is
+	// SurfaceClipmapTerrain, so new Planet instances must not create this layer
+	// unless a compatibility consumer explicitly opts in during Phase 8.
+	nearSurfaceTerrain: false,
 	gasCloudParticles: false,
 
 	/**
