@@ -7,9 +7,11 @@
     "types": ["three"],
     "paths": {
       "@conduit/planet": ["./packages/conduit-planet/src/index.ts"],
+      "@conduit/planet/rendering": ["./src/game/rendering/PlanetRenderingBridge.ts"],
       "@conduit/planet/*": ["./packages/conduit-planet/src/*"],
       "@conduit/web3d": ["./packages/conduit-web3d/src/index.ts"],
-      "@conduit/web3d/*": ["./packages/conduit-web3d/src/*"]
+      "@conduit/web3d/*": ["./packages/conduit-web3d/src/*"],
+      "three/addons/controls/OrbitControls.js": ["./src/game/rendering/planet/RegisteredOrbitControls.ts"]
     },
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
