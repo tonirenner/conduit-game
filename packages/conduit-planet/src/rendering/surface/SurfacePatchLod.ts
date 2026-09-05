@@ -25,7 +25,9 @@ export type SurfacePatchDescriptor = {
 export const DEFAULT_SURFACE_PATCH_LOD_CONFIG: SurfacePatchLodConfig = {
 	rootHalfExtentMeters: 2_048_000,
 	maxDepth: 14,
-	splitDistanceFactor: 2.35,
+	// Keep the near field fine without exploding the active leaf count.
+	// Centered-camera planning currently resolves to ~448 leaves.
+	splitDistanceFactor: 1.25,
 };
 
 /**
