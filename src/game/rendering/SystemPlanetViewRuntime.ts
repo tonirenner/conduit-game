@@ -26,6 +26,7 @@ export class SystemPlanetViewRuntime {
 	private readonly localCameraPosition = new THREE.Vector3();
 	private cameraInteraction: PlanetCameraInteractionController | null = null;
 	private focusedCamera: THREE.PerspectiveCamera | null = null;
+	private interactionCenter: THREE.Vector3 | null = null;
 
 	constructor(
 		private readonly definition: PlanetDefinition,
@@ -53,7 +54,7 @@ export class SystemPlanetViewRuntime {
 		this.cameraInteraction.updateBeforeRuntime(deltaSeconds);
 		this.localCameraPosition
 			.copy(this.focusedCamera.position)
-			.sub(this.group.position);
+			.sub(this.interactionCenter ?? this.group.position);
 		this.runtime.update(this.localCameraPosition, deltaSeconds);
 		this.cameraInteraction.updateAfterRuntime(
 			this.runtime.getState().phase,
@@ -64,15 +65,17 @@ export class SystemPlanetViewRuntime {
 	beginCameraInteraction(
 		camera: THREE.PerspectiveCamera,
 		controls: OrbitControls,
+		center: THREE.Vector3 = this.group.position,
 	): void {
 		this.endCameraInteraction(false);
 		this.focusedCamera = camera;
+		this.interactionCenter = center;
 		this.cameraInteraction = new PlanetCameraInteractionController(
 			camera,
 			controls,
 			this.renderRadius,
 			getPlanetRadiusMeters(this.definition),
-			this.group.position,
+			center,
 		);
 	}
 
@@ -80,6 +83,7 @@ export class SystemPlanetViewRuntime {
 		this.cameraInteraction?.dispose(restoreCameraState);
 		this.cameraInteraction = null;
 		this.focusedCamera = null;
+		this.interactionCenter = null;
 	}
 
 	isCameraInteractionActive(): boolean {
