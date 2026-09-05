@@ -58,8 +58,8 @@ export class PlanetCameraInteractionController {
 		return this.freeLook.isActive();
 	}
 
-	dispose(): void {
-		this.freeLook.dispose();
-		this.approach.dispose();
+	dispose(restoreCameraState = true): void {
+		this.freeLook.dispose(restoreCameraState);
+		this.approach.dispose(restoreCameraState);
 	}
 }
