@@ -57,6 +57,7 @@ export class PlanetFreeLookCameraController {
 	private readonly onPointerDown = (event: PointerEvent): void => {
 		if (!this.active || this.exiting || event.button !== 0 || this.pointerId !== null) return;
 		event.preventDefault();
+		event.stopImmediatePropagation();
 		this.pointerId = event.pointerId;
 		this.pointerX = event.clientX;
 		this.pointerY = event.clientY;
@@ -66,6 +67,7 @@ export class PlanetFreeLookCameraController {
 	private readonly onPointerMove = (event: PointerEvent): void => {
 		if (!this.active || this.exiting || event.pointerId !== this.pointerId) return;
 		event.preventDefault();
+		event.stopImmediatePropagation();
 
 		const deltaX = event.clientX - this.pointerX;
 		const deltaY = event.clientY - this.pointerY;
@@ -77,12 +79,15 @@ export class PlanetFreeLookCameraController {
 
 	private readonly onPointerUp = (event: PointerEvent): void => {
 		if (event.pointerId !== this.pointerId) return;
+		event.preventDefault();
+		event.stopImmediatePropagation();
 		this.releasePointer();
 	};
 
 	private readonly onWheel = (event: WheelEvent): void => {
 		if (!this.active || this.exiting) return;
 		event.preventDefault();
+		event.stopImmediatePropagation();
 		this.applyRadialZoom(event.deltaY);
 	};
 
