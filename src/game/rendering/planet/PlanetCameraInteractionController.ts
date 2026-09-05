@@ -3,6 +3,7 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { PlanetViewPhase } from '@conduit/planet/view';
 import { PlanetApproachCameraController } from './PlanetApproachCameraController';
 import { PlanetFreeLookCameraController } from './PlanetFreeLookCameraController';
+import { setOrbitControlsExternalCameraOwnership } from './RegisteredOrbitControls';
 
 /**
  * Shared Lab/Game camera owner for planet approach and surface flight.
@@ -11,6 +12,11 @@ import { PlanetFreeLookCameraController } from './PlanetFreeLookCameraController
  * 1. approach camera updates framing/FOV,
  * 2. planet runtime evaluates the resulting camera position,
  * 3. free-look ownership follows the resolved view phase.
+ *
+ * GamePrototypeScene still invokes controls.update() later in its own frame.
+ * While free-look owns the camera we therefore guard OrbitControls updates so
+ * that the game cannot overwrite the camera transform that was just produced
+ * by the shared Lab/Game controller.
  */
 export class PlanetCameraInteractionController {
 	readonly approach: PlanetApproachCameraController;
@@ -18,7 +24,7 @@ export class PlanetCameraInteractionController {
 
 	constructor(
 		camera: THREE.PerspectiveCamera,
-		controls: OrbitControls,
+		private readonly controls: OrbitControls,
 		renderRadius: number,
 		radiusMeters: number,
 		center: THREE.Vector3 = new THREE.Vector3(),
@@ -52,6 +58,10 @@ export class PlanetCameraInteractionController {
 
 		this.freeLook.setNonOrbitActive(shouldOwnCamera);
 		this.freeLook.update(deltaSeconds);
+		setOrbitControlsExternalCameraOwnership(
+			this.controls,
+			this.freeLook.isActive(),
+		);
 	}
 
 	isFreeLookActive(): boolean {
@@ -59,6 +69,7 @@ export class PlanetCameraInteractionController {
 	}
 
 	dispose(restoreCameraState = true): void {
+		setOrbitControlsExternalCameraOwnership(this.controls, false);
 		this.freeLook.dispose(restoreCameraState);
 		this.approach.dispose(restoreCameraState);
 	}
