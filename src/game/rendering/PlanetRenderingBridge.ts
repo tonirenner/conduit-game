@@ -84,10 +84,10 @@ class ModernGamePlanetFacade {
 		const camera = controls.object;
 		if (!(camera instanceof THREE.PerspectiveCamera)) return;
 
-		const focusTolerance = Math.max(
-			0.02,
-			(this.group.userData.systemRenderRadius as number | undefined ?? this.radius) * 0.08,
-		);
+		const systemRenderRadius =
+			(this.group.userData.systemRenderRadius as number | undefined) ??
+			this.radius;
+		const focusTolerance = Math.max(0.02, systemRenderRadius * 0.08);
 		const targetDistance = controls.target.distanceTo(this.group.position);
 		const matchesExistingPlanetFocus =
 			controls.enableRotate &&
@@ -155,23 +155,17 @@ function createModernGamePlanet(
 
 const PlanetConstructor = new Proxy(LegacyPlanet, {
 	construct(target, argumentList, newTarget) {
-		const [
-			radius,
-			rendererMode = 'webgl',
-			_terrainTextureSet,
-			features = {},
-			definition = null,
-			profile = null,
-		] = argumentList as [
-			number,
-			PlanetRendererMode?,
-			unknown?,
-			Partial<PlanetRenderFeatures>?,
-			PlanetDefinition | null?,
-			PlanetRenderProfile | null?,
-		];
+		const radius = argumentList[0] as number;
+		const rendererMode =
+			(argumentList[1] as PlanetRendererMode | undefined) ?? 'webgl';
+		const features =
+			(argumentList[3] as Partial<PlanetRenderFeatures> | undefined) ?? {};
+		const definition =
+			(argumentList[4] as PlanetDefinition | null | undefined) ?? null;
+		const profile =
+			(argumentList[5] as PlanetRenderProfile | null | undefined) ?? null;
 
-		if (features?.nearSurfaceTerrain === true) {
+		if (features.nearSurfaceTerrain === true) {
 			if (rendererMode !== 'webgpu') {
 				throw new Error(
 					'Production Game planet runtime requires WebGPU; legacy NearSurface fallback is disabled.',
