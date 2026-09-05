@@ -38,6 +38,7 @@ export class PlanetApproachCameraController {
 	private readonly defaultRotateSpeed: number;
 	private readonly defaultMinDistance: number;
 	private readonly renderUnitsPerMeter: number;
+	private readonly cameraOffset = new THREE.Vector3();
 
 	private anchorDirection: THREE.Vector3 | null = null;
 	private anchorTangent = new THREE.Vector3(0, 1, 0);
@@ -46,7 +47,6 @@ export class PlanetApproachCameraController {
 	private readonly radialUp = new THREE.Vector3();
 	private readonly tangentCandidate = new THREE.Vector3();
 	private readonly approachDirection = new THREE.Vector3();
-	private readonly center = new THREE.Vector3();
 	private manualViewActive = false;
 	private state: PlanetApproachCameraState;
 
@@ -55,6 +55,7 @@ export class PlanetApproachCameraController {
 		private readonly controls: OrbitControls,
 		private readonly renderRadius: number,
 		private readonly radiusMeters: number,
+		private readonly center: THREE.Vector3 = new THREE.Vector3(),
 	) {
 		this.defaultTarget = controls.target.clone();
 		this.defaultCameraUp = camera.up.clone().normalize();
@@ -161,13 +162,15 @@ export class PlanetApproachCameraController {
 				.multiplyScalar(Math.cos(lookAheadAngle))
 				.addScaledVector(this.anchorTangent, Math.sin(lookAheadAngle))
 				.normalize();
-			this.desiredTarget.copy(this.approachDirection).multiplyScalar(this.renderRadius * targetBlend);
+			this.desiredTarget
+				.copy(this.center)
+				.addScaledVector(this.approachDirection, this.renderRadius * targetBlend);
 		}
 		this.controls.target.lerp(this.desiredTarget, dampingFactor(TARGET_DAMPING, dt));
 	}
 
 	private updateUp(upBlend: number, dt: number): void {
-		this.radialUp.copy(this.camera.position);
+		this.radialUp.copy(this.camera.position).sub(this.center);
 		if (this.radialUp.lengthSq() < 1e-12) this.radialUp.set(0, 1, 0);
 		else this.radialUp.normalize();
 		this.desiredUp.copy(this.defaultCameraUp).lerp(this.radialUp, upBlend).normalize();
@@ -205,7 +208,7 @@ export class PlanetApproachCameraController {
 	}
 
 	private captureSurfaceAnchor(): void {
-		this.anchorDirection = this.camera.position.clone();
+		this.anchorDirection = this.cameraOffset.copy(this.camera.position).sub(this.center).clone();
 		if (this.anchorDirection.lengthSq() < 1e-12) this.anchorDirection.set(0, 0, 1);
 		else this.anchorDirection.normalize();
 		this.tangentCandidate
@@ -223,7 +226,8 @@ export class PlanetApproachCameraController {
 	}
 
 	private getAltitudeMeters(): number {
-		return Math.max(0, (this.camera.position.length() / this.renderRadius - 1) * this.radiusMeters);
+		const distance = this.cameraOffset.copy(this.camera.position).sub(this.center).length();
+		return Math.max(0, (distance / this.renderRadius - 1) * this.radiusMeters);
 	}
 }
 
