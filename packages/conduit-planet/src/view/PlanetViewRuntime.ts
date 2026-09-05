@@ -63,6 +63,13 @@ export type PlanetViewRuntimeState = {
  * - fixed reusable local-tangent clipmap rings
  * - one local unit = one physical meter before render-scale transform
  * - camera zoom never refines the global CubeSphere
+ *
+ * Startup policy:
+ * - constructor establishes Planet + Orbit only,
+ * - detail construction is delayed for a couple of rendered frames,
+ * - Regional and Surface are never constructed in the same update,
+ * - the previous representation remains visible/depth-owning until the next
+ *   representation actually exists.
  */
 export class PlanetViewRuntime {
 	readonly group = new THREE.Group();
@@ -76,6 +83,7 @@ export class PlanetViewRuntime {
 	private surface: SurfaceClipmapTerrain | null = null;
 	private frozenTerrain: TerrainRuntime | null = null;
 	private originalTerrainUpdate: TerrainRuntime['updateLOD'] | null = null;
+	private detailWarmupFrames = 2;
 	private state: PlanetViewRuntimeState;
 
 	constructor(
@@ -136,14 +144,17 @@ export class PlanetViewRuntime {
 			surfaceGridCells: 0,
 			surfaceOuterHalfExtentMeters: 0,
 		};
-		this.updateViewLifecycle(cameraRenderPosition, altitudeMeters);
 	}
 
 	update(cameraRenderPosition: THREE.Vector3, dt: number): void {
 		const altitudeMeters = this.getAltitudeMeters(cameraRenderPosition);
 		const weights = getPlanetViewWeights(altitudeMeters, this.surfaceViewsEnabled);
 
-		this.updateViewLifecycle(cameraRenderPosition, altitudeMeters);
+		if (this.detailWarmupFrames > 0) {
+			this.detailWarmupFrames--;
+		} else {
+			this.updateViewLifecycle(cameraRenderPosition, altitudeMeters);
+		}
 
 		if (this.orbitSurface) {
 			this.freezeOrbitTerrainLod();
@@ -155,20 +166,34 @@ export class PlanetViewRuntime {
 		this.planet.update(cameraRenderPosition, dt);
 		this.planet.setRenderQuality('idle');
 
+		const waitingForRegional =
+			!this.regional &&
+			(weights.regional > 0.001 || weights.surface > 0.001);
 		const regionalOwnsDepth =
-			weights.surface <= 0.001 &&
-			weights.regional > REGIONAL_DEPTH_OWNERSHIP_OPACITY;
-		const effectiveOrbitWeight = regionalOwnsDepth ? 0 : weights.orbit;
+			Boolean(this.regional) &&
+			!this.surface &&
+			(
+				weights.surface > 0.001 ||
+				(
+					weights.regional > REGIONAL_DEPTH_OWNERSHIP_OPACITY &&
+					weights.surface <= 0.001
+				)
+			);
+		const effectiveOrbitWeight = waitingForRegional
+			? 1
+			: regionalOwnsDepth
+				? 0
+				: weights.orbit;
 
 		if (this.orbitSurface) {
 			this.disableClassicOrbitVisuals();
-			// Orbit is opaque and always writes depth. As soon as Regional reaches
-			// its own depth-ownership threshold, remove Orbit in the same frame so
-			// the two almost-coincident terrain representations never both own depth.
+			// Keep Orbit alive while a requested Regional representation is still
+			// warming up. Once Regional exists and owns depth, remove Orbit in the
+			// same frame so nearly-coincident representations never both own depth.
 			this.orbitSurface.update(effectiveOrbitWeight);
 		} else {
 			this.planet.setDebugLayerVisibility({
-				surface: !this.surfaceViewsEnabled || weights.orbit > 0.001,
+				surface: !this.surfaceViewsEnabled || effectiveOrbitWeight > 0.001,
 			});
 		}
 
@@ -181,17 +206,23 @@ export class PlanetViewRuntime {
 		);
 
 		if (this.regional) {
-			const regionalOpacity = weights.surface > 0.001
-				? release.regionalOpacity
-				: weights.regional;
+			const waitingForSurface =
+				!this.surface && weights.surface > 0.001;
+			const regionalOpacity = waitingForSurface
+				? 1
+				: weights.surface > 0.001
+					? release.regionalOpacity
+					: weights.regional;
+			const allowDepthOwnership = waitingForSurface
+				? true
+				: !release.surfaceOwnsDepth;
 
-			// Once Surface starts owning depth, Regional becomes a non-depth-writing
-			// backdrop. Surface therefore wins locally without z-fighting, while
-			// Regional can still fill any area outside the local clipmap footprint.
+			// Surface only takes depth ownership after it actually exists. During
+			// staged warmup Regional remains the complete visible/depth-owning view.
 			this.regional.update(
 				cameraRenderPosition,
 				regionalOpacity,
-				!release.surfaceOwnsDepth,
+				allowDepthOwnership,
 			);
 		}
 
@@ -257,6 +288,9 @@ export class PlanetViewRuntime {
 				cameraRenderPosition,
 			);
 			this.group.add(this.regional.group);
+			// Never construct Regional and Surface in one frame. This gives the
+			// browser a rendered frame between the two expensive detail allocations.
+			return;
 		} else if (!wantsRegional) {
 			this.disposeRegional();
 		}
