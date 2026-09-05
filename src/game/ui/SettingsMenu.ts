@@ -4,6 +4,7 @@ import type {
 	SettingsStore,
 } from '../settings/GameSettings';
 import type { RendererMode } from '@conduit/web3d/renderer';
+import { FpsOverlay } from './FpsOverlay';
 
 export type SettingsMenuOptions = {
 	store: SettingsStore;
@@ -22,6 +23,7 @@ export class SettingsMenu {
 	private readonly root = document.createElement('div');
 	private readonly button = document.createElement('button');
 	private readonly panel = document.createElement('div');
+	private readonly fpsOverlay = new FpsOverlay();
 	private open = false;
 	private settings: GameSettings;
 	private unsubscribe: (() => void) | null = null;
@@ -38,6 +40,7 @@ export class SettingsMenu {
 
 		this.unsubscribe = options.store.subscribe((settings) => {
 			this.settings = settings;
+			this.fpsOverlay.setVisible(settings.fps);
 			this.render();
 			this.options.onSettingsChanged?.(settings);
 		});
@@ -45,6 +48,7 @@ export class SettingsMenu {
 
 	dispose(): void {
 		this.unsubscribe?.();
+		this.fpsOverlay.dispose();
 		this.root.remove();
 	}
 
@@ -128,6 +132,7 @@ export class SettingsMenu {
 				'UI',
 				this.renderToggle('hud', 'HUD') +
 				this.renderToggle('minimap', 'Minimap') +
+				this.renderToggle('fps', 'FPS anzeigen') +
 				this.renderRange('uiScale', 'UI Scale', 0.8, 1.4, 0.05),
 			) +
 			this.renderSection(
