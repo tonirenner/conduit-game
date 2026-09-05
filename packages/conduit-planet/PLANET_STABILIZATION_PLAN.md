@@ -1,8 +1,8 @@
 # Conduit Planet – Stabilization & Migration Plan
 
-> Main current working document for `packages/conduit-planet`.
+> Current working plan for `packages/conduit-planet` and the production Game migration.
 >
-> Core rule: meaningful `PlanetDefinition` values and established behavior are migrated, preserved as domain-only, or explicitly retired. Nothing is deleted merely because one current renderer does not consume it.
+> Core rule: domain truth is preserved or explicitly retired. Modern-path defects are repaired in the modern path; the Game does not roll back to the old planet renderer.
 
 ---
 
@@ -13,29 +13,21 @@ PlanetDefinition
     ↓
 PlanetGeneration
     ↓
-derived render configuration
-    ├─ PlanetRenderProfile
-    ├─ SurfaceRenderProfile
-    ├─ SurfaceMaterialSemantics
-    └─ layer runtime profiles
+PlanetRenderProfile / SurfaceRenderProfile / SurfaceMaterialSemantics
     ↓
-canonical domain systems
-    ├─ PlanetTerrainSampler
-    ├─ Climate / Biome / Weather
-    └─ shared terrain/material masks
+PlanetTerrainSampler + Climate / Biome / Weather
     ↓
-scale-specific renderers
-    ├─ OrbitView    → InstancedOrbitTerrain
-    ├─ RegionalView → CurvedRegionalTileTerrain
-    └─ SurfaceView  → SurfaceClipmapTerrain
+OrbitView    → InstancedOrbitTerrain
+RegionalView → CurvedRegionalTileTerrain
+SurfaceView  → SurfaceClipmapTerrain
 ```
 
-Ownership principle:
+Ownership:
 
 ```text
 Definition = domain truth
-Profile / MaterialSemantics = derived render configuration
-Canonical sampler/domain functions = physical/climate truth
+Profiles / material semantics = derived render configuration
+Canonical sampler/domain systems = physical/climate truth
 Renderer = representation-specific consumer
 ```
 
@@ -48,7 +40,6 @@ Do not create competing terrain, climate, composition or definition models insid
 ### Orbit → Regional
 
 - [x] fixed instanced WebGPU orbit terrain,
-- [x] pre-baked terrain LUT,
 - [x] canonical regional terrain,
 - [x] single-depth-owner handoff,
 - [x] checker/diamond artifact repaired,
@@ -57,7 +48,7 @@ Do not create competing terrain, climate, composition or definition models insid
 ### Regional → Surface
 
 - [x] canonical physical terrain identity,
-- [x] broad material identity shared,
+- [x] shared broad material identity,
 - [x] camera/reference-frame continuity,
 - [x] checker/depth artifact repaired,
 - [x] horizon-aware Regional release,
@@ -74,7 +65,6 @@ simultaneously to own/write depth during a handoff
 
 - [x] WebGPU atmosphere is a depth-aware screen-space postprocess,
 - [x] `WebGPUAtmosphereLayer` is metadata/source state only,
-- [x] atmosphere remains independent from terrain-view ownership,
 - [x] accepted camera-ray reconstruction protected.
 
 Required WebGPU screen conversion:
@@ -86,37 +76,33 @@ let ndc = vec2<f32>(
 );
 ```
 
-Do not change these accepted baselines as collateral cleanup.
-
 ---
 
-## 3. Completed migration phases
+## 3. Migration phases
 
 ### Phase 3 – Terrain definition migration
 
 - [x] complete.
-- [x] ocean level, roughness, tectonics, volcanism, ice caps integrated.
-- [x] `PlanetTerrainSampler` remains physical/displacement truth.
+- [x] ocean level, roughness, tectonics, volcanism and ice caps integrated.
+- [x] `PlanetTerrainSampler` is physical/displacement truth.
 
-### Phase 4 – Climate / biome / weather definition migration
+### Phase 4 – Climate / biome / weather semantics
 
 - [x] planned semantic/API migration complete.
-- [ ] live seasonality + cloud-persistence composition remains later integration work.
+- [ ] compose live seasonality + cloud persistence later.
 - [ ] `ashLoad` remains deliberate volcanic/atmospheric follow-up.
 
-### Phase 5 – Composition migration
+### Phase 5 – Composition
 
 - [x] complete for rock, metal, ice, water, gas, organic and volatiles.
-- [x] solid-surface material semantics centralized.
-- [x] gas/ice giant composition response integrated.
 
 ### Phase 6 – Profile/material consolidation
 
 - [x] complete.
 - [x] canonical `SurfaceMaterialSemantics` and `SurfacePalette`.
-- [x] Surface/Regional material paths consume shared semantics.
-- [x] ring enable/seed and moon-system seed contracts explicit.
-- [ ] `cloudPalette` intentionally deferred until clouds expose a real palette contract.
+- [x] Surface/Regional paths consume shared semantics.
+- [x] ring and moon-system runtime contracts explicit.
+- [ ] `cloudPalette` deferred until clouds expose a real palette contract.
 
 ### Phase 7 – `Planet.ts` entanglement
 
@@ -130,26 +116,18 @@ PlanetOrbitingLayerController
 PlanetDebugVisibility
 ```
 
-`setSunDirection()`, `setRenderQuality()` and the full `update()` lifecycle intentionally remain in `Planet` because they still bridge real shared runtime ownership.
+`setSunDirection()`, `setRenderQuality()` and the full `update()` lifecycle intentionally remain where shared runtime ownership is still real.
 
-### Phase 8 – `NearSurfaceTerrainLayer`
+### Phase 8 – old NearSurface terrain
 
-**Status: isolated pending Game migration.**
+**Status: isolated; production Game no longer relies on it as its rendering target.**
 
-- [x] modern `PlanetViewRuntime` uses `SurfaceClipmapTerrain`,
+- [x] modern runtime uses `SurfaceClipmapTerrain`,
 - [x] default `nearSurfaceTerrain` is OFF,
-- [x] current Game legacy consumer identified,
-- [ ] delete old NearSurface implementation after the Game has moved forward to the modern runtime.
+- [x] old Game constructor signature is intercepted by the production rendering bridge and routed forward to `SystemPlanetViewRuntime`,
+- [ ] after visual Game acceptance, remove the obsolete NearSurface implementation/compatibility trigger.
 
-Current old consumer:
-
-```text
-GamePrototypeScene
-    ↓ direct new Planet(...)
-nearSurfaceTerrain: true
-```
-
-### Phase 9 – old regional prototype chain
+### Phase 9 – old regional prototypes
 
 **Status: complete.**
 
@@ -171,111 +149,151 @@ terrain/erosion/RegionalHydraulicErosion.ts
 
 **Status: complete.**
 
-Removed `OpenWorldsAtmosphereLayer.ts`. Useful scattering concepts are already represented by the active depth-aware `PlanetAtmospherePostProcess`.
+`OpenWorldsAtmosphereLayer.ts` removed. Useful scattering concepts already live in the active depth-aware postprocess.
+
+### Phase 11–13 – later cleanup
+
+Not production blockers:
+
+- old fallback surface materials,
+- hidden/classic CubeSphere ownership,
+- obsolete public compatibility exports/flags.
+
+Clean these after the modern Game path is visually accepted.
 
 ---
 
-## 4. Phase 11+ cleanup – not a production blocker
+## 4. Production Game migration – FORWARD ONLY
 
-### Phase 11 – old surface materials
-
-Still required by fallback/classic renderer ownership. Do not delete until those consumers close.
-
-### Phase 12 – CubeSphere legacy
-
-- [ ] retire/isolate after the modern Game migration.
-- [ ] remove hidden classic surface construction from modern WebGPU ownership when safe.
-
-### Phase 13 – public API cleanup
-
-- [ ] remove obsolete compatibility fields/exports after their consumers are gone.
-- [ ] remove `nearSurfaceTerrain` compatibility once the old path is deleted.
-
-These phases must not delay moving the actual Game forward.
-
----
-
-## 5. Production Game migration – FORWARD ONLY
-
-The modern planet stack becomes the Game planet runtime directly.
-
-**There is no A/B rollout, runtime comparison switch, or legacy fallback strategy.**
-
-Migration rule:
+**No A/B mode. No legacy runtime switch. No rollback strategy.**
 
 ```text
-modern PlanetViewRuntime has a problem
+modern runtime problem
     ↓
-fix the modern runtime
+fix modern runtime
     ↓
 continue forward
 ```
 
-Do not solve production issues by switching the Game back to the old planet renderer.
-
-Target sequence:
+### Current status
 
 ```text
 Phase 7 complete                    ✅
-Phase 8 NearSurface isolated        ✅
+Phase 8 old NearSurface isolated    ✅
 Phase 9 old regional chain retired  ✅
-production regression sanity
-production performance sanity
-    ↓
-GamePrototypeScene migrates directly
-from legacy Planet surface ownership
-to SystemPlanetViewRuntime / PlanetViewRuntime
-    ↓
-MODERN PLANET STACK = GAME PATH
-    ↓
-retire remaining old Game planet path
+production transition regression   ✅
+production browser build gate       ✅
+Game runtime wiring                 ✅
+shared Lab/Game camera logic        ✅
+visual Game acceptance              ⏳
+performance characterization        ⏳
+old compatibility removal           ⏳
 ```
 
-Current migration preparation:
+### Runtime wiring
 
-- [x] `SystemPlanetViewRuntime` game-facing adapter created,
-- [x] adapter preserves the small API shape required by Game selection/camera/update code,
-- [x] `PlanetProductionRolloutGate.test.ts` protects normalized view weights and single-depth-owner policy,
-- [x] current Game legacy consumer identified,
-- [ ] first multi-planet/system-view performance sanity pass,
-- [ ] migrate `GamePrototypeScene` storage/factory directly to `SystemPlanetViewRuntime`,
-- [ ] visual Game validation on the modern path,
-- [ ] fix findings in the modern path,
-- [ ] remove the old Game NearSurface consumer and then retire its implementation.
+The existing `GamePrototypeScene` planet constructor contract is routed through:
 
-The Planet LOD lab already exercises the modern view runtime. Validation now focuses on real Game/SystemView conditions and multiple planet instances.
+```text
+GamePrototypeScene
+    ↓
+PlanetRenderingBridge
+    ↓
+SystemPlanetViewRuntime
+    ↓
+PlanetViewRuntime
+    ├─ OrbitView
+    ├─ RegionalView
+    └─ SurfaceView
+```
+
+This avoids a risky mechanical rewrite of the very large `GamePrototypeScene.ts` while changing the actual Game planet surface/view ownership to the modern runtime.
+
+The bridge has no user-facing A/B switch. The old explicit Game `nearSurfaceTerrain: true` constructor signature is treated only as the migration hook and is routed to the modern WebGPU runtime; it is not used to construct the old NearSurface renderer.
+
+### Build gate
+
+CI now hard-validates the real browser bundle:
+
+```text
+bun test packages/conduit-planet/tests
+bun test tests/SimulationClock.test.ts tests/PlanetSeasonCycle.test.ts
+bun ./scripts/build.ts
+```
+
+The first production migration run with this build gate completed successfully.
 
 ---
 
-## 6. Current visual issues
+## 5. Production planet camera contract
 
-Tracked separately in `PLANET_GLOBAL_LIGHTING_ISSUE.md`:
+Detailed contract: `PLANET_GAME_CAMERA_CONTRACT.md`.
 
-- [ ] Tag/Nacht terminator is too hard across planet classes,
+The Lab and Game now use the same production controller implementation:
+
+```text
+PlanetApproachCameraController
+PlanetFreeLookCameraController
+PlanetCameraInteractionController
+```
+
+The old Lab controller files are re-export shims to those shared production classes, so behavior cannot silently drift.
+
+Required Game behavior:
+
+```text
+normal System camera
+    ↓ double-click planet
+existing planet focus
+    ↓
+shared Lab camera behavior
+    ├─ Orbit → Regional → Surface
+    ├─ mouse free-look
+    ├─ wheel radial zoom
+    ├─ WASD tangent flight over the sphere
+    ├─ Q/E altitude
+    └─ Shift faster
+    ↓ ESC or second double-click on same planet
+existing Game camera restore
+    ↓
+exact previously saved System camera
+```
+
+The shared controllers are planet-center-relative, so surface flight works for planets positioned anywhere in SystemView rather than only for a planet at world origin.
+
+On focus exit the Game's existing saved-camera restore remains authoritative; the planet controller releases ownership without overwriting that restored state.
+
+---
+
+## 6. Current visual issue
+
+Tracked in `PLANET_GLOBAL_LIGHTING_ISSUE.md`:
+
+- [ ] Tag/Nacht terminator too hard across planet classes,
 - [ ] add/strengthen twilight transition,
 - [ ] review nightside residual light / atmospheric airlight,
-- [ ] inspect the vertical band/seam artifact independently from the terminator.
+- [ ] inspect vertical band/seam independently from the terminator.
 
-This is a global lighting/atmosphere issue, not a per-class workaround target.
+This is one global lighting/atmosphere problem, not a per-class workaround target.
 
 ---
 
-## 7. Regression and performance follow-up
+## 7. Remaining regression/performance work
 
-### Phase 14 – broader regression suite
+### Phase 14 – broader regression
 
-- [ ] formal Orbit/Regional/Surface height continuity characterization,
-- [ ] Regional/Surface broad material continuity characterization,
+- [ ] formal Orbit/Regional/Surface height-continuity characterization,
+- [ ] final Regional/Surface material-continuity characterization,
 - [ ] all solid classes through descent/ascent,
 - [ ] gas/ice giants,
 - [ ] atmosphere/cloud/ring/moon combinations,
 - [ ] multiple planet instances.
 
-### Phase 15 – performance stabilization
+### Phase 15 – performance
 
 - [ ] formal per-view measurements,
 - [ ] multi-planet SystemView measurements,
-- [ ] hidden legacy `Planet`/CubeSphere construction cost review,
+- [ ] hidden legacy `Planet`/CubeSphere construction-cost review,
 - [ ] memory/draw-call sanity.
 
 ### Phase 16 – adaptive geometry
@@ -284,7 +302,7 @@ This is a global lighting/atmosphere issue, not a per-class workaround target.
 
 ### Phase 17 – WebGL follow-up
 
-- [ ] after the modern WebGPU Game path is stable.
+- [ ] after modern WebGPU Game path is stable.
 
 ---
 
@@ -296,56 +314,53 @@ This is a global lighting/atmosphere issue, not a per-class workaround target.
 - [ ] compose seasonality + cloud persistence into one production weather evaluation,
 - [ ] integrate `ashLoad`,
 - [ ] decide future `cloudPalette` renderer contract,
-- [ ] individual `PlanetMoonDefinition` rendering beyond the current deterministic lightweight MoonSystem.
+- [ ] individual `PlanetMoonDefinition` rendering beyond the current lightweight MoonSystem.
 
 Mass/gravity/density remain valid gameplay/simulation domain truth even when nonvisual.
 
 ---
 
-## 9. CI policy
+## 9. Current next action
 
-Planet CI is pinned to a known Bun version because Bun 1.4.0 previously produced runner segmentation fault `139`.
+**Visual production Game acceptance.**
 
-Always distinguish:
+Test in the real Game:
 
 ```text
-verified successful CI result
-vs
-no failure signal
-vs
-connector statuses: []
+1. enter SystemView
+2. double-click a planet
+3. descend Orbit → Regional → Surface
+4. mouse + WASD + Q/E + Shift + wheel
+5. ESC → previous System camera
+6. repeat and exit with second double-click
+7. switch/focus another planet
+8. observe multi-planet FPS / obvious stalls
 ```
 
-Never claim green unless a successful check/result is actually visible.
+Any defect found here is fixed in the modern runtime. Do not restore the old planet path.
+
+After this acceptance:
+
+```text
+remove obsolete Game NearSurface compatibility
+→ retire old implementation
+→ continue global lighting + performance work
+```
 
 ---
 
-## 10. Current next action
+## 10. CI policy
 
-**Move the real Game forward to the modern planet runtime.**
+Bun remains pinned to `1.3.14`; Bun 1.4.0 previously segfaulted (`139`) in CI.
 
-Priority:
-
-```text
-1. multi-planet performance sanity
-2. wire GamePrototypeScene directly to SystemPlanetViewRuntime
-3. visual Game validation
-4. fix modern-path findings
-5. delete obsolete Game NearSurface usage
-```
-
-No A/B switch. No compatibility detour. No rollback path as a development strategy.
+Never infer success from empty combined statuses. Use the actual workflow run/job result.
 
 ---
 
-## 11. Working rule for future sessions
+## 11. Working rule
 
-1. read this file first,
-2. preserve accepted atmosphere/camera/depth baseline,
-3. make one narrowly scoped migration at a time,
-4. update the relevant audit after meaningful changes,
-5. do not delete domain behavior before migration/reference review,
-6. keep WebGPU first and WebGL follow-up isolated,
-7. distinguish domain truth from render semantics,
-8. prioritize the production Game migration over non-blocking cleanup,
-9. when the modern path exposes a defect, repair the modern path rather than restoring the old one.
+1. preserve accepted camera/atmosphere/depth baseline,
+2. fix modern-path defects forward,
+3. keep domain truth separate from render semantics,
+4. do not let non-blocking legacy cleanup delay production validation,
+5. update this plan after meaningful migration milestones.
