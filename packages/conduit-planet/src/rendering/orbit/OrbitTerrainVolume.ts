@@ -6,7 +6,16 @@ import {
 import { resolveTerrainProfileKind } from '@conduit/planet/rendering';
 import type { PlanetDefinition } from '@conduit/planet/model';
 
-export const ORBIT_TERRAIN_VOLUME_RESOLUTION = 64;
+/**
+ * OrbitView is the immediate-focus representation. Keep its startup LUT small
+ * enough to build synchronously without turning a double-click into a long
+ * main-thread stall. Regional/Surface own the higher-detail representations.
+ *
+ * 32^3 = 32,768 canonical terrain samples.
+ * The previous 64^3 volume required 262,144 samples (8x more) during the first
+ * production focus of a planet.
+ */
+export const ORBIT_TERRAIN_VOLUME_RESOLUTION = 32;
 
 /**
  * OrbitView terrain LUT.
@@ -16,10 +25,9 @@ export const ORBIT_TERRAIN_VOLUME_RESOLUTION = 64;
  * terrain height/masks instead of evaluating FBM/ridged noise per vertex or
  * fragment every frame.
  *
- * A 64^3 volume keeps the OrbitView displacement close to the canonical
- * PlanetTerrainSampler used by RegionalView. This reduces visible terrain
- * reshaping during the Orbit -> Regional handoff while keeping the runtime
- * render path to one texture lookup.
+ * Orbit deliberately uses a moderate startup resolution. Its job is readable
+ * whole-planet shape from distance; RegionalView and SurfaceView take over
+ * higher-detail terrain as the camera approaches.
  *
  * Layout (RGBA16F):
  *   R = raw terrain height
