@@ -7,9 +7,12 @@ on:
     paths:
       - 'packages/conduit-planet/**'
       - 'packages/conduit-web3d/**'
+      - 'src/game/rendering/**'
+      - 'src/game/dev/scenes/planets/**'
       - 'src/game/simulation/**'
       - 'tests/SimulationClock.test.ts'
       - 'tests/PlanetSeasonCycle.test.ts'
+      - 'scripts/build.ts'
       - 'index.html'
       - 'package.json'
       - 'bun.lock'
@@ -19,9 +22,12 @@ on:
     paths:
       - 'packages/conduit-planet/**'
       - 'packages/conduit-web3d/**'
+      - 'src/game/rendering/**'
+      - 'src/game/dev/scenes/planets/**'
       - 'src/game/simulation/**'
       - 'tests/SimulationClock.test.ts'
       - 'tests/PlanetSeasonCycle.test.ts'
+      - 'scripts/build.ts'
       - 'index.html'
       - 'package.json'
       - 'bun.lock'
@@ -37,7 +43,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Test and inspect types
+    name: Test, build and inspect types
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -60,6 +66,9 @@ jobs:
 
       - name: Test simulation time and seasons
         run: bun test tests/SimulationClock.test.ts tests/PlanetSeasonCycle.test.ts
+
+      - name: Build production game bundle
+        run: bun ./scripts/build.ts
 
       # The package currently contains known legacy WebGPU/TSL typing debt and
       # rootDir issues across conduit-web3d. Keep reporting those errors, but do
