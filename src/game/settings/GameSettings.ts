@@ -19,6 +19,7 @@ export type GameSettings = {
 	bloom: boolean;
 	hud: boolean;
 	minimap: boolean;
+	fps: boolean;
 	uiScale: number;
 };
 
@@ -44,6 +45,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
 	bloom: true,
 	hud: true,
 	minimap: true,
+	fps: false,
 	uiScale: 1,
 };
 
@@ -152,6 +154,7 @@ function normalizeSettings(input: Partial<GameSettings>): GameSettings {
 		bloom: input.bloom ?? DEFAULT_GAME_SETTINGS.bloom,
 		hud: input.hud ?? DEFAULT_GAME_SETTINGS.hud,
 		minimap: input.minimap ?? DEFAULT_GAME_SETTINGS.minimap,
+		fps: input.fps ?? DEFAULT_GAME_SETTINGS.fps,
 		uiScale: clampNumber(input.uiScale, 0.8, 1.4, 1),
 	};
 }
