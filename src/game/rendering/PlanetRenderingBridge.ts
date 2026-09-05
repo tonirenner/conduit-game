@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Planet as LegacyPlanet } from '../../../packages/conduit-planet/src/Planet';
 import type { PlanetDefinition } from '../../../packages/conduit-planet/src/model';
+import { getPlanetRadiusMeters } from '../../../packages/conduit-planet/src/near-view/PlanetPhysicalScale';
 import type { PlanetRenderFeatures } from '../../../packages/conduit-planet/src/rendering/PlanetRenderFeatures';
 import type { PlanetRenderProfile } from '../../../packages/conduit-planet/src/rendering/PlanetRenderProfile';
 import type {
@@ -12,6 +13,9 @@ import { SystemPlanetViewRuntime } from './SystemPlanetViewRuntime';
 import { getActiveOrbitControls } from './planet/RegisteredOrbitControls';
 
 export * from '../../../packages/conduit-planet/src/rendering/index';
+
+const ORBIT_ENTRY_ALTITUDE_METERS = 20_000_000;
+const ORBIT_ENTRY_RADIUS_MULTIPLIER = 2.25;
 
 /**
  * Source-compatible Planet type for existing game code.
@@ -140,6 +144,7 @@ class ModernGamePlanetFacade {
 		if (activeModernGamePlanet !== this && matchesExistingPlanetFocus) {
 			activeModernGamePlanet?.modernRuntime?.endCameraInteraction(false);
 			activeModernGamePlanet = this;
+			this.placeCameraAtOrbitEntry(camera, controls);
 			const runtime = this.ensureModernRuntime(camera);
 			runtime.beginCameraInteraction(camera, controls, this.group.position);
 			return;
@@ -157,6 +162,32 @@ class ModernGamePlanetFacade {
 			this.modernRuntime?.endCameraInteraction(false);
 			activeModernGamePlanet = null;
 		}
+	}
+
+	private placeCameraAtOrbitEntry(
+		camera: THREE.PerspectiveCamera,
+		controls: ReturnType<typeof getActiveOrbitControls> extends infer T
+			? Exclude<T, null>
+			: never,
+	): void {
+		// GamePrototypeScene historically focuses at ~2.25 render radii. That is
+		// already close enough to engage the approach controller for many planet
+		// sizes. Production focus should instead begin in a true OrbitView state,
+		// matching the Lab: complete planet first, then intentional descent.
+		const radiusMeters = getPlanetRadiusMeters(this.definition);
+		const desiredAltitudeMeters = Math.max(
+			ORBIT_ENTRY_ALTITUDE_METERS,
+			radiusMeters * ORBIT_ENTRY_RADIUS_MULTIPLIER,
+		);
+		const desiredDistance = this.radius * (1 + desiredAltitudeMeters / radiusMeters);
+		const offset = camera.position.clone().sub(this.group.position);
+		if (offset.lengthSq() < 1e-10) offset.set(0.64, 0.32, 1);
+		offset.normalize().multiplyScalar(desiredDistance);
+		camera.position.copy(this.group.position).add(offset);
+		controls.target.copy(this.group.position);
+		camera.fov = 46;
+		camera.updateProjectionMatrix();
+		controls.update();
 	}
 }
 
