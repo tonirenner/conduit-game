@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { PlanetDefinition } from '@conduit/planet/model';
 import { getPlanetRadiusMeters } from '@conduit/planet/near-view';
-import {
-	type PlanetRendererMode,
-	type PlanetRenderTuning,
-	type PlanetRenderQuality,
-	type PlanetRenderProfile,
-} from '@conduit/planet/rendering';
+import type {
+	PlanetRendererMode,
+	PlanetRenderTuning,
+	PlanetRenderQuality,
+} from '@conduit/planet/Planet';
+import type { PlanetRenderProfile } from '@conduit/planet/rendering/PlanetRenderProfile';
 import { PlanetViewRuntime } from '@conduit/planet/view';
 import { PlanetCameraInteractionController } from './planet/PlanetCameraInteractionController';
 
@@ -65,7 +65,7 @@ export class SystemPlanetViewRuntime {
 		camera: THREE.PerspectiveCamera,
 		controls: OrbitControls,
 	): void {
-		this.endCameraInteraction();
+		this.endCameraInteraction(false);
 		this.focusedCamera = camera;
 		this.cameraInteraction = new PlanetCameraInteractionController(
 			camera,
@@ -76,8 +76,8 @@ export class SystemPlanetViewRuntime {
 		);
 	}
 
-	endCameraInteraction(): void {
-		this.cameraInteraction?.dispose();
+	endCameraInteraction(restoreCameraState = true): void {
+		this.cameraInteraction?.dispose(restoreCameraState);
 		this.cameraInteraction = null;
 		this.focusedCamera = null;
 	}
@@ -111,7 +111,7 @@ export class SystemPlanetViewRuntime {
 	}
 
 	dispose(): void {
-		this.endCameraInteraction();
+		this.endCameraInteraction(false);
 		this.runtime.dispose();
 	}
 }
