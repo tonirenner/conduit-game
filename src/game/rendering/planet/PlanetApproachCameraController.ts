@@ -132,8 +132,12 @@ export class PlanetApproachCameraController {
 		return { ...this.state };
 	}
 
-	dispose(): void {
+	dispose(restoreCameraState = true): void {
 		this.manualViewActive = false;
+		this.anchorDirection = null;
+
+		if (!restoreCameraState) return;
+
 		this.controls.target.copy(this.defaultTarget);
 		this.controls.zoomSpeed = this.defaultZoomSpeed;
 		this.controls.rotateSpeed = this.defaultRotateSpeed;
@@ -143,7 +147,6 @@ export class PlanetApproachCameraController {
 		this.camera.near = this.defaultNear;
 		this.camera.updateProjectionMatrix();
 		this.controls.update();
-		this.anchorDirection = null;
 	}
 
 	private updateTarget(altitudeMeters: number, targetBlend: number, dt: number): void {
