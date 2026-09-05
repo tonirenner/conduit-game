@@ -57,7 +57,6 @@ export class PlanetFreeLookCameraController {
 	private readonly onPointerDown = (event: PointerEvent): void => {
 		if (!this.active || this.exiting || event.button !== 0 || this.pointerId !== null) return;
 		event.preventDefault();
-		event.stopPropagation();
 		this.pointerId = event.pointerId;
 		this.pointerX = event.clientX;
 		this.pointerY = event.clientY;
@@ -67,7 +66,6 @@ export class PlanetFreeLookCameraController {
 	private readonly onPointerMove = (event: PointerEvent): void => {
 		if (!this.active || this.exiting || event.pointerId !== this.pointerId) return;
 		event.preventDefault();
-		event.stopPropagation();
 
 		const deltaX = event.clientX - this.pointerX;
 		const deltaY = event.clientY - this.pointerY;
@@ -79,15 +77,12 @@ export class PlanetFreeLookCameraController {
 
 	private readonly onPointerUp = (event: PointerEvent): void => {
 		if (event.pointerId !== this.pointerId) return;
-		event.preventDefault();
-		event.stopPropagation();
 		this.releasePointer();
 	};
 
 	private readonly onWheel = (event: WheelEvent): void => {
 		if (!this.active || this.exiting) return;
 		event.preventDefault();
-		event.stopPropagation();
 		this.applyRadialZoom(event.deltaY);
 	};
 
@@ -165,7 +160,7 @@ export class PlanetFreeLookCameraController {
 		return this.active;
 	}
 
-	dispose(): void {
+	dispose(restoreControls = true): void {
 		const element = this.controls.domElement;
 		element.removeEventListener('pointerdown', this.onPointerDown, true);
 		element.removeEventListener('pointermove', this.onPointerMove, true);
@@ -181,6 +176,9 @@ export class PlanetFreeLookCameraController {
 		this.active = false;
 		this.pitch = 0;
 		this.approachController.setManualViewActive(false);
+
+		if (!restoreControls) return;
+
 		this.controls.enabled = this.defaultControlsEnabled;
 		this.controls.enableDamping = this.defaultEnableDamping;
 	}
