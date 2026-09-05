@@ -19,7 +19,8 @@ PlanetTerrainSampler + Climate / Biome / Weather
     ↓
 OrbitView    → InstancedOrbitTerrain
 RegionalView → CurvedRegionalTileTerrain
-SurfaceView  → SurfaceClipmapTerrain
+SurfaceView  → current: SurfaceClipmapTerrain
+               target: adaptive CPU patch tessellation + workers
 ```
 
 Ownership:
@@ -52,7 +53,8 @@ Do not create competing terrain, climate, composition or definition models insid
 - [x] camera/reference-frame continuity,
 - [x] checker/depth artifact repaired,
 - [x] horizon-aware Regional release,
-- [ ] final detail/shading continuity still needs formal visual acceptance.
+- [ ] final detail/shading continuity still needs formal visual acceptance,
+- [ ] current 11-ring clipmap must be treated as a performance risk until measured against the new patch target.
 
 Hard transition rule:
 
@@ -159,7 +161,7 @@ Not production blockers:
 - hidden/classic CubeSphere ownership,
 - obsolete public compatibility exports/flags.
 
-Clean these after the modern Game path is visually accepted.
+Clean these after the modern Game path is visually accepted and the new Surface path has replaced the clipmap safely.
 
 ---
 
@@ -185,8 +187,10 @@ production transition regression   ✅
 production browser build gate       ✅
 Game runtime wiring                 ✅
 shared Lab/Game camera logic        ✅
-visual Game acceptance              ⏳
-performance characterization        ⏳
+visual Game path works              ✅
+load performance acceptable         ❌
+surface runtime performance         ❌
+new tessellation target             ⏳
 old compatibility removal           ⏳
 ```
 
@@ -213,7 +217,7 @@ The bridge has no user-facing A/B switch. The old explicit Game `nearSurfaceTerr
 
 ### Build gate
 
-CI now hard-validates the real browser bundle:
+CI hard-validates the real browser bundle:
 
 ```text
 bun test packages/conduit-planet/tests
@@ -221,15 +225,13 @@ bun test tests/SimulationClock.test.ts tests/PlanetSeasonCycle.test.ts
 bun ./scripts/build.ts
 ```
 
-The first production migration run with this build gate completed successfully.
-
 ---
 
 ## 5. Production planet camera contract
 
 Detailed contract: `PLANET_GAME_CAMERA_CONTRACT.md`.
 
-The Lab and Game now use the same production controller implementation:
+The Lab and Game use the same production controller implementation:
 
 ```text
 PlanetApproachCameraController
@@ -274,13 +276,129 @@ Tracked in `PLANET_GLOBAL_LIGHTING_ISSUE.md`:
 - [ ] review nightside residual light / atmospheric airlight,
 - [ ] inspect vertical band/seam independently from the terminator.
 
-This is one global lighting/atmosphere problem, not a per-class workaround target.
+This remains one global lighting/atmosphere problem, not a per-class workaround target.
+
+**Priority note:** visual lighting work is temporarily behind the current performance/tessellation program. Do not let it interrupt the loading or Surface architecture work unless it blocks validation.
 
 ---
 
-## 7. Remaining regression/performance work
+## 7. New immediate priority – loading, tessellation, runtime performance
 
-### Phase 14 – broader regression
+### Priority A – staged planet loading
+
+**Problem observed in production:**
+
+- SystemView loading improved after moving to lazy full runtime creation,
+- first planet focus still stalls because the modern runtime initializes too much synchronously,
+- entering deep Surface can produce multi-second frame times.
+
+**Target behavior:**
+
+```text
+double-click planet
+    ↓
+Orbit visible immediately
+    ↓
+Regional prepared incrementally
+    ↓
+Surface prepared only near its preload band
+```
+
+Required work:
+
+- [ ] split `PlanetViewRuntime` initialization into stages,
+- [ ] keep Orbit cheap and immediately available,
+- [ ] defer Regional construction until relevant,
+- [ ] defer Surface construction until near Surface preload distance,
+- [ ] move heavy geometry generation off the main thread where practical,
+- [ ] cache prepared resources instead of rebuilding on every focus,
+- [ ] record first-focus, first-Regional and first-Surface stall times.
+
+### Priority B – replace fixed Surface clipmap with adaptive CPU tessellation
+
+**Current Surface topology is no longer the target architecture.**
+
+Current implementation:
+
+```text
+SurfaceClipmapTerrain
+11 fixed rings
+24 cells per grid edge
+camera-relative clipmap
+```
+
+This remains the migration baseline only until the replacement proves correct.
+
+Target architecture:
+
+```text
+camera / surface anchor
+    ↓
+visible curved surface region
+    ↓
+CPU patch-LOD selection
+    ↓
+Worker pool generates / updates patch geometry
+    ↓
+cache + recycle vertex/index buffers
+    ↓
+main thread installs only completed patches
+    ↓
+GPU handles material / lighting / atmosphere
+```
+
+Design rules:
+
+- CPU owns topology and LOD decisions,
+- workers perform heavy tessellation/sampling work,
+- GPU remains responsible for shading, not mesh generation,
+- only visible/relevant patches exist at high detail,
+- unchanged patches are reused,
+- camera movement must not trigger full terrain rebuilds,
+- patch borders must preserve crack-free continuity,
+- canonical `PlanetTerrainSampler` remains terrain truth,
+- Regional/Surface material semantics remain shared,
+- protected single-depth-owner handoff remains unchanged.
+
+Migration rule:
+
+```text
+build new patch path
+→ validate continuity + performance
+→ make it the SurfaceView owner
+→ remove SurfaceClipmapTerrain
+```
+
+Do not delete the clipmap before the new patch path is proven.
+
+### Priority C – formal performance characterization
+
+Measure before aggressive tuning.
+
+Required metrics:
+
+- [ ] total CPU frame time,
+- [ ] GPU frame time where available,
+- [ ] terrain geometry build time,
+- [ ] `PlanetTerrainSampler` cost,
+- [ ] active patch/ring count,
+- [ ] vertex/index count,
+- [ ] draw calls,
+- [ ] material/shader cost,
+- [ ] atmosphere cost,
+- [ ] clouds cost,
+- [ ] GTAO/SSR/Bloom cost,
+- [ ] first-focus initialization time,
+- [ ] first-Surface initialization time,
+- [ ] memory growth while moving over the surface.
+
+Performance acceptance is based on measured frame time, not only visual smoothness.
+
+---
+
+## 8. Regression program
+
+### Broad regression
 
 - [ ] formal Orbit/Regional/Surface height-continuity characterization,
 - [ ] final Regional/Surface material-continuity characterization,
@@ -289,24 +407,23 @@ This is one global lighting/atmosphere problem, not a per-class workaround targe
 - [ ] atmosphere/cloud/ring/moon combinations,
 - [ ] multiple planet instances.
 
-### Phase 15 – performance
+### Surface replacement regression
 
-- [ ] formal per-view measurements,
-- [ ] multi-planet SystemView measurements,
-- [ ] hidden legacy `Planet`/CubeSphere construction-cost review,
-- [ ] memory/draw-call sanity.
+- [ ] crack-free patch borders,
+- [ ] no topology popping that exposes holes,
+- [ ] stable local horizon while moving,
+- [ ] identical canonical terrain samples across Regional/new Surface,
+- [ ] correct depth ownership through handoff,
+- [ ] deterministic patch generation for the same seed/location/LOD,
+- [ ] worker cancellation when patches become irrelevant.
 
-### Phase 16 – adaptive geometry
+### WebGL follow-up
 
-- [ ] only after stabilization.
-
-### Phase 17 – WebGL follow-up
-
-- [ ] after modern WebGPU Game path is stable.
+- [ ] only after the modern WebGPU Game path and new Surface architecture are stable.
 
 ---
 
-## 8. Known definition/runtime follow-ups
+## 9. Known definition/runtime follow-ups
 
 - [ ] `physical.rotationSpeed` as canonical rotation driver,
 - [ ] `physical.axialTilt` in seasonal forcing,
@@ -320,36 +437,29 @@ Mass/gravity/density remain valid gameplay/simulation domain truth even when non
 
 ---
 
-## 9. Current next action
+## 10. Current next action
 
-**Visual production Game acceptance.**
+**Performance-first program.**
 
-Test in the real Game:
-
-```text
-1. enter SystemView
-2. double-click a planet
-3. descend Orbit → Regional → Surface
-4. mouse + WASD + Q/E + Shift + wheel
-5. ESC → previous System camera
-6. repeat and exit with second double-click
-7. switch/focus another planet
-8. observe multi-planet FPS / obvious stalls
-```
-
-Any defect found here is fixed in the modern runtime. Do not restore the old planet path.
-
-After this acceptance:
+Order:
 
 ```text
-remove obsolete Game NearSurface compatibility
-→ retire old implementation
-→ continue global lighting + performance work
+1. instrument staged loading / Surface frame cost
+2. reduce synchronous focus initialization
+3. design adaptive CPU patch tessellation contract
+4. implement worker-backed patch generation
+5. integrate patch SurfaceView beside the clipmap baseline
+6. validate continuity + depth ownership
+7. switch SurfaceView to patch path
+8. remove SurfaceClipmapTerrain
+9. return to global lighting / terminator cleanup
 ```
+
+Any defect found in this work is fixed in the modern runtime. Do not restore the old planet path.
 
 ---
 
-## 10. CI policy
+## 11. CI policy
 
 Bun remains pinned to `1.3.14`; Bun 1.4.0 previously segfaulted (`139`) in CI.
 
@@ -357,10 +467,12 @@ Never infer success from empty combined statuses. Use the actual workflow run/jo
 
 ---
 
-## 11. Working rule
+## 12. Working rule
 
 1. preserve accepted camera/atmosphere/depth baseline,
 2. fix modern-path defects forward,
-3. keep domain truth separate from render semantics,
-4. do not let non-blocking legacy cleanup delay production validation,
-5. update this plan after meaningful migration milestones.
+3. make loading and Surface performance the current top priority,
+4. keep canonical domain truth independent from tessellation strategy,
+5. do not let non-blocking visual polish or legacy cleanup delay the performance program,
+6. replace fixed clipmap Surface with worker-backed adaptive patches only after measured validation,
+7. update this plan after meaningful migration milestones.
